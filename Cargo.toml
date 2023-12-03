@@ -1,0 +1,11 @@
+[package]
+name = "ihor"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = { version = "0.8.5", features = [ "small_rng" ] }
+rand_distr = "0.4.0"
+phf = { version = "0.10", features = ["macros"] }
