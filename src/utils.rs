@@ -99,8 +99,6 @@ impl DiscreteDistribution {
 }
 
 
-
-
 // Narkov chain structure (for the insertion process)
 struct MarkovDNA {
     initial_distribution: DiscreteDistribution, // first nucleotide, ACGT order
