@@ -31,13 +31,14 @@ const NUCLEOTIDES: [u8; 4] = [b'A', b'C', b'G', b'T'];
 
 
 
-
+#[derive(Default, Clone, Debug)]
 pub struct Dna{
-    seq: Vec<u8>,
+    pub seq: Vec<u8>,
 }
 
+#[derive(Default, Clone, Debug)]
 pub struct AminoAcid{
-    seq: Vec<u8>,
+    pub seq: Vec<u8>,
 }
 
 
@@ -76,6 +77,14 @@ impl AminoAcid{
     }
 }
 
+
+// Define some storage wrapper for the V/D/J genes
+#[derive(Default, Clone, Debug)]
+pub struct Gene {
+    pub name: String,
+    pub seq: Dna,
+    pub functional: String,
+}
 
 
 // Define the random distributions used in the rest of the code.
