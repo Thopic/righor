@@ -7,93 +7,80 @@ use std::path::Path;
 use std::str::FromStr;
 use crate::utils::{Gene, Dna};
 use std::collections::HashMap;
-
+use csv::Reader;
 
 
 #[derive(Default, Clone, Debug)]
 pub struct ParserMarginals {
-    marginals: Vec<Marginal>,
+    pub marginals: HashMap<String, Marginal>,
 }
 
 #[derive(Default, Clone, Debug)]
-struct Marginal {
-    name: String,
-    dimensions: Vec<usize>, // list of the dimensions
-    dependences: Vec<String>, // list of the other variables that Marginal depends on
-    probabilities: ArrayD<f64>, // Array that contains all the probabilities of interest
+pub struct Marginal {
+    pub dimensions: Vec<usize>, // list of the dimensions
+    pub dependences: Vec<String>, // list of the other variables that Marginal depends on
+    pub probabilities: ArrayD<f64>, // Array that contains all the probabilities of interest
 }
-
 
 
 // an event is either a gene or a # of insertion/deletion
 #[derive(Clone, Debug)]
-enum Event {
-    Default,
-    Gene(Gene),
-    Number(i64)
+pub enum EventType {
+    Genes(Vec<Gene>),
+    Numbers(Vec<i64>)
 }
 
-impl Default for Event {
-    fn default() -> Self {
-        Event::Default
-    }
-}
+
 
 #[derive(Default, Clone, Debug)]
 pub struct ParserParams {
-    params: HashMap<String, Vec<Event>>,
-    error_rate: f64
+    pub params: HashMap<String, EventType>,
+    pub error_rate: f64
 }
 
 
-
-
-
-
-
-
 impl Marginal {
-    pub fn parse(&mut self, str_data: &Vec<String>) -> Result<(), String> {
+    pub fn parse(str_data: &Vec<String>) -> Result<(String, Marginal), String> {
         if str_data.len() < 2 {
             return Err("Invalid file format.".to_string());
         }
-
-        self.name = str_data[0].trim_start_matches('@').to_string();
-        self.dimensions = parse_dim(&str_data[1])?;
-        self.dependences = Vec::new();
+	let key = str_data[0].trim_start_matches('@').to_string();
+	let mut marg: Marginal = Default::default();
+        marg.dimensions = parse_dim(&str_data[1])?;
+        marg.dependences = Vec::new();
 	// remove the last dimension
-        let product = self.dimensions.iter().take(self.dimensions.len() - 1).product();
-        self.probabilities = ArrayD::zeros(IxDyn(&self.dimensions));
+        let product = marg.dimensions.iter().take(marg.dimensions.len() - 1).product();
+        marg.probabilities = ArrayD::zeros(IxDyn(&marg.dimensions));
 
         for ii in 0..product {
             let dependences_line = str_data.get(2 * ii + 2)
-                .ok_or(format!("Invalid file format for the marginal {}", self.name))?;
+                .ok_or(format!("Invalid file format for the marginal {}", key))?;
             let (dependences, indexes) = parse_dependence(dependences_line)?;
-            match self.dependences.len() {
-                0 => self.dependences = dependences,
-		_ => if self.dependences != dependences {
-		    return Err(format!("Invalid file format for the marginal {}", self.name));
+            match marg.dependences.len() {
+                0 => marg.dependences = dependences,
+		_ => if marg.dependences != dependences {
+		    return Err(format!("Invalid file format for the marginal {}", key));
 		}
             }
 
             let values_line = str_data.get(2 * ii + 3)
-                .ok_or(format!("Invalid file format for the marginal {}", self.name))?;
+                .ok_or(format!("Invalid file format for the marginal {}", key))?;
             let values = parse_values(values_line)?;
 
             for (idx, val) in values.iter().enumerate() {
                 let mut idxs = indexes.clone();
                 idxs.push(idx);
-                self.probabilities[IxDyn(&idxs)] = *val;
+                marg.probabilities[IxDyn(&idxs)] = *val;
             }
         }
 
-        Ok(())
+        Ok((key, marg))
     }
 }
 
 
-fn parse_genes(str_data: &Vec<String>) -> Result<Vec<Event>, String> {
-    let mut events:Vec<Event> = vec![Default::default(); str_data.len()];
+fn parse_genes(str_data: &Vec<String>) -> Result<EventType, String> {
+    let mut events:Vec<Gene> = vec![Default::default(); str_data.len()];
     for line in str_data{
 	let data: Vec<String> = line.split(';').map(|s| s.to_string()).collect();
 	if data.len() != 3 {
@@ -102,18 +89,19 @@ fn parse_genes(str_data: &Vec<String>) -> Result<Vec<Event>, String> {
 	else{
 	    let gene = Gene {
 		name: data[0].split('|').nth(1).ok_or("Wrong format for gene name")?.to_string(),
-		functional: data[0].split('|').nth(3).ok_or("Wrong format for gene name")?.to_string(),
-		seq: Dna::from_string(&data[1])
+		functional: "".to_string(), // not available from this file
+		seq: Dna::from_string(&data[1]),
+		cdr3_pos: Some(0) // not available from this file
 		};
 	    let index = usize::from_str(&data[2]).map_err(|e| e.to_string())?;
-	    events[index] = Event::Gene(gene);
+	    events[index] = gene;
 	}
     }
-    Ok(events)
+    Ok(EventType::Genes(events))
 }
 
-fn parse_numbers(str_data: &Vec<String>) -> Result<Vec<Event>, String> {
-    let mut events:Vec<Event> = vec![Default::default(); str_data.len()];
+fn parse_numbers(str_data: &Vec<String>) -> Result<EventType, String> {
+    let mut events:Vec<i64> = vec![0; str_data.len()];
     for line in str_data{
 	let data: Vec<String> = line.split(';').map(|s| s.to_string()).collect();
 	    if data.len() != 2 {
@@ -122,29 +110,69 @@ fn parse_numbers(str_data: &Vec<String>) -> Result<Vec<Event>, String> {
 	else {
 	    let value = i64::from_str(&data[0][1..]).map_err(|e| e.to_string())?;
 	    let index = usize::from_str(&data[1]).map_err(|e| e.to_string())?;
-	    events[index] = Event::Number(value);
+	    events[index] = value;
 	}
     }
-    Ok(events)
+    Ok(EventType::Numbers(events))
 }
 
 
 
 impl ParserParams {
-    pub fn parse(&mut self, filename: &Path) -> Result<(), String>{
+    pub fn parse(filename: &Path) -> Result<ParserParams, String>{
+	let mut pp: ParserParams = Default::default();
 	let sections = parse_file(filename)?;
 	for s in sections {
 	    match s.first() {
 		Some(string) => match string.as_str() {
-		    "@Event_list" => self.parse_event_list(&s),
+		    "@Event_list" => pp.parse_event_list(&s),
 		    "@Edges" => {Ok(())},
-		    "@ErrorRate" => self.parse_error_rate(&s),
+		    "@ErrorRate" => pp.parse_error_rate(&s),
 		    _ => Err(format!("Invalid format: wrong key {}", string)),
 		}
 		None => Err("Invalid format: empty vector".to_string()),
 	    }?;
 	}
+	Ok(pp)
+    }
+
+    pub fn add_anchors_gene(&mut self, filename: &Path, gene_choice: &str) -> Result<(), String>{
+	let mut rdr = Reader::from_path(filename)
+	    .map_err(|e|
+		     format!("Error reading the anchor file {}",
+			     filename.display()))?;
+	let mut anchors =  HashMap::<String, usize>::new();
+	let mut functions =  HashMap::<String, String>::new();
+	let headers = rdr.headers()
+	    .map_err(|e| format!("Error reading the anchor file headers {}",
+				 filename.display()))?;
+	// TODO: check that the headers are right
+	for result in rdr.records() {
+	    let record = result
+		.map_err(|e| format!("Error reading the anchor file headers {}",
+				     filename.display()))?;
+	    let gene_name = record.get(0).unwrap();
+	    anchors.insert(
+		gene_name.to_string(),
+		usize::from_str(record
+				.get(1)
+				.unwrap())
+				.map_err(|e| format!("Error reading the anchor file headers {}",
+				     filename.display()))?
+	    );
+	    functions.insert(gene_name.to_string(),
+			     record.get(2).unwrap().to_string());
+	}
+
+	if let Some(EventType::Genes(v)) = self.params.get_mut(gene_choice) {
+	    v.iter_mut().for_each(|g| {g.cdr3_pos = Some(anchors[&g.name]);
+				       g.functional = functions[&g.name].clone()});
+	}
+	else{
+	    return Err("Wrong value for gene_choice (add_anchors_gene)".to_string());
+	}
 	Ok(())
+
     }
 
     fn parse_event(&mut self, str_data: &Vec<String>) -> Result<(), String>{
@@ -208,17 +236,19 @@ impl ParserParams {
 
 
 impl ParserMarginals {
-    pub fn parse(&mut self, filename: &Path) -> Result<(), String>{
+    pub fn parse(filename: &Path) -> Result<ParserMarginals, String>{
+	let mut pm:ParserMarginals = Default::default();
 	let sections = parse_file(filename)?;
 	for s in sections {
-	    let mut m: Marginal = Default::default();
 	    match s.first() {
-		Some(_) =>  m.parse(&s),
-		None => Err("Invalid format: empty vector".to_string())
+		Some(_) =>  {
+		    let (key, marg) = Marginal::parse(&s)?;
+		    pm.marginals.insert(key, marg);
+		}
+		None => return Err("Invalid format: empty vector".to_string())
 	    };
-	    self.marginals.push(m);
 	}
-	Ok(())
+	Ok(pm)
     }
 
 }

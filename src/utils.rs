@@ -28,7 +28,9 @@ static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
 // The standard ACGT nucleotides
 const NUCLEOTIDES: [u8; 4] = [b'A', b'C', b'G', b'T'];
 
-
+static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
+    b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G'
+};
 
 
 #[derive(Default, Clone, Debug)]
@@ -66,6 +68,17 @@ impl Dna{
             .collect();
         Ok(AminoAcid{seq:amino_sequence})
     }
+    pub fn reverse_complement(&self) -> Dna {
+	Dna{seq: self.seq.iter().filter_map(|x| COMPLEMENT.get(x).copied()).rev().collect()}
+    }
+
+    pub fn extract_subsequence(&self, start: usize, end:usize) -> Dna{
+	Dna{seq: self.seq[start..end].to_vec()}
+    }
+
+    pub fn len(&self) -> usize {
+	self.seq.len()
+    }
 }
 
 impl AminoAcid{
@@ -84,6 +97,7 @@ pub struct Gene {
     pub name: String,
     pub seq: Dna,
     pub functional: String,
+    pub cdr3_pos: Option<usize> // start (for V gene) or end (for J gene) of CDR3
 }
 
 
