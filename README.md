@@ -2,8 +2,8 @@
 
 Fast generation:
 ```{py}
-// Create generation model (one only)
-gen = ihor.GeneratorVDJ(
+// Create generation model (once only)
+gen = ihor.GeneratorVDJ( // ihor.GeneratorVJ
 "models/human_T_beta/model_params.txt",
 "models/human_T_beta/model_marginals.txt",
 "models/human_T_beta/V_gene_CDR3_anchors.csv",
