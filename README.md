@@ -1,5 +1,21 @@
 # IHOR
 
+Install rust (potentially slow):
+--------------------------------
+
+``` sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Install the library:
+--------------------
+
+In the git folder:
+``` sh
+pip install maturin
+maturin develop --release
+```
+
 Fast generation:
 ```py
 # Create generation model (once only)
