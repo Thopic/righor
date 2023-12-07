@@ -1,12 +1,10 @@
 use phf::phf_map;
 use rand::Rng;
-use rand::distributions::Distribution;
+use rand::distributions::{Distribution, Uniform};
 use rand_distr::WeightedAliasIndex;
-
-// maximal distance between sequences, used as a default return value
-// when the distances are above the threshold.
-const MAX_DISTANE: usize = 10000;
-
+use ndarray_linalg::{Eig};
+use ndarray::{Array2, Axis};
+use std::error::Error;
 
 
 // Define DNA and AminoAcid structure + basic operations on the sequences
@@ -46,6 +44,10 @@ pub struct AminoAcid{
 
 impl Dna{
 
+    pub fn new() -> Dna {
+	Dna{seq:Vec::new()}
+    }
+
     pub fn from_string(s: &str) -> Dna {
 	return Dna{seq: s.as_bytes().to_vec()};
     }
@@ -79,6 +81,15 @@ impl Dna{
     pub fn len(&self) -> usize {
 	self.seq.len()
     }
+
+    pub fn extend(&mut self, dna: &Dna) {
+	self.seq.extend(dna.seq.iter());
+    }
+
+    pub fn reverse(&mut self) {
+	self.seq.reverse();
+    }
+
 }
 
 impl AminoAcid{
@@ -105,15 +116,25 @@ pub struct Gene {
 
 
 // Generate an integer with a given probability
-struct DiscreteDistribution {
+#[derive(Clone, Debug)]
+pub struct DiscreteDistribution {
     distribution: WeightedAliasIndex<f64>,
 }
 
 
 impl DiscreteDistribution {
-    pub fn new(weights: Vec<f64>) -> Result<Self, rand_distr::WeightedError> {
-        let distribution = WeightedAliasIndex::new(weights)?;
-        Ok(DiscreteDistribution { distribution })
+    pub fn new(weights: Vec<f64>) -> Result<Self, Box<dyn Error>> {
+	if !weights.iter().all(|&x| x >= 0.) {
+	    return Err("Error when creating distribution: negative weights")?;
+	}
+
+	let distribution = match weights.iter().sum::<f64>().abs() < 1e-10 {
+	    true => WeightedAliasIndex::new(vec![1.; weights.len()]) // when all the value are 0, all the values are equiprobable.
+		.map_err(|e| format!("Error when creating distribution: {}", e))?,
+	    false => WeightedAliasIndex::new(weights)
+		.map_err(|e| format!("Error when creating distribution: {}", e))?
+	};
+        Ok(DiscreteDistribution { distribution:distribution })
     }
 
     pub fn generate<R: Rng>(&mut self, rng: &mut R) -> usize {
@@ -122,21 +143,36 @@ impl DiscreteDistribution {
 }
 
 
-// Narkov chain structure (for the insertion process)
-struct MarkovDNA {
+impl Default for DiscreteDistribution {
+    fn default() -> Self {
+        return DiscreteDistribution {
+	    distribution: WeightedAliasIndex::new(vec![1.]).unwrap()
+	};
+    }
+}
+
+
+// Markov chain structure (for the insertion process)
+#[derive(Default, Clone, Debug)]
+pub struct MarkovDNA {
     initial_distribution: DiscreteDistribution, // first nucleotide, ACGT order
     transition_matrix: Vec<DiscreteDistribution>, // Markov matrix, ACGT order
 }
 
 
-impl MarkovDNA {
-    pub fn new(initial_probs: Vec<f64>, transition_probs: Vec<Vec<f64>>) -> Result<Self, rand_distr::WeightedError> {
-        let initial_distribution = DiscreteDistribution::new(initial_probs)?;
-        let mut transition_matrix = Vec::with_capacity(transition_probs.len());
-        for probs in transition_probs {
-            transition_matrix.push(DiscreteDistribution::new(probs)?);
-        }
 
+impl MarkovDNA {
+
+    pub fn new(transition_probs: Array2<f64>, initial_probs: Option<Vec<f64>>) -> Result<Self, Box<dyn Error>> {
+
+        let mut transition_matrix = Vec::with_capacity(transition_probs.dim().0);
+        for probs in transition_probs.axis_iter(Axis(0)) {
+            transition_matrix.push(DiscreteDistribution::new(probs.to_vec())?);
+        }
+	let initial_distribution = match initial_probs {
+	    None => DiscreteDistribution::new(calc_steady_state_dist(&transition_probs)?)?,
+	    Some(dist) => DiscreteDistribution::new(dist)?,
+	};
         Ok(MarkovDNA {
             initial_distribution,
             transition_matrix,
@@ -159,5 +195,30 @@ impl MarkovDNA {
             dna.seq.push(NUCLEOTIDES[current_state]);
         }
         dna
+    }
+}
+
+pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64>, Box<dyn Error>> {
+    let (eig, eigv) = transition_matrix.eig().map_err(|_| "Eigen decomposition failed")?;
+    for i in 0..4 {
+	if (eig[i].re - 1.).abs() < 1e-6 {
+	    let col = eigv.column(i);
+	    let sum: f64 = col.mapv(|x| x.re).sum();
+	    return Ok(col.mapv(|x| x.re / sum).to_vec());
+	}
+    }
+    Err("No suitable eigenvector found")?
+}
+
+
+
+pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
+    let uniform = Uniform::new(0.0, 1.0);
+    let random_nucleotide = Uniform::new_inclusive(0, 3);
+
+    for nucleotide in dna.seq.iter_mut() {
+        if uniform.sample(rng) < error_rate {
+            *nucleotide = NUCLEOTIDES[random_nucleotide.sample(rng)];
+        }
     }
 }
