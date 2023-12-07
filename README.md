@@ -1,7 +1,7 @@
 # IHOR
 
-
-```
+Fast generation:
+```{py}
 // Create generation model (one only)
 gen = ihor.GeneratorVDJ(
 "models/human_T_beta/model_params.txt",
