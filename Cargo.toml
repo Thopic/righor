@@ -24,3 +24,4 @@ enum_dispatch = "0.3"
 pyo3 = {version = "0.20.0", features = ["extension-module"]}
 ndarray-linalg = {version = "0.14", features = ["openblas"]}
 duplicate = {version = "1.0.0"}
+bio = "1.5"

@@ -5,6 +5,7 @@ use rand_distr::WeightedAliasIndex;
 use ndarray_linalg::{Eig};
 use ndarray::{Array2, Axis};
 use std::error::Error;
+use bio::alignment::{pairwise, Alignment};
 
 
 // Define DNA and AminoAcid structure + basic operations on the sequences
@@ -29,6 +30,9 @@ const NUCLEOTIDES: [u8; 4] = [b'A', b'C', b'G', b'T'];
 static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
     b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G'
 };
+
+
+
 
 
 #[derive(Default, Clone, Debug)]
@@ -89,6 +93,34 @@ impl Dna{
     pub fn reverse(&mut self) {
 	self.seq.reverse();
     }
+
+
+    // TODO: make a struct with the alignments parameters
+    pub fn align_left_right(sleft: &Dna, sright: &Dna) -> Alignment {
+	// Align two sequences with this format
+	// ACATCCCACCATTCA
+	//         CCATGACTCATGAC
+
+	// these parameters are a bit ad hoc
+	let scoring = pairwise::Scoring {
+	    gap_open: -30,
+	    gap_extend: -2,
+	    match_fn: |a: u8, b: u8| if a == b {6i32} else {-6i32}, // TODO: deal better with possible IUPAC codes
+	    match_scores: None,
+	    xclip_prefix: 0,
+	    xclip_suffix: pairwise::MIN_SCORE,
+	    yclip_prefix: pairwise::MIN_SCORE,
+	    yclip_suffix: 0,
+	};
+
+	let mut aligner = pairwise::Aligner::with_capacity_and_scoring(sleft.len(),
+							     sright.len(),
+							     scoring);
+
+	aligner.custom(sleft.seq.as_slice(), sright.seq.as_slice())
+    }
+
+
 
 }
 
