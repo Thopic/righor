@@ -16,6 +16,9 @@ pip install maturin
 maturin develop --release
 ```
 
+How to use:
+-----------
+
 Fast generation:
 ```py
 # Create generation model (once only)
@@ -31,3 +34,11 @@ print(f"Full sequence: {result.full_seq}")
 print(f"V gene: {result.v_name}, J gene: {result.j_name}")
 print(f"CDR3: {result.cdr3_nt} {result.cdr3_aa}")
 ```
+
+
+Inference:
+----------
+
+Limitations:
+- Need to get rid of any primers/ends on the V gene side.
+- The reads need to be long enough to fully cover the CDR3 (even when it's particularly long)
