@@ -3,7 +3,6 @@
 use crate::model::ModelVDJ;
 use crate::utils::Gene;
 use crate::utils_sequences::{differences, AlignmentParameters, Dna};
-use std::fmt;
 
 #[derive(Default, Clone, Debug)]
 pub struct VJAlignment {

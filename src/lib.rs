@@ -1,7 +1,11 @@
+#![allow(unused_imports)] //TODO REMOVE
+#![allow(dead_code)]
+
 mod model;
 mod parser;
 mod sequence;
 mod utils;
+
 mod utils_sequences;
 use model::{ModelVDJ, ModelVJ};
 use pyo3::prelude::*;

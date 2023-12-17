@@ -1,10 +1,16 @@
 // A sequence is a collection of feature, each feature has some probability
 // When we iterate on the model we update the probability of each feature
 
+use crate::model::ModelVDJ;
 use crate::sequence::SequenceVDJ;
+use crate::utils::{likelihood_markov, update_markov_probas, Normalize};
+use crate::utils_sequences::Dna;
+use ndarray::{Array1, Array2, Array3, Axis};
+use std::error::Error;
 
 pub struct InferenceParams {
     min_likelihood: f64,
+    nb_rounds_em: usize,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -22,41 +28,51 @@ pub struct FeaturesVDJ {
     markov_coefficients_dj: Array2<f64>,
 }
 
+#[derive(Default, Clone, Debug)]
 pub struct MarginalsVDJ {
     // the marginals used during the inference
-    marginals: CategoricalFeaturesVDJ,
+    marginals: FeaturesVDJ,
 
     // this variable store the evolving marginals as they
     // are iterated upon (in particular it's not expected to
     // be normalized)
-    dirty_marginals: CategoricalFeaturesVDJ,
+    dirty_marginals: FeaturesVDJ,
 }
 
 impl FeaturesVDJ {
-    fn normalize(&mut self) -> Result<(), Box<dyn Error>> {
+    fn normalize(&mut self) -> Result<FeaturesVDJ, Box<dyn Error>> {
         // Normalize the arrays
         // Because of the way the original code is set up
         // some distributions are identically 0 (p(delv|v=v1) if
         // v1 has probability 0 for example)
         // We modify these probability to make them uniform
         // (and avoid issues like log(0))
-        FeaturesVDJ {
-            v: v.normalize_distribution()?,
-            dj: dj.normalize_distribution(Axis(0))?,
-            dj: dj.normalize_distribution(Axis(1))?,
-            delv: delv.normalize_distribution(Axis(0))?,
-            delj: delj.normalize_distribution(Axis(0))?,
-            deld: deld.normalize_distribution(Axis(0))?,
-            deld: deld.normalize_distribution(Axis(1))?,
-            first_nt_bias_vd: first_nt_bias_vd.normalize_distribution()?,
-            first_nt_bias_dj: first_nt_bias_dj.normalize_distribution()?,
-            markov_coefficient_vd: markov_coefficients_vd.normalize_distribution(Axis(1))?,
-            markov_coefficient_dj: markov_coefficients_dj.normalize_distribution(Axis(1))?,
-        }
+        Ok(FeaturesVDJ {
+            v: self.v.normalize_distribution(None)?,
+            dj: self
+                .dj
+                .normalize_distribution(Some(Axis(0)))?
+                .normalize_distribution(Some(Axis(1)))?,
+            delv: self.delv.normalize_distribution(Some(Axis(0)))?,
+            delj: self.delj.normalize_distribution(Some(Axis(0)))?,
+            deld: self
+                .deld
+                .normalize_distribution(Some(Axis(0)))?
+                .normalize_distribution(Some(Axis(1)))?,
+            insvd: self.insvd.normalize_distribution(None)?,
+            insdj: self.insdj.normalize_distribution(None)?,
+            first_nt_bias_vd: self.first_nt_bias_vd.normalize_distribution(None)?,
+            first_nt_bias_dj: self.first_nt_bias_dj.normalize_distribution(None)?,
+            markov_coefficients_vd: self
+                .markov_coefficients_vd
+                .normalize_distribution(Some(Axis(1)))?,
+            markov_coefficients_dj: self
+                .markov_coefficients_dj
+                .normalize_distribution(Some(Axis(1)))?,
+        })
     }
 }
 
-#[derive(Default, Clone, Debug)]
 impl MarginalsVDJ {
     fn new(model: Option<&ModelVDJ>) -> MarginalsVDJ {
         let m: MarginalsVDJ = Default::default();
@@ -86,7 +102,7 @@ impl MarginalsVDJ {
     }
     fn likelihood_delv(&self, dv: usize, vi: usize, seq: &SequenceVDJ) -> f64 {
         // needs to add the effect of the error
-        self.marginals.delv[[dv, v]]
+        self.marginals.delv[[dv, vi]]
     }
     fn likelihood_dj(&self, di: usize, ji: usize) -> f64 {
         // needs to add the effect of the error
@@ -122,7 +138,7 @@ impl MarginalsVDJ {
         delj: usize,
         deld3: usize,
         deld5: usize,
-        nb_insvj: usize,
+        nb_insvd: usize,
         nb_insdj: usize,
         insvd: &Dna,
         insdj: &Dna,
@@ -149,56 +165,73 @@ impl MarginalsVDJ {
         );
     }
 
-    fn update(&mut self) {
-        // normalize the dirty marginals and move them to the
+    fn expectation_step(&mut self) {
+        // Normalize the dirty marginals and move them to the
         // current marginals
-        m.marginals = dirty_marginals.normalize();
+        self.marginals = self.dirty_marginals.normalize();
     }
 
-    fn infer_features(
-        sequence: SequenceVDJ,
-        &mut marginals: MarginalsVDJ,
-        inference_params: InferenceParams,
+    fn maximization_step(
+        &mut self,
+        sequences: &Vec<SequenceVDJ>,
+        inference_params: &InferenceParams,
     ) {
+        for s in sequences {
+            self.update_marginals(s, inference_params);
+        }
+    }
+
+    fn expectation_maximization(
+        &mut self,
+        sequences: &Vec<SequenceVDJ>,
+        inference_params: &InferenceParams,
+    ) {
+        for _ in inference_params.number_rounds_em {
+            self.maximization_step(sequences, inference_params);
+            self.expectation_step();
+        }
+    }
+
+    fn update_marginals(&mut self, sequence: &SequenceVDJ, inference_params: &InferenceParams) {
         for v in sequence.v_genes {
-            let l_v = marginals.likelihood_v(v.index);
-            for delv in 0..model.max_del_v {
-                let l_delv = marginals.likelihood_delv(delv, v.index, &sequence);
-                for j in sequences.j_genes {
-                    for d in sequences.d_genes {
-                        l_dj = marginals.likelihood_dj(d.index, j.index);
-                        for delj in 0..model.max_del_j {
-                            l_delj = marginals.likelihood_delj(delj, j.index, &sequence);
+            let l_v = self.likelihood_v(v.index);
+            for delv in 0..self.marginals.p_delv.dim()[[0]] {
+                let l_delv = self.likelihood_delv(delv, v.index, &sequence);
+                for j in sequence.j_genes {
+                    for d in sequence.d_genes {
+                        let l_dj = self.likelihood_dj(d.index, j.index);
+                        for delj in 0..self.marginals.p_delj.dim()[[0]] {
+                            let l_delj = self.likelihood_delj(delj, j.index, &sequence);
 
                             if l_delj * l_dj * l_delv * l_v < inference_params.min_likelihood {
                                 continue;
                             }
 
-                            for deld3 in 0..model.max_deld3 {
-                                for deld5 in 0..model.max_deld5 {
+                            for deld3 in 0..self.marginals.p_deld3.dim()[[0]] {
+                                for deld5 in 0..self.marginals.p_deld5.dim()[[1]] {
                                     let (l_deld3, l_deld5) =
                                         self.likelihood_deld(deld3, deld5, d, &sequence);
 
-                                    let ltotal = l_v * l_delv * l_dj * l_delj * l_deld3;
-                                    if ltotal < inference_params.min_likelihood {
+                                    let l_total = l_v * l_delv * l_dj * l_delj * l_deld3;
+                                    if l_total < inference_params.min_likelihood {
                                         continue;
                                     }
 
-                                    let (insvj, insvd) = sequence
+                                    let (insvd, insdj) = sequence
                                         .get_insertion_vd_dj(v, delv, d, deld3, deld5, j, delj);
 
-                                    l_total *= marginals.likelihood_nb_ins_vd(&insvj);
-                                    l_total *= marginals.likelihood_nb_ins_dj(&insdj);
+                                    l_total *= self.likelihood_nb_ins_vd(&insvd);
+                                    l_total *= self.likelihood_nb_ins_dj(&insdj);
 
                                     if l_total < inference_params.min_likelihood {
                                         continue;
                                     }
 
                                     // add the Markov chain likelihood
-                                    l_total *= marginals.likelihood_nb_ins_vd(&insvj);
-                                    l_total *= marginals.likelihood_nb_ins_dj(&insvj);
+                                    l_total *= self.likelihood_nb_ins_vd(&insvd);
+                                    l_total *= self.likelihood_nb_ins_dj(&insdj);
 
-                                    marginals.dirty_update(
+                                    self.dirty_update(
                                         v, d, j, delv, delj, deld3, deld5, &insvd, &insdj, l_total,
                                     );
                                 }

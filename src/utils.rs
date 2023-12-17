@@ -182,7 +182,7 @@ pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
     }
 }
 
-trait Normalize {
+pub trait Normalize {
     fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self, Box<dyn Error>>
     where
         Self: Sized;

@@ -1,11 +1,13 @@
 #![allow(unused_imports)] //TODO REMOVE
 #![allow(dead_code)]
+mod feature;
 mod model;
 mod parser;
 mod sequence;
 mod utils;
 mod utils_sequences;
 
+use feature::{InferenceParams, MarginalsVDJ};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use model::{ModelVDJ, ModelVJ};
 use parser::{ParserMarginals, ParserParams};
@@ -49,6 +51,11 @@ fn main() -> io::Result<()> {
         max_error_d: 10,
     };
 
+    let infer_params = InferenceParams {
+        nb_rounds_em: 3,
+        min_likelihood: 1e-30,
+    };
+
     // Specify the file path
     let path = Path::new("demo/murugan_naive1_noncoding_demo_seqs.txt");
 
@@ -66,17 +73,26 @@ fn main() -> io::Result<()> {
     // Create a buffered reader
     let reader = io::BufReader::new(file);
 
+    let sequences = Vec::<SequenceVDJ>::new();
+
     // Iterate over each line
     for line in reader.lines() {
         match line {
             Ok(ln) => {
-                SequenceVDJ::align_sequence(Dna::from_string(&ln), &model, &align_params);
+                sequences.push(SequenceVDJ::align_sequence(
+                    Dna::from_string(&ln),
+                    &model,
+                    &align_params,
+                ));
                 pb.inc(ln.len() as u64);
             }
             Err(e) => println!("Error reading line: {}", e),
         }
     }
     pb.finish_with_message("Reading complete");
+
+    let margs = MarginalsVDJ::new(&model);
+
     Ok(())
     // let seq = SequenceVDJ::align_sequence(nt_seq, &model, &align_params);
     // // println!("{:?}", seq.v_genes);
