@@ -73,7 +73,7 @@ fn main() -> io::Result<()> {
     // Create a buffered reader
     let reader = io::BufReader::new(file);
 
-    let sequences = Vec::<SequenceVDJ>::new();
+    let mut sequences = Vec::<SequenceVDJ>::new();
 
     // Iterate over each line
     for line in reader.lines() {
@@ -91,7 +91,10 @@ fn main() -> io::Result<()> {
     }
     pb.finish_with_message("Reading complete");
 
-    let margs = MarginalsVDJ::new(&model);
+    let mut margs = MarginalsVDJ::new(&model).unwrap();
+    println!("{:?}", margs.marginals);
+    let _ = margs.expectation_maximization(&sequences, &infer_params);
+    println!("{:?}", margs.marginals);
 
     Ok(())
     // let seq = SequenceVDJ::align_sequence(nt_seq, &model, &align_params);

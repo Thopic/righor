@@ -9,8 +9,8 @@ use ndarray::{Array1, Array2, Array3, Axis};
 use std::error::Error;
 
 pub struct InferenceParams {
-    min_likelihood: f64,
-    nb_rounds_em: usize,
+    pub min_likelihood: f64,
+    pub nb_rounds_em: usize,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -31,7 +31,7 @@ pub struct FeaturesVDJ {
 #[derive(Default, Clone, Debug)]
 pub struct MarginalsVDJ {
     // the marginals used during the inference
-    marginals: FeaturesVDJ,
+    pub marginals: FeaturesVDJ,
 
     // this variable store the evolving marginals as they
     // are iterated upon (in particular it's not expected to
@@ -74,33 +74,34 @@ impl FeaturesVDJ {
 }
 
 impl MarginalsVDJ {
-    fn new(model: Option<&ModelVDJ>) -> MarginalsVDJ {
-        let m: MarginalsVDJ = Default::default();
+    pub fn new(model: &ModelVDJ) -> Result<MarginalsVDJ, Box<dyn Error>> {
+        let mut m: MarginalsVDJ = Default::default();
 
-        m.marginals = Default::default;
+        m.marginals = Default::default();
         m.marginals.v = model.p_v.clone();
         m.marginals.dj = model.p_dj.clone();
         m.marginals.delj = model.p_del_j_given_j.clone();
-        m.marginals.deld = model.p_del_v_given_v.clone();
-        m.marginals.insvd = model.p_del_d3_del_d5.clone();
-        m.marginals.insdj = model.p_ins_vd.clone();
+        m.marginals.delv = model.p_del_v_given_v.clone();
+        m.marginals.deld = model.p_del_d3_del_d5.clone();
+        m.marginals.insvd = model.p_ins_vd.clone();
+        m.marginals.insdj = model.p_ins_dj.clone();
         // in case, normalize the original marginals
-        m.marginals.normalize();
-
+        m.marginals.normalize()?;
         // Dirty marginals starts empty by default
-        m.dirty_marginals = Default::default;
+        m.dirty_marginals = Default::default();
         m.dirty_marginals.v = Array1::zeros(m.marginals.v.dim());
         m.dirty_marginals.dj = Array2::zeros(m.marginals.dj.dim());
         m.dirty_marginals.delj = Array2::zeros(m.marginals.delj.dim());
         m.dirty_marginals.deld = Array3::zeros(m.marginals.deld.dim());
         m.dirty_marginals.insvd = Array1::zeros(m.marginals.insvd.dim());
         m.dirty_marginals.insdj = Array1::zeros(m.marginals.insdj.dim());
+        Ok(m)
     }
 
     fn likelihood_v(&self, vi: usize) -> f64 {
         self.marginals.v[vi]
     }
-    fn likelihood_delv(&self, dv: usize, vi: usize, seq: &SequenceVDJ) -> f64 {
+    fn likelihood_delv(&self, dv: usize, vi: usize, _seq: &SequenceVDJ) -> f64 {
         // needs to add the effect of the error
         self.marginals.delv[[dv, vi]]
     }
@@ -108,25 +109,33 @@ impl MarginalsVDJ {
         // needs to add the effect of the error
         self.marginals.dj[[di, ji]]
     }
-    fn likelihood_delj(&self, dj: usize, ji: usize, seq: &SequenceVDJ) -> f64 {
+    fn likelihood_delj(&self, dj: usize, ji: usize, _seq: &SequenceVDJ) -> f64 {
         self.marginals.delj[[dj, ji]]
     }
-    fn likelihood_deld(&self, dd3: usize, dd5: usize, di: usize, seq: &SequenceVDJ) -> (f64, f64) {
+    fn likelihood_deld(&self, dd3: usize, dd5: usize, di: usize, _seq: &SequenceVDJ) -> f64 {
         // needs to add the effect of the error
         self.marginals.deld[[dd3, dd5, di]]
     }
 
-    fn likelihood_nb_ins_vd(&self, seq: &Dna) -> f64 {
-        self.marginals_insvd[[seq.len()]]
+    fn likelihood_nb_ins_vd(&self, seqvd: &Dna) -> f64 {
+        self.marginals.insvd[[seqvd.len()]]
     }
-    fn likelihood_ins_vd(&self, seq: &Dna) -> f64 {
-        likelihood_markov(&self.first_nt_bias_vd, &self.markov_coefficients_vd, seq)
+    fn likelihood_ins_vd(&self, seqdj: &Dna) -> f64 {
+        likelihood_markov(
+            &self.marginals.first_nt_bias_vd,
+            &self.marginals.markov_coefficients_vd,
+            seqdj,
+        )
     }
-    fn likelihood_nb_ins_dj(&self, seq: &Dna) -> f64 {
-        self.marginals_insdj[seq.len()]
+    fn likelihood_nb_ins_dj(&self, seqdj: &Dna) -> f64 {
+        self.marginals.insdj[seqdj.len()]
     }
-    fn likelihood_ins_dj(&self, seq: &Dna) -> f64 {
-        likelihood_markov(&self.first_nt_bias_dj, &self.markov_coefficients_dj, seq)
+    fn likelihood_ins_dj(&self, seqvd: &Dna) -> f64 {
+        likelihood_markov(
+            &self.marginals.first_nt_bias_dj,
+            &self.marginals.markov_coefficients_dj,
+            seqvd,
+        )
     }
 
     fn dirty_update(
@@ -138,8 +147,6 @@ impl MarginalsVDJ {
         delj: usize,
         deld3: usize,
         deld5: usize,
-        nb_insvd: usize,
-        nb_insdj: usize,
         insvd: &Dna,
         insdj: &Dna,
         likelihood: f64,
@@ -149,26 +156,27 @@ impl MarginalsVDJ {
         self.dirty_marginals.delv[[delv, v]] += likelihood;
         self.dirty_marginals.delj[[delj, j]] += likelihood;
         self.dirty_marginals.deld[[deld3, deld5, d]] += likelihood;
-        self.dirty_marginals.insvd[[nb_insvd]] += likelihood;
-        self.dirty_marginals.insdj[[nb_insdj]] += likelihood;
+        self.dirty_marginals.insvd[[insvd.len()]] += likelihood;
+        self.dirty_marginals.insdj[[insdj.len()]] += likelihood;
         update_markov_probas(
-            self.dirty_marginals.first_nt_bias_vd,
-            self.dirty_marginals.markov_coefficients_vd,
+            &mut self.dirty_marginals.first_nt_bias_vd,
+            &mut self.dirty_marginals.markov_coefficients_vd,
             insvd,
             likelihood,
         );
         update_markov_probas(
-            self.dirty_marginals.first_nt_bias_dj,
-            self.dirty_marginals.markov_coefficients_dj,
+            &mut self.dirty_marginals.first_nt_bias_dj,
+            &mut self.dirty_marginals.markov_coefficients_dj,
             insdj,
             likelihood,
         );
     }
 
-    fn expectation_step(&mut self) {
+    fn expectation_step(&mut self) -> Result<(), Box<dyn Error>> {
         // Normalize the dirty marginals and move them to the
         // current marginals
-        self.marginals = self.dirty_marginals.normalize();
+        self.marginals = self.dirty_marginals.normalize()?;
+        Ok(())
     }
 
     fn maximization_step(
@@ -181,44 +189,45 @@ impl MarginalsVDJ {
         }
     }
 
-    fn expectation_maximization(
+    pub fn expectation_maximization(
         &mut self,
         sequences: &Vec<SequenceVDJ>,
         inference_params: &InferenceParams,
-    ) {
-        for _ in inference_params.number_rounds_em {
+    ) -> Result<(), Box<dyn Error>> {
+        for _ in 0..inference_params.nb_rounds_em {
             self.maximization_step(sequences, inference_params);
-            self.expectation_step();
+            self.expectation_step()?;
         }
+        Ok(())
     }
 
     fn update_marginals(&mut self, sequence: &SequenceVDJ, inference_params: &InferenceParams) {
-        for v in sequence.v_genes {
+        for v in &sequence.v_genes {
             let l_v = self.likelihood_v(v.index);
-            for delv in 0..self.marginals.p_delv.dim()[[0]] {
+            for delv in 0..self.marginals.delv.dim().0 {
                 let l_delv = self.likelihood_delv(delv, v.index, &sequence);
-                for j in sequence.j_genes {
-                    for d in sequence.d_genes {
+                for j in &sequence.j_genes {
+                    for d in &sequence.d_genes {
                         let l_dj = self.likelihood_dj(d.index, j.index);
-                        for delj in 0..self.marginals.p_delj.dim()[[0]] {
+                        for delj in 0..self.marginals.delj.dim().0 {
                             let l_delj = self.likelihood_delj(delj, j.index, &sequence);
 
                             if l_delj * l_dj * l_delv * l_v < inference_params.min_likelihood {
                                 continue;
                             }
 
-                            for deld3 in 0..self.marginals.p_deld3.dim()[[0]] {
-                                for deld5 in 0..self.marginals.p_deld5.dim()[[1]] {
-                                    let (l_deld3, l_deld5) =
-                                        self.likelihood_deld(deld3, deld5, d, &sequence);
+                            for deld3 in 0..self.marginals.deld.dim().0 {
+                                for deld5 in 0..self.marginals.deld.dim().1 {
+                                    let l_deld =
+                                        self.likelihood_deld(deld3, deld5, d.index, &sequence);
 
-                                    let l_total = l_v * l_delv * l_dj * l_delj * l_deld3;
+                                    let mut l_total = l_v * l_delv * l_dj * l_delj * l_deld;
                                     if l_total < inference_params.min_likelihood {
                                         continue;
                                     }
 
                                     let (insvd, insdj) = sequence
-                                        .get_insertion_vd_dj(v, delv, d, deld3, deld5, j, delj);
+                                        .get_insertions_vd_dj(&v, delv, &d, deld3, deld5, &j, delj);
 
                                     l_total *= self.likelihood_nb_ins_vd(&insvd);
                                     l_total *= self.likelihood_nb_ins_dj(&insdj);
@@ -232,7 +241,8 @@ impl MarginalsVDJ {
                                     l_total *= self.likelihood_nb_ins_dj(&insdj);
 
                                     self.dirty_update(
-                                        v, d, j, delv, delj, deld3, deld5, &insvd, &insdj, l_total,
+                                        v.index, d.index, j.index, delv, delj, deld3, deld5,
+                                        &insvd, &insdj, l_total,
                                     );
                                 }
                             }
