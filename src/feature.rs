@@ -1,255 +1,244 @@
-// A sequence is a collection of feature, each feature has some probability
-// When we iterate on the model we update the probability of each feature
+// This class define different type of Feature
+// Feature are used during the expectation maximization process
+// In short you need:
+// - a function computing the likelihood of the feature `likelihood`
+// - a function that allows to update the probability distribution
+//   when new observations are made.
+//   This update is done lazily, for speed reason we don't want to
+//   redefine the function everytime.
+// - so a function cleanup is going to return a new object with
+//   the new probability distribution.
+// This is the general idea, there's quite a lot of boiler plate
+// code for the different type of categorical features (categorical features in
+// 1d, in 1d but given another parameter, in 2d ...)
 
-use crate::model::ModelVDJ;
-use crate::sequence::SequenceVDJ;
-use crate::utils::{likelihood_markov, update_markov_probas, Normalize};
-use crate::utils_sequences::Dna;
-use ndarray::{Array1, Array2, Array3, Axis};
-use std::error::Error;
-
-pub struct InferenceParams {
-    pub min_likelihood: f64,
-    pub nb_rounds_em: usize,
+trait Feature<T> {
+    fn dirty_update(&mut self, observation: T, likelihood: f64);
+    fn likelihood(&self, observation: T);
+    fn cleanup(&self) -> Result<Self, Box<dyn Error>>;
 }
 
-#[derive(Default, Clone, Debug)]
-pub struct FeaturesVDJ {
-    v: Array1<f64>,
-    delv: Array2<f64>,
-    dj: Array2<f64>,
-    delj: Array2<f64>,
-    deld: Array3<f64>,
-    insvd: Array1<f64>,
-    insdj: Array1<f64>,
-    first_nt_bias_vd: Array1<f64>,
-    markov_coefficients_vd: Array2<f64>,
-    first_nt_bias_dj: Array1<f64>,
-    markov_coefficients_dj: Array2<f64>,
+// One-dimensional categorical distribution
+struct CategoricalFeature1 {
+    probas: Array1<f64>,
+    probas_dirty: Array1<f64>,
 }
 
-#[derive(Default, Clone, Debug)]
-pub struct MarginalsVDJ {
-    // the marginals used during the inference
-    pub marginals: FeaturesVDJ,
-
-    // this variable store the evolving marginals as they
-    // are iterated upon (in particular it's not expected to
-    // be normalized)
-    dirty_marginals: FeaturesVDJ,
-}
-
-impl FeaturesVDJ {
-    fn normalize(&mut self) -> Result<FeaturesVDJ, Box<dyn Error>> {
-        // Normalize the arrays
-        // Because of the way the original code is set up
-        // some distributions are identically 0 (p(delv|v=v1) if
-        // v1 has probability 0 for example)
-        // We modify these probability to make them uniform
-        // (and avoid issues like log(0))
-        Ok(FeaturesVDJ {
-            v: self.v.normalize_distribution(None)?,
-            dj: self
-                .dj
-                .normalize_distribution(Some(Axis(0)))?
-                .normalize_distribution(Some(Axis(1)))?,
-            delv: self.delv.normalize_distribution(Some(Axis(0)))?,
-            delj: self.delj.normalize_distribution(Some(Axis(0)))?,
-            deld: self
-                .deld
-                .normalize_distribution(Some(Axis(0)))?
-                .normalize_distribution(Some(Axis(1)))?,
-            insvd: self.insvd.normalize_distribution(None)?,
-            insdj: self.insdj.normalize_distribution(None)?,
-            first_nt_bias_vd: self.first_nt_bias_vd.normalize_distribution(None)?,
-            first_nt_bias_dj: self.first_nt_bias_dj.normalize_distribution(None)?,
-            markov_coefficients_vd: self
-                .markov_coefficients_vd
-                .normalize_distribution(Some(Axis(1)))?,
-            markov_coefficients_dj: self
-                .markov_coefficients_dj
-                .normalize_distribution(Some(Axis(1)))?,
-        })
+impl Feature<usize> for CategoricalFeature1 {
+    fn dirty_update(&mut self, observation: usize, likelihood: f64) {
+        probas_dirty[[observation]] += likelihood;
+    }
+    fn likelihood(&mut self, observation: usize) {
+        probas[[observation]]
+    }
+    fn cleanup(&mut self) -> Result<CategoricalFeature1, Box<dyn Error>> {
+        CategoricalFeature1::new(&self.probas_dirty)
     }
 }
 
-impl MarginalsVDJ {
-    pub fn new(model: &ModelVDJ) -> Result<MarginalsVDJ, Box<dyn Error>> {
-        let mut m: MarginalsVDJ = Default::default();
-
-        m.marginals = Default::default();
-        m.marginals.v = model.p_v.clone();
-        m.marginals.dj = model.p_dj.clone();
-        m.marginals.delj = model.p_del_j_given_j.clone();
-        m.marginals.delv = model.p_del_v_given_v.clone();
-        m.marginals.deld = model.p_del_d3_del_d5.clone();
-        m.marginals.insvd = model.p_ins_vd.clone();
-        m.marginals.insdj = model.p_ins_dj.clone();
-        // in case, normalize the original marginals
-        m.marginals.normalize()?;
-        // Dirty marginals starts empty by default
-        m.dirty_marginals = Default::default();
-        m.dirty_marginals.v = Array1::zeros(m.marginals.v.dim());
-        m.dirty_marginals.dj = Array2::zeros(m.marginals.dj.dim());
-        m.dirty_marginals.delj = Array2::zeros(m.marginals.delj.dim());
-        m.dirty_marginals.deld = Array3::zeros(m.marginals.deld.dim());
-        m.dirty_marginals.insvd = Array1::zeros(m.marginals.insvd.dim());
-        m.dirty_marginals.insdj = Array1::zeros(m.marginals.insdj.dim());
-        Ok(m)
-    }
-
-    fn likelihood_v(&self, vi: usize) -> f64 {
-        self.marginals.v[vi]
-    }
-    fn likelihood_delv(&self, dv: usize, vi: usize, _seq: &SequenceVDJ) -> f64 {
-        // needs to add the effect of the error
-        self.marginals.delv[[dv, vi]]
-    }
-    fn likelihood_dj(&self, di: usize, ji: usize) -> f64 {
-        // needs to add the effect of the error
-        self.marginals.dj[[di, ji]]
-    }
-    fn likelihood_delj(&self, dj: usize, ji: usize, _seq: &SequenceVDJ) -> f64 {
-        self.marginals.delj[[dj, ji]]
-    }
-    fn likelihood_deld(&self, dd3: usize, dd5: usize, di: usize, _seq: &SequenceVDJ) -> f64 {
-        // needs to add the effect of the error
-        self.marginals.deld[[dd3, dd5, di]]
-    }
-
-    fn likelihood_nb_ins_vd(&self, seqvd: &Dna) -> f64 {
-        self.marginals.insvd[[seqvd.len()]]
-    }
-    fn likelihood_ins_vd(&self, seqdj: &Dna) -> f64 {
-        likelihood_markov(
-            &self.marginals.first_nt_bias_vd,
-            &self.marginals.markov_coefficients_vd,
-            seqdj,
-        )
-    }
-    fn likelihood_nb_ins_dj(&self, seqdj: &Dna) -> f64 {
-        self.marginals.insdj[seqdj.len()]
-    }
-    fn likelihood_ins_dj(&self, seqvd: &Dna) -> f64 {
-        likelihood_markov(
-            &self.marginals.first_nt_bias_dj,
-            &self.marginals.markov_coefficients_dj,
-            seqvd,
-        )
-    }
-
-    fn dirty_update(
-        &mut self,
-        v: usize,
-        d: usize,
-        j: usize,
-        delv: usize,
-        delj: usize,
-        deld3: usize,
-        deld5: usize,
-        insvd: &Dna,
-        insdj: &Dna,
-        likelihood: f64,
-    ) {
-        self.dirty_marginals.v[[v]] += likelihood;
-        self.dirty_marginals.dj[[d, j]] += likelihood;
-        self.dirty_marginals.delv[[delv, v]] += likelihood;
-        self.dirty_marginals.delj[[delj, j]] += likelihood;
-        self.dirty_marginals.deld[[deld3, deld5, d]] += likelihood;
-        self.dirty_marginals.insvd[[insvd.len()]] += likelihood;
-        self.dirty_marginals.insdj[[insdj.len()]] += likelihood;
-        update_markov_probas(
-            &mut self.dirty_marginals.first_nt_bias_vd,
-            &mut self.dirty_marginals.markov_coefficients_vd,
-            insvd,
-            likelihood,
-        );
-        update_markov_probas(
-            &mut self.dirty_marginals.first_nt_bias_dj,
-            &mut self.dirty_marginals.markov_coefficients_dj,
-            insdj,
-            likelihood,
-        );
-    }
-
-    fn expectation_step(&mut self) -> Result<(), Box<dyn Error>> {
-        // Normalize the dirty marginals and move them to the
-        // current marginals
-        self.marginals = self.dirty_marginals.normalize()?;
-        Ok(())
-    }
-
-    fn maximization_step(
-        &mut self,
-        sequences: &Vec<SequenceVDJ>,
-        inference_params: &InferenceParams,
-    ) {
-        for s in sequences {
-            self.update_marginals(s, inference_params);
+impl CategoricalFeature1 {
+    fn new(probabilities: &Array1<f64>) -> Result<CategoricalFeature1, Box<dyn Error>> {
+        CategoricalFeature1 {
+            probas: probabilities.normalize_distribution(None)?,
+            probas_dirty: Array1::<f64>::zeros(self.probabilities.dim()),
         }
     }
+}
 
-    pub fn expectation_maximization(
-        &mut self,
-        sequences: &Vec<SequenceVDJ>,
-        inference_params: &InferenceParams,
-    ) -> Result<(), Box<dyn Error>> {
-        for _ in 0..inference_params.nb_rounds_em {
-            self.maximization_step(sequences, inference_params);
-            self.expectation_step()?;
+// One-dimensional categorical distribution, given one external parameter
+struct CategoricalFeature1g1 {
+    probas: Array2<f64>,
+    probas_dirty: Array2<f64>,
+}
+
+impl Feature<(usize, usize)> for CategoricalFeature1g1 {
+    fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
+        probas_dirty[[observation.0, observation.1]] += likelihood;
+    }
+    fn likelihood(&mut self, observation: usize) {
+        probas[[observation.0, observation.1]]
+    }
+    fn cleanup(&mut self) -> Result<CategoricalFeature1g1, Box<dyn Error>> {
+        CategoricalFeature1g1::new(&self.probas_dirty)
+    }
+}
+
+impl CategoricalFeature1g1 {
+    fn new(probabilities: &Array2<f64>) -> Result<CategoricalFeature1g1, Box<dyn Error>> {
+        CategoricalFeature1g1 {
+            probas: probabilities.normalize_distribution(Some(Axis(0)))?,
+            probas_dirty: Array2::<f64>::zeros(self.probabilities.dim()),
         }
-        Ok(())
+    }
+}
+
+// Two-dimensional categorical distribution
+struct CategoricalFeature2 {
+    probas: Array2<f64>,
+    probas_dirty: Array2<f64>,
+}
+
+impl Feature<(usize, usize)> for CategoricalFeature2 {
+    fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
+        probas_dirty[[observation.0, observation.1]] += likelihood;
+    }
+    fn likelihood(&mut self, observation: usize) {
+        probas[[observation.0, observation.1]]
+    }
+    fn cleanup(&mut self) -> Result<CategoricalFeature2, Box<dyn Error>> {
+        CategoricalFeature2::new(&self.probas_dirty)
+    }
+}
+
+impl CategoricalFeature2 {
+    fn new(probabilities: &Array2<f64>) -> Result<CategoricalFeature2, Box<dyn Error>> {
+        CategoricalFeature2 {
+            probas: probabilities
+                .normalize_distribution(Some(Axis(0)))?
+                .normalize_distribution(Some(Axis(1)))?,
+            probas_dirty: Array2::<f64>::zeros(self.probabilities.dim()),
+        }
+    }
+}
+
+// Two-dimensional categorical distribution, given one external parameter
+struct CategoricalFeature2g1 {
+    probas: Array3<f64>,
+    probas_dirty: Array3<f64>,
+}
+
+impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
+    fn dirty_update(&mut self, observation: (usize, usize, usize), likelihood: f64) {
+        probas_dirty[[observation.0, observation.1, observation.2]] += likelihood;
+    }
+    fn likelihood(&mut self, observation: usize) {
+        probas[[observation.0, observation.1, observation.2]]
+    }
+    fn cleanup(&mut self) -> Result<CategoricalFeature2g1, Box<dyn Error>> {
+        CategoricalFeature2g1::new(self.probas_dirty)
+    }
+}
+
+impl CategoricalFeature1g1 {
+    fn new(probabilities: Array2<f64>) -> Result<CategoricalFeature2g1, Box<dyn Error>> {
+        CategoricalFeature2g1 {
+            probas: probabilities
+                .normalize_distribution(Some(Axis(0)))?
+                .normalize_distribution(Some(Axis(1)))?,
+            probas_dirty: Array3::<f64>::zeros(self.probabilities.dim()),
+        }
+    }
+}
+
+// Markov chain structure for Dna insertion
+struct MarkovFeature {
+    initial_distribution: Array1<f64>,
+    transition_matrix: Array2<f64>,
+    initial_distribution_dirty: Array1<f64>,
+    transition_matrix_dirty: Array2<f64>,
+}
+
+impl Feature<&Dna> for MarkovFeature {
+    fn dirty_update(&mut self, observation: &Dna, likelihood: f64) {
+        if observation.len() == 0 {
+            return;
+        }
+        self.initial_distribution_dirty[[NUCLEOTIDES_INV[&observation.seq[0]]]] += likelihood;
+        for ii in 1..observation.len() {
+            self.transition_matrix_dirty[[
+                NUCLEOTIDES_INV[&observation.seq[ii - 1]],
+                NUCLEOTIDES_INV[&observation.seq[ii]],
+            ]] += likelihood;
+        }
+    }
+    fn likelihood(&mut self, observation: &Dna) -> f64 {
+        if d.len() == 0 {
+            return 1.;
+        }
+        let mut proba = self.initial_distribution[NUCLEOTIDES_INV[&observation.seq[0]]];
+        for ii in 1..d.len() {
+            proba *= self.transition_matrix[[
+                NUCLEOTIDES_INV[&observation.seq[ii - 1]],
+                NUCLEOTIDES_INV[&observation.seq[ii]],
+            ]];
+        }
+        proba
+    }
+    fn cleanup(&mut self) -> Result<MarkovFeature, Box<dyn Error>> {
+        MarkovFeature::new(&self.initial_distribution, &self.transition_matrix)
+    }
+}
+
+impl MarkovFeature {
+    fn new(
+        initial_distribution: &Array1<f64>,
+        transition_matrix: &Array2<f64>,
+    ) -> Result<MarkovFeature, Box<dyn Error>> {
+        MarkovFeature {
+            transition_matrix: transition_matrix.normalize_distribution(Some(Axis(1)))?,
+            initial_distribution: initial_distribution.normalize_distribution(None)?,
+            transition_matrix_dirty: Array2::<f64>::zeros(transition_matrix.dim()),
+            initial_distribution_dirty: Array1::<f64>::zeros(initial_distribution.dim()),
+        }
+    }
+}
+
+// Most basic error model
+struct ErrorPoisson {
+    error_rate: f64,
+    lookup_table: Vec<f64>,
+    total_probas_dirty: f64, // useful for dirty updating
+    total_errors_dirty: f64, // same
+}
+
+impl ErrorPoisson {
+    fn new(error_rate: f64, min_error_rate: f64) -> ErrorPoisson {
+        let mut e = ErrorPoisson {
+            error_rate: error_rate,
+            min_error_rate: min_error_rate,
+            total_probas_dirty: 0.,
+            total_errors_dirty: 0.,
+            lookup_table: make_lookup_table(error_rate, min_error_rate),
+        };
+        e
     }
 
-    fn update_marginals(&mut self, sequence: &SequenceVDJ, inference_params: &InferenceParams) {
-        for v in &sequence.v_genes {
-            let l_v = self.likelihood_v(v.index);
-            for delv in 0..self.marginals.delv.dim().0 {
-                let l_delv = self.likelihood_delv(delv, v.index, &sequence);
-                for j in &sequence.j_genes {
-                    for d in &sequence.d_genes {
-                        let l_dj = self.likelihood_dj(d.index, j.index);
-                        for delj in 0..self.marginals.delj.dim().0 {
-                            let l_delj = self.likelihood_delj(delj, j.index, &sequence);
-
-                            if l_delj * l_dj * l_delv * l_v < inference_params.min_likelihood {
-                                continue;
-                            }
-
-                            for deld3 in 0..self.marginals.deld.dim().0 {
-                                for deld5 in 0..self.marginals.deld.dim().1 {
-                                    let l_deld =
-                                        self.likelihood_deld(deld3, deld5, d.index, &sequence);
-
-                                    let mut l_total = l_v * l_delv * l_dj * l_delj * l_deld;
-                                    if l_total < inference_params.min_likelihood {
-                                        continue;
-                                    }
-
-                                    let (insvd, insdj) = sequence
-                                        .get_insertions_vd_dj(&v, delv, &d, deld3, deld5, &j, delj);
-
-                                    l_total *= self.likelihood_nb_ins_vd(&insvd);
-                                    l_total *= self.likelihood_nb_ins_dj(&insdj);
-
-                                    if l_total < inference_params.min_likelihood {
-                                        continue;
-                                    }
-
-                                    // add the Markov chain likelihood
-                                    l_total *= self.likelihood_nb_ins_vd(&insvd);
-                                    l_total *= self.likelihood_nb_ins_dj(&insdj);
-
-                                    self.dirty_update(
-                                        v.index, d.index, j.index, delv, delj, deld3, deld5,
-                                        &insvd, &insdj, l_total,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
+    fn make_lookup_table(error_rate: f64, min_error_rate: f64) -> Vec<f64> {
+        let mut lookup_table = Vec::<f64>::new();
+        let mut prob = (-error_rate).exp();
+        let mut nb = 0;
+        loop {
+            lookup_table.push(prob);
+            nb += 1;
+            prob *= error_rate / nb;
+            if prob < min_error_rate {
+                break;
             }
         }
+        lookup_table
+    }
+}
+
+impl Feature<usize> for ErrorPoisson {
+    fn dirty_update(&mut self, observation: usize, likelihood: f64) {
+        total_probas += likelihood;
+        total_errors += likelihood * nb_errors;
+    }
+    fn likelihood(&mut self, observation: usize) -> f64 {
+        if observation >= self.lookup_table.len() {
+            0.
+        } else {
+            self.lookup_table[[observation]]
+        }
+    }
+    fn cleanup(&mut self) -> Result<ErrorPoisson, Box<dyn Error>> {
+        // estimate the error_rate from the dirty estimates
+        Ok(ErrorPoisson {
+            error_rate: total_errors / total_probas,
+            lookup_table: make_lookup_table(total_errors / total_probas, min_error_rate),
+            min_error_rate: min_error_rate,
+            total_probas_dirty: 0.,
+            total_errors_dirty: 0.,
+        })
     }
 }

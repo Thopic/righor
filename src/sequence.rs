@@ -17,10 +17,10 @@ pub struct VJAlignment {
     // end_gene   ------------------------------^ 30
     // start_seq               0
     // end_seq                 -----------------^ 17
-    // errors contains the position of each error in the alignment
+    // errors[u] contains the number of errors left if u nucleotides are removed
     // (starting from the end of the V-gene, or the beginning of the J gene)
-    // so here [0,1,2,4,7,10]
-    pub gene: Gene,
+    // the length of this vector is the maximum number of v/j deletion.
+    // so here [5,4,3,2,2,1,1,1,1,1,1,0,0,...]
     pub index: usize, // index of the gene in the model
     pub start_seq: usize,
     pub end_seq: usize,
@@ -33,10 +33,21 @@ pub struct VJAlignment {
 pub struct DAlignment {
     // Structure containing the alignment between a D gene and the sequence
     // Similarly to VJaligment the gene include the palindromic insertion
-    pub gene: Gene,
+    // d-gene  :         DDDDDDDDDDDD
+    // sequence:     SSSSSSSSSSSSSSSSSSSSS
+    // pos     ----------^ 4
+    // error_left contains the number of errors in the alignment starting from the left
+    // error_right contains the number of errors in the alignment starting from the right
+    // For example:
+    // DDDDDDDDDDD
+    // SXSSSXSSXSX
+    // errors_left:  [4,4,3,3,3,3,2,2,2,1,1]
+    // errors_right: [4,3,3,2,2,2,1,1,1,1,0]
     pub index: usize,
-    pub pos: usize,         // begining of the D-gene in the sequence (can't be < 0)
-    pub errors: Vec<usize>, // position of the error in the D gene
+    pub len_d: usize, // length of the D gene
+    pub pos: usize,   // begining of the D-gene in the sequence (can't be < 0)
+    pub errors_left: Vec<usize>,
+    pub errors_right: Vec<usize>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -54,12 +65,27 @@ impl SequenceVDJ {
         model: &ModelVDJ,
         align_params: &AlignmentParameters,
     ) -> SequenceVDJ {
-        SequenceVDJ {
+        let mut seq = SequenceVDJ {
             sequence: seq.clone(),
             v_genes: align_all_vgenes(&seq, model, align_params),
             j_genes: align_all_jgenes(&seq, model, align_params),
             d_genes: Vec::new(),
-        }
+        };
+        // roughly estimate bounds for the position of d
+        let left_bound = seq
+            .v_genes
+            .iter()
+            .map(|v| v.end_seq - model.max_del_v)
+            .min();
+        let right_bound = seq
+            .j_genes
+            .iter()
+            .map(|v| j.start_seq + model.max_del_j)
+            .max();
+
+        // initialize all the d genes positions
+        seq.d_genes = align_all_dgenes(&seq, model, left_bound, right_bound, align_params);
+        seq
     }
 
     pub fn get_insertions_vd_dj(
@@ -109,15 +135,15 @@ fn align_all_vgenes(
         let alignment = Dna::align_left_right(&palv, &seq, align_params);
         if align_params.valid_v_alignment(&alignment) {
             v_genes.push(VJAlignment {
-                gene: v.clone(),
                 index: indexv,
                 start_gene: alignment.xstart,
                 end_gene: alignment.xend,
                 start_seq: alignment.ystart,
                 end_seq: alignment.yend,
-                errors: differences(
+                errors: differences_remaining(
                     seq.seq[alignment.ystart..alignment.yend].iter().rev(),
                     palv.seq[alignment.xstart..alignment.xend].iter().rev(),
+                    model.max_delv,
                 ),
             });
         }
@@ -136,13 +162,16 @@ fn align_all_jgenes(
         let alignment = Dna::align_left_right(&seq, &palj, align_params);
         if align_params.valid_j_alignment(&alignment) {
             j_aligns.push(VJAlignment {
-                gene: j.clone(),
                 index: indexj,
                 start_gene: alignment.ystart,
                 end_gene: alignment.yend,
                 start_seq: alignment.xstart,
                 end_seq: alignment.xend,
-                errors: differences(seq.seq[alignment.xstart..].iter(), palj.seq.iter()),
+                errors: differences_remaining(
+                    seq.seq[alignment.xstart..].iter(),
+                    palj.seq.iter(),
+                    max_del_j,
+                ),
             });
         }
     }
@@ -151,7 +180,7 @@ fn align_all_jgenes(
 
 fn align_all_dgenes(
     seq: &Dna,
-    model: ModelVDJ,
+    model: &ModelVDJ,
     limit_5side: usize,
     limit_3side: usize,
     align_params: &AlignmentParameters,
@@ -167,15 +196,20 @@ fn align_all_dgenes(
     for (indexd, d) in model.seg_ds.iter().enumerate() {
         let dpal = d.seq_with_pal.as_ref().unwrap();
         for pos in limit_5side..limit_3side - d.seq.len() {
-            let errors = differences(seq.seq[pos..pos + d.seq.len()].iter(), dpal.seq.iter());
-            if errors.len() > align_params.max_error_d {
-                continue;
-            }
+            let errors_left = differences_remaining(
+                seq.seq[pos..pos + dpal.len()].iter().rev(),
+                dpal.iter().rev(),
+                d.len(),
+            );
+            let errors_right =
+                differences_remaining(seq.seq[pos..pos + dpal.len()].iter(), dpal.iter(), d.len());
+
             daligns.push(DAlignment {
-                gene: d.clone(),
                 index: indexd,
                 pos: pos,
-                errors: errors,
+                len_d: dpal.len(),
+                errors_left: errors_left,
+                errors_right: errors_right,
             });
         }
     }

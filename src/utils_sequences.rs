@@ -189,16 +189,33 @@ impl AminoAcid {
 //         .collect()
 // }
 
-pub fn differences<T, I1, I2>(iter1: I1, iter2: I2) -> Vec<usize>
+pub fn differences_remaining<T, I1, I2>(iter1: I1, iter2: I2) -> Vec<usize>
 where
     T: PartialEq,
     I1: IntoIterator<Item = T>,
     I2: IntoIterator<Item = T>,
 {
-    iter1
+    let mut diffs = Vec::new();
+    let mut total_diff = iter1
         .into_iter()
-        .zip(iter2.into_iter())
-        .enumerate()
-        .filter_map(|(index, (a, b))| if a != b { Some(index) } else { None })
-        .collect()
+        .zip(iter2)
+        .map(|(a, b)| {
+            if a != b {
+                1
+            } else {
+                0
+            };
+        })
+        .sum();
+
+    for (ii, (a, b)) in iter1.into_iter().zip(iter2).enumerate() {
+        if ii >= max_len {
+            break;
+        }
+        diffs.push(total_diff);
+        if a != b {
+            total_diff -= 1;
+        }
+    }
+    diffs
 }

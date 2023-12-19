@@ -139,38 +139,6 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
     Err("No suitable eigenvector found")?
 }
 
-pub fn likelihood_markov(
-    initial_distribution: &Array1<f64>,
-    transition_matrix: &Array2<f64>,
-    d: &Dna,
-) -> f64 {
-    // estimate the log likelihood of a specific Dna sequence in a Markov chain model
-    if d.len() == 0 {
-        return 0.;
-    }
-    let mut proba = initial_distribution[NUCLEOTIDES_INV[&d.seq[0]]];
-    for ii in 1..d.len() {
-        proba *= transition_matrix[[NUCLEOTIDES_INV[&d.seq[ii - 1]], NUCLEOTIDES_INV[&d.seq[ii]]]];
-    }
-    proba
-}
-
-pub fn update_markov_probas(
-    initial_distribution: &mut Array1<f64>,
-    transition_matrix: &mut Array2<f64>,
-    d: &Dna,
-    likelihood: f64,
-) {
-    if d.len() == 0 {
-        return;
-    }
-    initial_distribution[[NUCLEOTIDES_INV[&d.seq[0]]]] += likelihood;
-    for ii in 1..d.len() {
-        transition_matrix[[NUCLEOTIDES_INV[&d.seq[ii - 1]], NUCLEOTIDES_INV[&d.seq[ii]]]] +=
-            likelihood;
-    }
-}
-
 pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
     let uniform = Uniform::new(0.0, 1.0);
     let random_nucleotide = Uniform::new_inclusive(0, 3);
