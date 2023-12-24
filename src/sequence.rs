@@ -16,6 +16,11 @@ pub struct EventVDJ<'a> {
     pub deld5: usize,
 }
 
+impl EventVDJ {
+    // TODO: add a function that map EventVDJ to a more static version (one
+    // that does not rely on reference)
+}
+
 #[pyclass(get_all, set_all)]
 #[derive(Default, Clone, Debug)]
 pub struct VJAlignment {

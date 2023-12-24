@@ -121,7 +121,15 @@ impl FeaturesVDJ {
             * self.error.likelihood(e.j.nb_errors(e.delj))
     }
 
-    fn dirty_update(&mut self, sequence: &SequenceVDJ, inference_params: &InferenceParameters) {
+    fn infer(
+        &mut self,
+        sequence: &SequenceVDJ,
+        inference_params: &InferenceParameters,
+        nb_best_events: usize,
+    ) -> (f64, Vec<(f64, EventVDJ)>) {
+        let mut probability_generation: f64 = 0.;
+        let mut best_events = Vec::<(f64, EventVDJ)>::new();
+
         // Update all the marginals
         for (v, delv) in self.range_v(sequence) {
             let lhood_v = self.likelihood_v(v, delv);
@@ -164,7 +172,16 @@ impl FeaturesVDJ {
                 if l_total < inference_params.min_likelihood {
                     continue;
                 }
-                println!("seq: {insvd} {l_total}");
+
+                if (nb_best_events > 0)
+                    & ((best_events.len() < nb_best_events)
+                        | (best_events.last().unwrap.0 < l_total))
+                {
+                    best_events = insert_in_order(&best_events, (l_total, e));
+                    best_events.truncate(nb_best_events);
+                }
+                probability_generation += l_total;
+
                 // Update everything with the new likelihood
                 self.v.dirty_update(v.index, l_total);
                 self.dj.dirty_update((d.index, j.index), l_total);
@@ -181,6 +198,7 @@ impl FeaturesVDJ {
                 );
             }
         }
+        return (probability_generation, best_events);
     }
 
     fn cleanup(&self) -> Result<FeaturesVDJ> {
@@ -201,7 +219,6 @@ impl FeaturesVDJ {
 }
 #[pymethods]
 impl FeaturesVDJ {
-    //fn most_likely(&self, n: usize) -> Result<Vec<Event>> {}
     #[staticmethod]
     fn average(features: Vec<FeaturesVDJ>) -> Result<FeaturesVDJ> {
         Ok(FeaturesVDJ {
@@ -226,7 +243,18 @@ pub fn infer_features(
     inference_params: InferenceParameters,
 ) -> Result<FeaturesVDJ> {
     let mut feature = FeaturesVDJ::new(&model, &inference_params)?;
-    feature.dirty_update(&sequence, &inference_params);
+    let _ = feature.infer(&sequence, &inference_params, 0);
     feature.cleanup()?;
     Ok(feature)
+}
+
+fn insert_in_order(v: &Vec<(f64, EventVDJ)>, elem: (f64, EventVDJ)) -> Vec<(f64, EventVDJ)> {
+    let pos =
+        v.binary_search_by(|(f, _)| f.partial_cmp(&elem.0).unwrap_or(std::cmp::Ordering::Less));
+    let index = match pos {
+        Ok(i) | Err(i) => i,
+    };
+    let mut vcloned = v.clone();
+    vcloned.insert(index, elem);
+    vcloned
 }
