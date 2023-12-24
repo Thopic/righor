@@ -1,14 +1,15 @@
 #![allow(unused_imports)] //TODO REMOVE
 #![allow(dead_code)]
 mod feature;
+mod inference;
 mod model;
 mod parser;
 mod sequence;
 mod utils;
 mod utils_sequences;
 
-use feature::{InferenceParams, MarginalsVDJ};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use inference::{FeaturesVDJ, InferenceParameters};
 use model::{ModelVDJ, ModelVJ};
 use parser::{ParserMarginals, ParserParams};
 use rand::rngs::SmallRng;
@@ -22,10 +23,10 @@ use utils_sequences::{AlignmentParameters, Dna};
 
 fn main() -> io::Result<()> {
     let model = ModelVDJ::load_model(
-        Path::new("models/human_T_beta/model_params.txt"),
-        Path::new("models/human_T_beta/model_marginals.txt"),
-        Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
-        Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
+        Path::new("tests/models/onegene/model_params.txt"),
+        Path::new("tests/models/onegene/model_marginals.txt"),
+        Path::new("tests/models/onegene/V_gene_CDR3_anchors.csv"),
+        Path::new("tests/models/onegene/J_gene_CDR3_anchors.csv"),
     )
     .unwrap();
 
@@ -44,31 +45,36 @@ fn main() -> io::Result<()> {
     // let nt_seq = Dna::from_string("TCAGAACCCAGGGACTCAGCTGTGTATTTTTGTGCTAGTGGTTTGGTACAATCAGCCCCA");
 
     let align_params = AlignmentParameters {
-        min_score_v: -50,
-        min_score_j: -50,
-        max_error_v: 10,
-        max_error_j: 10,
-        max_error_d: 10,
+        min_score_v: 40,
+        min_score_j: 10,
+        max_error_d: 30,
     };
 
-    let infer_params = InferenceParams {
+    let infer_params = InferenceParameters {
         nb_rounds_em: 3,
-        min_likelihood: 1e-30,
+        min_likelihood: 1e-40,
+        min_likelihood_error: 1e-60,
     };
 
     // Specify the file path
-    let path = Path::new("demo/murugan_naive1_noncoding_demo_seqs.txt");
+    let path = Path::new("tests/models/seq_onegene.txt");
 
     // Open the file
-    let file = File::open(&path)?;
+    let file = File::open(path)?;
     let file_size = file.metadata()?.len();
 
     // Create a progress bar
     let pb = ProgressBar::new(file_size);
-    pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-		 .unwrap()
-		 .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
-        .progress_chars("#>-"));
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:7}/{len:7} ({eta})",
+        )
+        .unwrap()
+        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+            write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
+        })
+        .progress_chars("#>-"),
+    );
 
     // Create a buffered reader
     let reader = io::BufReader::new(file);
@@ -79,24 +85,27 @@ fn main() -> io::Result<()> {
     for line in reader.lines() {
         match line {
             Ok(ln) => {
-                sequences.push(SequenceVDJ::align_sequence(
-                    Dna::from_string(&ln),
-                    &model,
-                    &align_params,
-                ));
+                sequences.push(
+                    SequenceVDJ::align_sequence(
+                        Dna::from_string(&ln).unwrap(),
+                        &model,
+                        &align_params,
+                    )
+                    .unwrap(),
+                );
                 pb.inc(ln.len() as u64);
             }
-            Err(e) => println!("Error reading line: {}", e),
+            Err(e) => println!("Error reading line: {e}"),
         }
     }
     pb.finish_with_message("Reading complete");
+    println!("{:?}", sequences[0]);
 
-    let mut margs = MarginalsVDJ::new(&model).unwrap();
-    println!("{:?}", margs.marginals);
-    let _ = margs.expectation_maximization(&sequences, &infer_params);
-    println!("{:?}", margs.marginals);
-
+    //    let margs = FeaturesVDJ::new(&model, &infer_params).unwrap();
+    //    println!("{:?}", margs);
+    println!("Expectation-Maximization");
+    //    let margs_new = expectation_maximization(&margs, &sequences, &infer_params);
+    //println!("{:?}", margs_new.unwrap());
+    // println!("{:?}", margs);
     Ok(())
-    // let seq = SequenceVDJ::align_sequence(nt_seq, &model, &align_params);
-    // // println!("{:?}", seq.v_genes);
 }

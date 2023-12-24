@@ -1,6 +1,9 @@
 // Define DNA and AminoAcid structure + basic operations on the sequences
+use anyhow::{anyhow, Result};
 use bio::alignment::{pairwise, Alignment};
 use phf::phf_map;
+use pyo3::prelude::*;
+use std::fmt;
 
 static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
     "TTT" => b'F', "TTC" => b'F', "TTA" => b'L', "TTG" => b'L', "TCT" => b'S', "TCC" => b'S',
@@ -19,32 +22,49 @@ static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
 // The standard ACGT nucleotides
 pub const NUCLEOTIDES: [u8; 4] = [b'A', b'C', b'G', b'T'];
 pub static NUCLEOTIDES_INV: phf::Map<u8, usize> = phf_map! {
-    b'A' => 0, b'T' => 3, b'G' => 2, b'C' => 1
+    b'A' => 0, b'T' => 3, b'G' => 2, b'C' => 1, b'N' => 4,
 };
 
 static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
-    b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G'
+    b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G', b'N' => b'N',
 };
 
-#[derive(Default, Clone, Debug)]
+#[pyclass(get_all, set_all)]
 pub struct AlignmentParameters {
     // Structure containing all the parameters for the alignment
     // of the V and J genes
     pub min_score_v: i32,
     pub min_score_j: i32,
-    pub max_error_v: usize,
-    pub max_error_j: usize,
     pub max_error_d: usize,
+}
+
+#[pymethods]
+impl AlignmentParameters {
+    #[new]
+    pub fn new(min_score_v: i32, min_score_j: i32, max_error_d: usize) -> Self {
+        Self {
+            min_score_v,
+            min_score_j,
+            max_error_d,
+        }
+    }
 }
 
 impl AlignmentParameters {
     fn get_scoring(&self) -> pairwise::Scoring<Box<dyn Fn(u8, u8) -> i32>> {
-        // these parameters are a bit ad hoc
-        // TODO: take into account the fuzzy alignment on the right
         pairwise::Scoring {
-            gap_open: -30,
+            gap_open: -50,
             gap_extend: -2,
-            match_fn: Box::new(|a: u8, b: u8| if a == b { 6i32 } else { -6i32 }), // TODO: deal better with possible IUPAC codes
+            // TODO: deal better with possible IUPAC codes
+            match_fn: Box::new(|a: u8, b: u8| {
+                if a == b {
+                    6i32
+                } else if (a == b'N') | (b == b'N') {
+                    0i32
+                } else {
+                    -6i32
+                }
+            }),
             match_scores: None,
             xclip_prefix: 0,
             xclip_suffix: pairwise::MIN_SCORE,
@@ -54,42 +74,66 @@ impl AlignmentParameters {
     }
 
     pub fn valid_v_alignment(&self, al: &Alignment) -> bool {
-        return al.score > self.min_score_v;
+        al.score > self.min_score_v
     }
 
     pub fn valid_j_alignment(&self, al: &Alignment) -> bool {
-        return al.score > self.min_score_j;
+        al.score > self.min_score_j
     }
 }
 
+#[pyclass(get_all, set_all)]
 #[derive(Default, Clone, Debug)]
 pub struct Dna {
     pub seq: Vec<u8>,
 }
 
+#[pyclass(get_all, set_all)]
 #[derive(Default, Clone, Debug)]
 pub struct AminoAcid {
     pub seq: Vec<u8>,
 }
 
+impl fmt::Display for Dna {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", String::from_utf8_lossy(&self.seq))
+    }
+}
+
+impl fmt::Display for AminoAcid {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", String::from_utf8_lossy(&self.seq))
+    }
+}
+
+#[pymethods]
 impl Dna {
+    #[new]
     pub fn new() -> Dna {
         Dna { seq: Vec::new() }
     }
 
-    pub fn from_string(s: &str) -> Dna {
-        return Dna {
+    #[staticmethod]
+    pub fn from_string(s: &str) -> Result<Dna> {
+        for &byte in s.as_bytes() {
+            if !NUCLEOTIDES_INV.contains_key(&byte) {
+                // Handle the error if the byte is not in the map
+                return Err(anyhow!(format!("Invalid byte: {}", byte)));
+            }
+        }
+
+        Ok(Dna {
             seq: s.as_bytes().to_vec(),
-        };
+        })
     }
 
-    pub fn to_string(&self) -> String {
-        return String::from_utf8_lossy(&self.seq).to_string();
+    pub fn get_string(&self) -> String {
+        self.to_string()
     }
 
-    pub fn translate(&self) -> Result<AminoAcid, &'static str> {
+    pub fn translate(&self) -> Result<AminoAcid> {
         if self.seq.len() % 3 != 0 {
-            return Err("Translation not possible, invalid length.");
+            return Err(anyhow!("Translation not possible, invalid length."))?;
         }
 
         let amino_sequence: Vec<u8> = self
@@ -104,6 +148,25 @@ impl Dna {
             seq: amino_sequence,
         })
     }
+
+    pub fn len(&self) -> usize {
+        self.seq.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.seq.is_empty()
+    }
+
+    pub fn extend(&mut self, dna: &Dna) {
+        self.seq.extend(dna.seq.iter());
+    }
+
+    pub fn reverse(&mut self) {
+        self.seq.reverse();
+    }
+}
+
+impl Dna {
     pub fn reverse_complement(&self) -> Dna {
         Dna {
             seq: self
@@ -116,21 +179,31 @@ impl Dna {
     }
 
     pub fn extract_subsequence(&self, start: usize, end: usize) -> Dna {
+        // Return dna[start:end]
         Dna {
             seq: self.seq[start..end].to_vec(),
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.seq.len()
-    }
+    pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> Dna {
+        // Return dna[start:end] but padded with N if start < 0 or end >= dna.len()
+        let mut result = Vec::new();
+        // Handle negative start index
+        if start < 0 {
+            result.extend(vec![b'N'; start.unsigned_abs() as usize]);
+        }
+        // Calculate the valid start and end indices
+        let valid_start = std::cmp::max(0, start) as usize;
+        let valid_end = std::cmp::min(self.len(), end as usize);
 
-    pub fn extend(&mut self, dna: &Dna) {
-        self.seq.extend(dna.seq.iter());
-    }
+        // Extract the valid subsequence
+        result.extend_from_slice(&self.seq[valid_start..valid_end]);
 
-    pub fn reverse(&mut self) {
-        self.seq.reverse();
+        // Handle end index beyond the array length
+        if end as usize > self.len() {
+            result.extend(vec![b'N'; end as usize - self.len()]);
+        }
+        Dna { seq: result }
     }
 
     pub fn align_left_right(
@@ -139,12 +212,14 @@ impl Dna {
         align_params: &AlignmentParameters,
     ) -> Alignment {
         // Align two sequences with this format
-        // ACATCCCACCATTCA
-        //         CCATGACTCATGAC
+        // sleft  : ACATCCCACCATTCA
+        // sright :         CCATGACTCATGAC
 
-        let scoring = align_params.get_scoring();
-        let mut aligner =
-            pairwise::Aligner::with_capacity_and_scoring(sleft.len(), sright.len(), scoring);
+        let mut aligner = pairwise::Aligner::with_capacity_and_scoring(
+            sleft.len(),
+            sright.len(),
+            align_params.get_scoring(),
+        );
 
         aligner.custom(sleft.seq.as_slice(), sright.seq.as_slice())
     }
@@ -170,41 +245,31 @@ impl Dna {
     }
 }
 
+#[pymethods]
 impl AminoAcid {
+    #[staticmethod]
     pub fn from_string(s: &str) -> AminoAcid {
         return AminoAcid {
             seq: s.as_bytes().to_vec(),
         };
     }
-    pub fn to_string(&self) -> String {
-        return String::from_utf8_lossy(&self.seq).to_string();
-    }
 }
 
-// pub fn differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> Vec<usize> {
-//     vec1.iter()
-//         .zip(vec2.iter())
-//         .enumerate()
-//         .filter_map(|(index, (a, b))| if a != b { Some(index) } else { None })
-//         .collect()
-// }
-
-pub fn differences_remaining<T, I1, I2>(iter1: I1, iter2: I2) -> Vec<usize>
-where
-    T: PartialEq,
-    I1: IntoIterator<Item = T>,
-    I2: IntoIterator<Item = T>,
-{
+pub fn differences_remaining(
+    iter1: impl Iterator<Item = u8> + Clone,
+    iter2: impl Iterator<Item = u8> + Clone,
+    max_len: usize,
+) -> Vec<usize> {
     let mut diffs = Vec::new();
     let mut total_diff = iter1
-        .into_iter()
-        .zip(iter2)
+        .clone()
+        .zip(iter2.clone())
         .map(|(a, b)| {
-            if a != b {
-                1
-            } else {
+            if (a == b) | (a == b'N') | (b == b'N') {
                 0
-            };
+            } else {
+                1
+            }
         })
         .sum();
 
@@ -217,5 +282,18 @@ where
             total_diff -= 1;
         }
     }
+    diffs.push(total_diff);
     diffs
+}
+
+pub fn difference_as_i64(a: usize, b: usize) -> i64 {
+    if a >= b {
+        // don't check for overflow, trust the system
+        // assert!(a - b <= i64::MAX as usize, "Overflow occurred");
+        (a - b) as i64
+    } else {
+        // don't check for underflow either
+        // assert!(b - a <= i64::MAX as usize, "Underflow occurred");
+        -((b - a) as i64)
+    }
 }

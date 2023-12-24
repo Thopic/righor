@@ -1,10 +1,14 @@
 use crate::parser::{ParserMarginals, ParserParams};
-use crate::utils::{add_errors, DiscreteDistribution, Gene, MarkovDNA};
+use crate::utils::{
+    add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
+    DiscreteDistribution, Gene, MarkovDNA,
+};
 use crate::utils_sequences::{AminoAcid, Dna};
+use anyhow::{anyhow, Result};
 use duplicate::duplicate_item;
 use ndarray::{s, Array1, Array2, Array3, Axis};
+use pyo3::prelude::*;
 use rand::Rng;
-use std::error::Error;
 use std::path::Path;
 
 #[derive(Default, Clone, Debug)]
@@ -21,16 +25,22 @@ struct GenerativeVDJ {
     markov_dj: MarkovDNA,
 }
 
+#[pyclass]
 #[derive(Default, Clone, Debug)]
 pub struct ModelVDJ {
     // Sequence information
+    #[pyo3(get, set)]
     pub seg_vs: Vec<Gene>,
+    #[pyo3(get, set)]
     pub seg_js: Vec<Gene>,
+    #[pyo3(get, set)]
     pub seg_ds: Vec<Gene>,
 
     // V/J sequences trimmed at the CDR3 region (include F/W/C residues) with
     // the maximum number of reverse palindromic insertions appended.
+    #[pyo3(get, set)]
     seg_vs_sanitized: Vec<Dna>, // match genomic_data.cutV_genomic_CDR3_seqs
+    #[pyo3(get, set)]
     seg_js_sanitized: Vec<Dna>,
 
     // Probabilities of the different events
@@ -42,15 +52,21 @@ pub struct ModelVDJ {
     pub p_del_j_given_j: Array2<f64>,
     pub p_del_d3_del_d5: Array3<f64>,
     gen: GenerativeVDJ,
-    markov_coefficients_vd: Array2<f64>,
-    markov_coefficients_dj: Array2<f64>,
-    first_nt_bias_ins_vd: Array2<f64>,
-    first_nt_bias_ins_dj: Array2<f64>,
-    max_del_v: usize,
-    max_del_j: usize,
-    max_del_d3: usize,
-    max_del_d5: usize,
-    error_rate: f64,
+    pub markov_coefficients_vd: Array2<f64>,
+    pub markov_coefficients_dj: Array2<f64>,
+    pub first_nt_bias_ins_vd: Array1<f64>,
+    pub first_nt_bias_ins_dj: Array1<f64>,
+    #[pyo3(get, set)]
+    pub max_del_v: usize,
+    #[pyo3(get, set)]
+    pub max_del_j: usize,
+    #[pyo3(get, set)]
+    pub max_del_d3: usize,
+    #[pyo3(get, set)]
+    pub max_del_d5: usize,
+    #[pyo3(get, set)]
+    pub error_rate: f64,
+    #[pyo3(get, set)]
     thymic_q: f64,
 }
 
@@ -65,16 +81,21 @@ struct GenerativeVJ {
     markov_vj: MarkovDNA,
 }
 
+#[pyclass]
 #[derive(Default, Clone, Debug)]
 pub struct ModelVJ {
     // Sequence information
-    seg_vs: Vec<Gene>,
-    seg_js: Vec<Gene>,
+    #[pyo3(get, set)]
+    pub seg_vs: Vec<Gene>,
+    #[pyo3(get, set)]
+    pub seg_js: Vec<Gene>,
 
     // V/J nucleotides sequences trimmed at the CDR3 region (include F/W/C residues) with
     // the maximum number of reverse palindromic insertions appended.
+    #[pyo3(get, set)]
     pub seg_vs_sanitized: Vec<Dna>, // match genomic_data.cutV_genomic_CDR3_seqs
-    seg_js_sanitized: Vec<Dna>,
+    #[pyo3(get, set)]
+    pub seg_js_sanitized: Vec<Dna>,
 
     // Probabilities of the different events
     pub p_v: Array1<f64>,
@@ -83,19 +104,23 @@ pub struct ModelVJ {
     pub p_del_v_given_v: Array2<f64>,
     pub p_del_j_given_j: Array2<f64>,
     gen: GenerativeVJ,
-    markov_coefficients_vj: Array2<f64>,
-    first_nt_bias_ins_vj: Array2<f64>,
-    max_del_v: usize,
-    max_del_j: usize,
-    error_rate: f64,
-    thymic_q: f64,
+    pub markov_coefficients_vj: Array2<f64>,
+    pub first_nt_bias_ins_vj: Array1<f64>,
+    #[pyo3(get, set)]
+    pub max_del_v: usize,
+    #[pyo3(get, set)]
+    pub max_del_j: usize,
+    #[pyo3(get, set)]
+    pub error_rate: f64,
+    #[pyo3(get, set)]
+    pub thymic_q: f64,
 }
 
 #[duplicate_item(model; [ModelVDJ]; [ModelVJ])]
 impl model {
     pub fn recreate_full_sequence(
         &self,
-        dna: Dna,
+        dna: &Dna,
         v_index: usize,
         j_index: usize,
     ) -> (Dna, String, String) {
@@ -104,7 +129,7 @@ impl model {
         let vgene = self.seg_vs[v_index].clone();
         let jgene = self.seg_js[j_index].clone();
         seq.extend(&vgene.seq.extract_subsequence(0, vgene.cdr3_pos.unwrap()));
-        seq.extend(&dna);
+        seq.extend(dna);
         seq.extend(
             &jgene
                 .seq
@@ -120,7 +145,7 @@ impl ModelVDJ {
         path_marginals: &Path,
         path_anchor_vgene: &Path,
         path_anchor_jgene: &Path,
-    ) -> Result<ModelVDJ, Box<dyn Error>> {
+    ) -> Result<ModelVDJ> {
         let mut model: ModelVDJ = Default::default();
         let pm: ParserMarginals = ParserMarginals::parse(path_marginals)?;
         let mut pp: ParserParams = ParserParams::parse(path_params)?;
@@ -130,60 +155,91 @@ impl ModelVDJ {
         model.seg_vs = pp
             .params
             .get("v_choice")
-            .ok_or("Error with unwrapping the Params data")?
+            .ok_or(anyhow!("Error with unwrapping the Params data"))?
             .clone()
             .to_genes()?;
         model.seg_js = pp
             .params
             .get("j_choice")
-            .ok_or("Error with unwrapping the Params data")?
+            .ok_or(anyhow!("Error with unwrapping the Params data"))?
             .clone()
             .to_genes()?;
         model.seg_ds = pp
             .params
             .get("d_gene")
-            .ok_or("Error with unwrapping the Params data")?
+            .ok_or(anyhow!("Error with unwrapping the Params data"))?
             .clone()
             .to_genes()?;
 
-        let mindelv = pp
+        let arrdelv = pp
             .params
             .get("v_3_del")
-            .ok_or("Invalid v_3_del")?
+            .ok_or(anyhow!("Invalid v_3_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_v = (-mindelv.iter().min().ok_or("Empty v_3_del")?)
+        model.max_del_v = (-arrdelv.iter().min().ok_or(anyhow!("Empty v_3_del"))?)
             .try_into()
-            .map_err(|_e| "Invalid v_3_del")?;
-        let mindelj = pp
+            .map_err(|_e| anyhow!("Invalid v_3_del"))?;
+        let arrdelj = pp
             .params
             .get("j_5_del")
-            .ok_or("Invalid j_5_del")?
+            .ok_or(anyhow!("Invalid j_5_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_j = (-mindelj.iter().min().ok_or("Empty j_5_del")?)
+        model.max_del_j = (-arrdelj.iter().min().ok_or(anyhow!("Empty j_5_del"))?)
             .try_into()
-            .map_err(|_e| "Invalid j_5_del")?;
-        let mindel3 = pp
+            .map_err(|_e| anyhow!("Invalid j_5_del"))?;
+        let arrdeld3 = pp
             .params
             .get("d_3_del")
-            .ok_or("Invalid d_3_del")?
+            .ok_or(anyhow!("Invalid d_3_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_d3 = (-mindel3.iter().min().ok_or("Empty d_3_del")?)
+        model.max_del_d3 = (-arrdeld3.iter().min().ok_or(anyhow!("Empty d_3_del"))?)
             .try_into()
-            .map_err(|_e| "Invalid d_3_del")?;
-        let mindel5 = pp
+            .map_err(|_e| anyhow!("Invalid d_3_del"))?;
+        let arrdeld5 = pp
             .params
             .get("d_5_del")
-            .ok_or("Invalid d_5_del")?
+            .ok_or(anyhow!("Invalid d_5_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_d5 = (-mindel5.iter().min().ok_or("Empty d_5_del")?)
+        model.max_del_d5 = (-arrdeld5.iter().min().ok_or(anyhow!("Empty d_5_del"))?)
             .try_into()
-            .map_err(|_e| "Invalid d_5_del")?;
+            .map_err(|_e| anyhow!("Invalid d_5_del"))?;
 
         model.sanitize_genes()?;
+
+        if !(sorted_and_complete(arrdelv)
+            & sorted_and_complete(arrdelj)
+            & sorted_and_complete(arrdeld3)
+            & sorted_and_complete(arrdeld5)
+            & sorted_and_complete_0start(
+                pp.params
+                    .get("vd_ins")
+                    .ok_or(anyhow!("Invalid vd_ins"))?
+                    .clone()
+                    .to_numbers()?,
+            )
+            & sorted_and_complete_0start(
+                pp.params
+                    .get("dj_ins")
+                    .ok_or(anyhow!("Invalid dj_ins"))?
+                    .clone()
+                    .to_numbers()?,
+            ))
+        {
+            return Err(anyhow!(
+                "The number of insertion or deletion in the model parameters should\
+			be sorted and should not contain missing value. E.g.:\n\
+			%0;0\n\
+			%12;1\n\
+			or: \n\
+			%0;1\n\
+			%1;0\n\
+			will both result in this error."
+            ));
+        }
 
         // Set the different probabilities for the model
         model.p_v = pm
@@ -207,7 +263,7 @@ impl ModelVDJ {
                 model.p_dj[[dd, jj]] = pd[[jj, dd]] * pj[[jj]]
             }
         }
-        // TODO: check that the arrays of numbers are sorted and that they contain all the values
+
         model.p_ins_vd = pm
             .marginals
             .get("vd_ins")
@@ -268,7 +324,7 @@ impl ModelVDJ {
             .probabilities
             .clone()
             .into_shape((4, 4))
-            .map_err(|_e| "Wrong size for vd_dinucl")?;
+            .map_err(|_e| anyhow!("Wrong size for vd_dinucl"))?;
         model.markov_coefficients_dj = pm
             .marginals
             .get("dj_dinucl")
@@ -276,9 +332,13 @@ impl ModelVDJ {
             .probabilities
             .clone()
             .into_shape((4, 4))
-            .map_err(|_e| "Wrong size for dj_dinucl")?;
+            .map_err(|_e| anyhow!("Wrong size for dj_dinucl"))?;
 
-        // TODO: Need to deal with potential first nt bias
+        // TODO: Need to deal with potential first nt bias in the file
+        model.first_nt_bias_ins_vd =
+            Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_vd)?);
+        model.first_nt_bias_ins_dj =
+            Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_dj)?);
 
         // generative model
         model.initialize_generative_model()?;
@@ -287,8 +347,10 @@ impl ModelVDJ {
         model.thymic_q = 9.41; // TODO: deal with this
         Ok(model)
     }
+}
 
-    fn sanitize_genes(&mut self) -> Result<(), Box<dyn Error>> {
+impl ModelVDJ {
+    fn sanitize_genes(&mut self) -> Result<()> {
         // Trim the V/J nucleotides sequences at the CDR3 region (include F/W/C residues)
         // and append the maximum number of reverse palindromic insertions appended.
 
@@ -309,7 +371,7 @@ impl ModelVDJ {
         Ok(())
     }
 
-    fn initialize_generative_model(&mut self) -> Result<(), Box<dyn Error>> {
+    fn initialize_generative_model(&mut self) -> Result<()> {
         self.gen.d_v = DiscreteDistribution::new(self.p_v.to_vec())?;
         self.gen.d_dj = DiscreteDistribution::new(self.p_dj.view().iter().cloned().collect())?;
         self.gen.d_ins_vd = DiscreteDistribution::new(self.p_ins_vd.to_vec())?;
@@ -359,7 +421,7 @@ impl ModelVDJ {
             let j_index: usize = dj_index % self.p_dj.dim().1;
 
             let seq_v: &Dna = &self.seg_vs_sanitized[v_index];
-            let seq_d: &Dna = &self.seg_ds[d_index].seq_with_pal.as_ref().unwrap();
+            let seq_d: &Dna = self.seg_ds[d_index].seq_with_pal.as_ref().unwrap();
             let seq_j: &Dna = &self.seg_js_sanitized[j_index];
 
             let del_v: usize = self.gen.d_del_v_given_v[v_index].generate(rng);
@@ -429,7 +491,7 @@ impl ModelVJ {
         path_marginals: &Path,
         path_anchor_vgene: &Path,
         path_anchor_jgene: &Path,
-    ) -> Result<ModelVJ, Box<dyn Error>> {
+    ) -> Result<ModelVJ> {
         let mut model: ModelVJ = Default::default();
         let pm: ParserMarginals = ParserMarginals::parse(path_marginals)?;
         let mut pp: ParserParams = ParserParams::parse(path_params)?;
@@ -439,36 +501,58 @@ impl ModelVJ {
         model.seg_vs = pp
             .params
             .get("v_choice")
-            .ok_or("Error with unwrapping the Params data")?
+            .ok_or(anyhow!("Error with unwrapping the Params data"))?
             .clone()
             .to_genes()?;
         model.seg_js = pp
             .params
             .get("j_choice")
-            .ok_or("Error with unwrapping the Params data")?
+            .ok_or(anyhow!("Error with unwrapping the Params data"))?
             .clone()
             .to_genes()?;
 
-        let mindelv = pp
+        let arrdelv = pp
             .params
             .get("v_3_del")
-            .ok_or("Invalid v_3_del")?
+            .ok_or(anyhow!("Invalid v_3_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_v = (-mindelv.iter().min().ok_or("Empty v_3_del")?)
+        model.max_del_v = (-arrdelv.iter().min().ok_or(anyhow!("Empty v_3_del"))?)
             .try_into()
-            .map_err(|_e| "Invalid v_3_del")?;
-        let mindelj = pp
+            .map_err(|_e| anyhow!("Invalid v_3_del"))?;
+        let arrdelj = pp
             .params
             .get("j_5_del")
-            .ok_or("Invalid j_5_del")?
+            .ok_or(anyhow!("Invalid j_5_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_j = (-mindelj.iter().min().ok_or("Empty j_5_del")?)
+        model.max_del_j = (-arrdelj.iter().min().ok_or(anyhow!("Empty j_5_del"))?)
             .try_into()
-            .map_err(|_e| "Invalid j_5_del")?;
+            .map_err(|_e| anyhow!("Invalid j_5_del"))?;
 
         model.sanitize_genes()?;
+
+        if !(sorted_and_complete(arrdelv)
+            & sorted_and_complete(arrdelj)
+            & sorted_and_complete_0start(
+                pp.params
+                    .get("vj_ins")
+                    .ok_or(anyhow!("Invalid vj_ins"))?
+                    .clone()
+                    .to_numbers()?,
+            ))
+        {
+            return Err(anyhow!(
+                "The number of insertion or deletion in the model parameters should\
+			be sorted and should not contain missing value. E.g.:\n\
+			%0;0\n\
+			%12;1\n\
+			or: \n\
+			%0;1\n\
+			%1;0\n\
+			will both result in this error."
+            ));
+        }
 
         // Set the different probabilities for the model
         model.p_v = pm
@@ -510,7 +594,6 @@ impl ModelVJ {
             .t()
             .to_owned();
 
-        // TODO: check that the arrays of numbers are sorted and that they contain all the values
         model.p_ins_vj = pm
             .marginals
             .get("vj_ins")
@@ -528,7 +611,7 @@ impl ModelVJ {
             .probabilities
             .clone()
             .into_shape((4, 4))
-            .map_err(|_e| "Wrong size for vj_dinucl")?;
+            .map_err(|_e| anyhow!("Wrong size for vj_dinucl"))?;
 
         // TODO: Need to deal with potential first nt bias
 
@@ -540,7 +623,7 @@ impl ModelVJ {
         Ok(model)
     }
 
-    fn sanitize_genes(&mut self) -> Result<(), Box<dyn Error>> {
+    fn sanitize_genes(&mut self) -> Result<()> {
         // Trim the V/J nucleotides sequences at the CDR3 region (include F/W/C residues)
         // and append the maximum number of reverse palindromic insertions appended.
         // Add the palindromic insertions
@@ -557,7 +640,7 @@ impl ModelVJ {
         Ok(())
     }
 
-    fn initialize_generative_model(&mut self) -> Result<(), Box<dyn Error>> {
+    fn initialize_generative_model(&mut self) -> Result<()> {
         self.gen.d_v = DiscreteDistribution::new(self.p_v.to_vec())?;
         self.gen.d_ins_vj = DiscreteDistribution::new(self.p_ins_vj.to_vec())?;
 
@@ -646,7 +729,7 @@ impl ModelVJ {
     }
 }
 
-fn sanitize_v(genes: Vec<Gene>) -> Result<Vec<Dna>, Box<dyn Error>> {
+fn sanitize_v(genes: Vec<Gene>) -> Result<Vec<Dna>> {
     // Add palindromic inserted nucleotides to germline V sequences and cut all
     // sequences to only keep their CDR3 parts
     let mut cut_genes = Vec::<Dna>::new();
@@ -659,7 +742,9 @@ fn sanitize_v(genes: Vec<Gene>) -> Result<Vec<Dna>, Box<dyn Error>> {
             continue;
         }
 
-        let gene_seq: Dna = g.seq_with_pal.ok_or("Palindromic sequences not created")?;
+        let gene_seq: Dna = g
+            .seq_with_pal
+            .ok_or(anyhow!("Palindromic sequences not created"))?;
 
         let cut_gene: Dna = Dna {
             seq: gene_seq.seq[g.cdr3_pos.unwrap()..].to_vec(),
@@ -669,12 +754,14 @@ fn sanitize_v(genes: Vec<Gene>) -> Result<Vec<Dna>, Box<dyn Error>> {
     Ok(cut_genes)
 }
 
-fn sanitize_j(genes: Vec<Gene>, max_del_j: usize) -> Result<Vec<Dna>, Box<dyn Error>> {
+fn sanitize_j(genes: Vec<Gene>, max_del_j: usize) -> Result<Vec<Dna>> {
     // Add palindromic inserted nucleotides to germline J sequences and cut all
     // sequences to only keep their CDR3 parts
     let mut cut_genes = Vec::<Dna>::new();
     for g in genes {
-        let gene_seq: Dna = g.seq_with_pal.ok_or("Palindromic sequences not created")?;
+        let gene_seq: Dna = g
+            .seq_with_pal
+            .ok_or(anyhow!("Palindromic sequences not created"))?;
 
         // for J, we want to also add the last CDR3 amino-acid (F/W)
         let cut_gene: Dna = Dna {

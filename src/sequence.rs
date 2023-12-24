@@ -1,9 +1,22 @@
 // Align the sequence to V & J genes
 
 use crate::model::ModelVDJ;
-use crate::utils::Gene;
-use crate::utils_sequences::{differences, AlignmentParameters, Dna};
+use crate::utils_sequences::{difference_as_i64, differences_remaining, AlignmentParameters, Dna};
+use anyhow::{anyhow, Result};
+use pyo3::prelude::*;
+use std::cmp;
 
+pub struct EventVDJ<'a> {
+    pub v: &'a VJAlignment,
+    pub j: &'a VJAlignment,
+    pub d: &'a DAlignment,
+    pub delv: usize,
+    pub delj: usize,
+    pub deld3: usize,
+    pub deld5: usize,
+}
+
+#[pyclass(get_all, set_all)]
 #[derive(Default, Clone, Debug)]
 pub struct VJAlignment {
     // Structure containing the alignment between a V/J gene and the sequence
@@ -29,6 +42,20 @@ pub struct VJAlignment {
     pub errors: Vec<usize>,
 }
 
+#[pymethods]
+impl VJAlignment {
+    pub fn nb_errors(&self, del: usize) -> usize {
+        if del >= self.errors.len() {
+            return match self.errors.last() {
+                None => 0,
+                Some(l) => *l,
+            };
+        }
+        self.errors[del]
+    }
+}
+
+#[pyclass(get_all, set_all)]
 #[derive(Default, Clone, Debug)]
 pub struct DAlignment {
     // Structure containing the alignment between a D gene and the sequence
@@ -44,12 +71,13 @@ pub struct DAlignment {
     // errors_left:  [4,4,3,3,3,3,2,2,2,1,1]
     // errors_right: [4,3,3,2,2,2,1,1,1,1,0]
     pub index: usize,
-    pub len_d: usize, // length of the D gene
-    pub pos: usize,   // begining of the D-gene in the sequence (can't be < 0)
+    len_d: usize,   // length of the D gene
+    pub pos: usize, // begining of the D-gene in the sequence (can't be < 0)
     pub errors_left: Vec<usize>,
     pub errors_right: Vec<usize>,
 }
 
+#[pyclass(get_all, set_all)]
 #[derive(Default, Clone, Debug)]
 pub struct SequenceVDJ {
     pub sequence: Dna,
@@ -59,45 +87,68 @@ pub struct SequenceVDJ {
     pub d_genes: Vec<DAlignment>,
 }
 
+#[pymethods]
+impl DAlignment {
+    pub fn nb_errors(&self, deld3: usize, deld5: usize) -> usize {
+        self.errors_left[deld5] + self.errors_right[deld3]
+    }
+    pub fn len(&self) -> usize {
+        self.len_d
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len_d == 0
+    }
+}
+
+#[pymethods]
 impl SequenceVDJ {
+    #[staticmethod]
     pub fn align_sequence(
-        seq: Dna,
+        dna_seq: Dna,
         model: &ModelVDJ,
         align_params: &AlignmentParameters,
-    ) -> SequenceVDJ {
+    ) -> Result<SequenceVDJ> {
         let mut seq = SequenceVDJ {
-            sequence: seq.clone(),
-            v_genes: align_all_vgenes(&seq, model, align_params),
-            j_genes: align_all_jgenes(&seq, model, align_params),
+            sequence: dna_seq.clone(),
+            v_genes: align_all_vgenes(&dna_seq, model, align_params),
+            j_genes: align_all_jgenes(&dna_seq, model, align_params),
             d_genes: Vec::new(),
         };
+
+        // if we don't have v genes, don't try inferring the d gene
+        if (seq.v_genes.is_empty()) | (seq.j_genes.is_empty()) {
+            return Ok(seq);
+        }
+
         // roughly estimate bounds for the position of d
+        // TODO: not great, improve on that
         let left_bound = seq
             .v_genes
             .iter()
-            .map(|v| v.end_seq - model.max_del_v)
-            .min();
+            .map(|v| {
+                if v.end_seq > model.max_del_v {
+                    v.end_seq - model.max_del_v
+                } else {
+                    0
+                }
+            })
+            .min()
+            .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
         let right_bound = seq
             .j_genes
             .iter()
-            .map(|v| j.start_seq + model.max_del_j)
-            .max();
+            .map(|j| cmp::min(j.start_seq + model.max_del_j, dna_seq.len()))
+            .max()
+            .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
 
         // initialize all the d genes positions
-        seq.d_genes = align_all_dgenes(&seq, model, left_bound, right_bound, align_params);
-        seq
+        seq.d_genes = align_all_dgenes(&dna_seq, model, left_bound, right_bound, align_params);
+        Ok(seq)
     }
+}
 
-    pub fn get_insertions_vd_dj(
-        &self,
-        v: &VJAlignment,
-        delv: usize,
-        d: &DAlignment,
-        deld3: usize,
-        deld5: usize,
-        j: &VJAlignment,
-        delj: usize,
-    ) -> (Dna, Dna) {
+impl SequenceVDJ {
+    pub fn get_insertions_vd_dj(&self, e: EventVDJ) -> (Dna, Dna) {
         // seq         :          SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
         // V-gene      : VVVVVVVVVVVVVVVVVVVV
         // del V-gene  :                   xx
@@ -112,14 +163,25 @@ impl SequenceVDJ {
         // go to d + deld5
         // the second insertion starts at d + len(d) - deld3 then
         // go to j + delj
-        let dgene_len = d.gene.seq_with_pal.as_ref().unwrap().len();
-        let start_insvd = v.end_gene - delv;
-        let end_insvd = d.pos + deld3;
-        let start_insdj = d.pos + dgene_len - deld5;
-        let end_insdj = j.start_gene + dgene_len + delj;
+        // in the situation where there's two much deletion and some insertion are undefined
+        // return N for the unknown sites, for ex
+        // seq         : SSSS
+        // J-gene      :   JJJJJJJJJ
+        // del J       :   xxxxx
+        // D           : D
+        // would return for insDJ: SSNNNNN
 
-        let insvd = self.sequence.extract_subsequence(start_insvd, end_insvd);
-        let insdj = self.sequence.extract_subsequence(start_insdj, end_insdj);
+        // this one can potentially be negative
+        let start_insvd = difference_as_i64(e.v.end_seq, e.delv);
+        let end_insvd = e.d.pos + e.deld5;
+        let start_insdj = e.d.pos + e.d.len() - e.deld3;
+        let end_insdj = e.j.start_seq + e.delj;
+        let insvd = self
+            .sequence
+            .extract_padded_subsequence(start_insvd, end_insvd as i64);
+        let insdj = self
+            .sequence
+            .extract_padded_subsequence(start_insdj as i64, end_insdj as i64);
         (insvd, insdj)
     }
 }
@@ -132,7 +194,7 @@ fn align_all_vgenes(
     let mut v_genes: Vec<VJAlignment> = Vec::new();
     for (indexv, v) in model.seg_vs.iter().enumerate() {
         let palv = v.seq_with_pal.as_ref().unwrap();
-        let alignment = Dna::align_left_right(&palv, &seq, align_params);
+        let alignment = Dna::align_left_right(palv, seq, align_params);
         if align_params.valid_v_alignment(&alignment) {
             v_genes.push(VJAlignment {
                 index: indexv,
@@ -141,9 +203,15 @@ fn align_all_vgenes(
                 start_seq: alignment.ystart,
                 end_seq: alignment.yend,
                 errors: differences_remaining(
-                    seq.seq[alignment.ystart..alignment.yend].iter().rev(),
-                    palv.seq[alignment.xstart..alignment.xend].iter().rev(),
-                    model.max_delv,
+                    seq.seq[alignment.ystart..alignment.yend]
+                        .iter()
+                        .rev()
+                        .copied(),
+                    palv.seq[alignment.xstart..alignment.xend]
+                        .iter()
+                        .rev()
+                        .copied(),
+                    model.max_del_v,
                 ),
             });
         }
@@ -159,7 +227,12 @@ fn align_all_jgenes(
     let mut j_aligns: Vec<VJAlignment> = Vec::new();
     for (indexj, j) in model.seg_js.iter().enumerate() {
         let palj = j.seq_with_pal.as_ref().unwrap();
-        let alignment = Dna::align_left_right(&seq, &palj, align_params);
+        let alignment = Dna::align_left_right(seq, palj, align_params);
+        // println!(
+        //     "{}",
+        //     alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 200)
+        // );
+        // println!("{:?}", alignment.score);
         if align_params.valid_j_alignment(&alignment) {
             j_aligns.push(VJAlignment {
                 index: indexj,
@@ -168,9 +241,9 @@ fn align_all_jgenes(
                 start_seq: alignment.xstart,
                 end_seq: alignment.xend,
                 errors: differences_remaining(
-                    seq.seq[alignment.xstart..].iter(),
-                    palj.seq.iter(),
-                    max_del_j,
+                    seq.seq[alignment.xstart..].iter().copied(),
+                    palj.seq.iter().copied(),
+                    model.max_del_j,
                 ),
             });
         }
@@ -195,21 +268,28 @@ fn align_all_dgenes(
     let mut daligns: Vec<DAlignment> = Vec::new();
     for (indexd, d) in model.seg_ds.iter().enumerate() {
         let dpal = d.seq_with_pal.as_ref().unwrap();
-        for pos in limit_5side..limit_3side - d.seq.len() {
+        for pos in limit_5side..=limit_3side - dpal.len() {
             let errors_left = differences_remaining(
-                seq.seq[pos..pos + dpal.len()].iter().rev(),
-                dpal.iter().rev(),
-                d.len(),
+                seq.seq[pos..pos + dpal.len()].iter().rev().copied(),
+                dpal.seq.iter().rev().copied(),
+                dpal.len(),
             );
-            let errors_right =
-                differences_remaining(seq.seq[pos..pos + dpal.len()].iter(), dpal.iter(), d.len());
+            let errors_right = differences_remaining(
+                seq.seq[pos..pos + dpal.len()].iter().copied(),
+                dpal.seq.iter().copied(),
+                dpal.len(),
+            );
+
+            if (!errors_left.is_empty()) & (errors_left[0] > align_params.max_error_d) {
+                continue;
+            }
 
             daligns.push(DAlignment {
                 index: indexd,
-                pos: pos,
+                pos,
                 len_d: dpal.len(),
-                errors_left: errors_left,
-                errors_right: errors_right,
+                errors_left,
+                errors_right,
             });
         }
     }

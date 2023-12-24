@@ -1,15 +1,17 @@
-use crate::utils_sequences::{Dna, NUCLEOTIDES, NUCLEOTIDES_INV};
+use crate::utils_sequences::{Dna, NUCLEOTIDES};
+use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3, Axis};
 use ndarray_linalg::Eig;
+use pyo3::prelude::*;
 use rand::distributions::{Distribution, Uniform};
 use rand::Rng;
 use rand_distr::WeightedAliasIndex;
-use std::error::Error;
 
 const EPSILON: f64 = 1e-10;
 
 // Define some storage wrapper for the V/D/J genes
 
+#[pyclass(get_all, set_all)]
 #[derive(Default, Clone, Debug)]
 pub struct Gene {
     pub name: String,
@@ -28,7 +30,7 @@ impl Gene {
         let mut seqpal: Vec<u8> = palindromic_extension_left
             .seq
             .into_iter()
-            .chain(self.seq.seq.clone().into_iter())
+            .chain(self.seq.seq.clone())
             .collect();
         let palindromic_extension_right = self
             .seq
@@ -51,20 +53,20 @@ pub struct DiscreteDistribution {
 }
 
 impl DiscreteDistribution {
-    pub fn new(weights: Vec<f64>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(weights: Vec<f64>) -> Result<Self> {
         if !weights.iter().all(|&x| x >= 0.) {
-            return Err("Error when creating distribution: negative weights")?;
+            return Err(anyhow!(
+                "Error when creating distribution: negative weights"
+            ))?;
         }
 
         let distribution = match weights.iter().sum::<f64>().abs() < 1e-10 {
 	    true => WeightedAliasIndex::new(vec![1.; weights.len()]) // when all the value are 0, all the values are equiprobable.
-		.map_err(|e| format!("Error when creating distribution: {}", e))?,
+		.map_err(|e| anyhow!(format!("Error when creating distribution: {}", e)))?,
 	    false => WeightedAliasIndex::new(weights)
-		.map_err(|e| format!("Error when creating distribution: {}", e))?
+		.map_err(|e| anyhow!(format!("Error when creating distribution: {}", e)))?
 	};
-        Ok(DiscreteDistribution {
-            distribution: distribution,
-        })
+        Ok(DiscreteDistribution { distribution })
     }
 
     pub fn generate<R: Rng>(&mut self, rng: &mut R) -> usize {
@@ -74,9 +76,9 @@ impl DiscreteDistribution {
 
 impl Default for DiscreteDistribution {
     fn default() -> Self {
-        return DiscreteDistribution {
+        DiscreteDistribution {
             distribution: WeightedAliasIndex::new(vec![1.]).unwrap(),
-        };
+        }
     }
 }
 
@@ -88,10 +90,7 @@ pub struct MarkovDNA {
 }
 
 impl MarkovDNA {
-    pub fn new(
-        transition_probs: Array2<f64>,
-        initial_probs: Option<Vec<f64>>,
-    ) -> Result<Self, Box<dyn Error>> {
+    pub fn new(transition_probs: Array2<f64>, initial_probs: Option<Vec<f64>>) -> Result<Self> {
         let mut transition_matrix = Vec::with_capacity(transition_probs.dim().0);
         for probs in transition_probs.axis_iter(Axis(0)) {
             transition_matrix.push(DiscreteDistribution::new(probs.to_vec())?);
@@ -125,10 +124,8 @@ impl MarkovDNA {
     }
 }
 
-pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64>, Box<dyn Error>> {
-    let (eig, eigv) = transition_matrix
-        .eig()
-        .map_err(|_| "Eigen decomposition failed")?;
+pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64>> {
+    let (eig, eigv) = transition_matrix.eig()?;
     for i in 0..4 {
         if (eig[i].re - 1.).abs() < 1e-6 {
             let col = eigv.column(i);
@@ -136,7 +133,7 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
             return Ok(col.mapv(|x| x.re / sum).to_vec());
         }
     }
-    Err("No suitable eigenvector found")?
+    Err(anyhow!("No suitable eigenvector found"))?
 }
 
 pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
@@ -151,16 +148,16 @@ pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
 }
 
 pub trait Normalize {
-    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self, Box<dyn Error>>
+    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self>
     where
         Self: Sized;
 }
 
 impl Normalize for Array1<f64> {
-    fn normalize_distribution(&self, _axis: Option<Axis>) -> Result<Self, Box<dyn Error>> {
+    fn normalize_distribution(&self, _axis: Option<Axis>) -> Result<Self> {
         if self.iter().any(|&x| x < 0.0) {
             // negative values mean something wrong happened
-            return Err("Array contains non-positive values".into());
+            return Err(anyhow!("Array contains non-positive values"));
         }
 
         let sum = self.sum();
@@ -174,9 +171,9 @@ impl Normalize for Array1<f64> {
 }
 
 impl Normalize for Array2<f64> {
-    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self, Box<dyn Error>> {
+    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self> {
         if self.iter().any(|&x| !x.is_finite()) {
-            return Err("Array contains non-positive or non-finite values".into());
+            return Err(anyhow!("Array contains non-positive or non-finite values"));
         }
 
         match axis {
@@ -191,17 +188,17 @@ impl Normalize for Array2<f64> {
                         slice.mapv_inplace(|x| x / sum);
                     }
                 }
-                return Ok(normalized);
+                Ok(normalized)
             }
-            None => return Err("Unspecified axis")?,
+            None => Err(anyhow!("Unspecified axis"))?,
         }
     }
 }
 
 impl Normalize for Array3<f64> {
-    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self, Box<dyn Error>> {
+    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self> {
         if self.iter().any(|&x| !x.is_finite()) {
-            return Err("Array contains non-positive or non-finite values".into());
+            return Err(anyhow!("Array contains non-positive or non-finite values"));
         }
 
         match axis {
@@ -216,9 +213,39 @@ impl Normalize for Array3<f64> {
                         slice.mapv_inplace(|x| x / sum);
                     }
                 }
-                return Ok(normalized);
+                Ok(normalized)
             }
-            None => return Err("Unspecified axis")?,
+            None => Err(anyhow!("Unspecified axis"))?,
         }
     }
+}
+
+pub fn sorted_and_complete(arr: Vec<i64>) -> bool {
+    // check that the array is sorted and equal to
+    // arr[0]..arr.last()
+    if arr.len() == 0 {
+        return true;
+    }
+    let mut b = arr[0];
+    for a in &arr[1..] {
+        if *a != b + 1 {
+            return false;
+        }
+        b = *a;
+    }
+    return true;
+}
+
+pub fn sorted_and_complete_0start(arr: Vec<i64>) -> bool {
+    // check that the array is sorted and equal to
+    // 0..arr.last()
+    if arr.len() == 0 {
+        return true;
+    }
+    for (ii, a) in arr.iter().enumerate() {
+        if *a != (ii as i64) {
+            return false;
+        }
+    }
+    return true;
 }
