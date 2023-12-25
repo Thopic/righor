@@ -29,10 +29,12 @@ pub struct StaticEventVDJ {
     pub d_start_seq: usize,
     pub deld3: usize,
     pub deld5: usize,
+    pub insvd: Dna,
+    pub insdj: Dna,
 }
 
 impl EventVDJ<'_> {
-    pub fn to_static(&self) -> StaticEventVDJ {
+    pub fn to_static(&self, insvd: Dna, insdj: Dna) -> StaticEventVDJ {
         StaticEventVDJ {
             v_index: self.v.index,
             v_start_gene: self.v.start_gene,
@@ -44,6 +46,8 @@ impl EventVDJ<'_> {
             d_start_seq: self.d.pos,
             deld3: self.deld3,
             deld5: self.deld5,
+            insvd,
+            insdj,
         }
     }
 }

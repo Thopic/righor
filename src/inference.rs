@@ -154,7 +154,10 @@ impl FeaturesVDJ {
                     if (best_events.len() < nb_best_events)
                         || (best_events.last().unwrap().0 < l_total)
                     {
-                        best_events = insert_in_order(best_events, (l_total, e.to_static()));
+                        best_events = insert_in_order(
+                            best_events,
+                            (l_total, e.to_static(insvd.clone(), insdj.clone())),
+                        );
                         best_events.truncate(nb_best_events);
                     }
                 }
