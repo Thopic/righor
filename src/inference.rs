@@ -1,6 +1,6 @@
 use crate::feature::*;
 use crate::model::ModelVDJ;
-use crate::sequence::{DAlignment, EventVDJ, SequenceVDJ, VJAlignment};
+use crate::sequence::{DAlignment, EventVDJ, SequenceVDJ, StaticEventVDJ, VJAlignment};
 use crate::utils_sequences::difference_as_i64;
 use anyhow::Result;
 use itertools::iproduct;
@@ -11,17 +11,15 @@ use pyo3::{pyclass, pyfunction, pymethods};
 pub struct InferenceParameters {
     pub min_likelihood_error: f64,
     pub min_likelihood: f64,
-    pub nb_rounds_em: usize,
 }
 
 #[pymethods]
 impl InferenceParameters {
     #[new]
-    pub fn new(min_likelihood_error: f64, min_likelihood: f64, nb_rounds_em: usize) -> Self {
+    pub fn new(min_likelihood_error: f64, min_likelihood: f64) -> Self {
         Self {
             min_likelihood_error,
             min_likelihood,
-            nb_rounds_em,
         }
     }
 }
@@ -29,16 +27,16 @@ impl InferenceParameters {
 #[derive(Default, Clone, Debug)]
 #[pyclass(get_all)]
 pub struct FeaturesVDJ {
-    v: CategoricalFeature1,
-    delv: CategoricalFeature1g1,
-    dj: CategoricalFeature2,
-    delj: CategoricalFeature1g1,
-    deld: CategoricalFeature2g1,
-    nb_insvd: CategoricalFeature1,
-    nb_insdj: CategoricalFeature1,
-    insvd: MarkovFeature,
-    insdj: MarkovFeature,
-    error: ErrorPoisson,
+    pub v: CategoricalFeature1,
+    pub delv: CategoricalFeature1g1,
+    pub dj: CategoricalFeature2,
+    pub delj: CategoricalFeature1g1,
+    pub deld: CategoricalFeature2g1,
+    pub nb_insvd: CategoricalFeature1,
+    pub nb_insdj: CategoricalFeature1,
+    pub insvd: MarkovFeature,
+    pub insdj: MarkovFeature,
+    pub error: ErrorPoisson,
 }
 
 impl FeaturesVDJ {
@@ -55,19 +53,6 @@ impl FeaturesVDJ {
             insdj: MarkovFeature::new(&model.first_nt_bias_ins_dj, &model.markov_coefficients_dj)?,
             error: ErrorPoisson::new(model.error_rate, inference_params.min_likelihood_error)?,
         })
-    }
-
-    pub fn update_model(&self, model: &mut ModelVDJ) {
-        model.p_v = self.v.probas.clone();
-        model.p_del_v_given_v = self.delv.probas.clone();
-        model.p_dj = self.dj.probas.clone();
-        model.p_del_j_given_j = self.delj.probas.clone();
-        model.p_del_d3_del_d5 = self.deld.probas.clone();
-        model.p_ins_vd = self.nb_insvd.probas.clone();
-        model.p_ins_dj = self.nb_insdj.probas.clone();
-        (model.first_nt_bias_ins_vd, model.markov_coefficients_vd) = self.insvd.get_parameters();
-        (model.first_nt_bias_ins_dj, model.markov_coefficients_dj) = self.insvd.get_parameters();
-        model.error_rate = self.error.error_rate;
     }
 
     // Return an iterator over V & delV
@@ -126,9 +111,9 @@ impl FeaturesVDJ {
         sequence: &SequenceVDJ,
         inference_params: &InferenceParameters,
         nb_best_events: usize,
-    ) -> (f64, Vec<(f64, EventVDJ)>) {
+    ) -> (f64, Vec<(f64, StaticEventVDJ)>) {
         let mut probability_generation: f64 = 0.;
-        let mut best_events = Vec::<(f64, EventVDJ)>::new();
+        let mut best_events = Vec::<(f64, StaticEventVDJ)>::new();
 
         // Update all the marginals
         for (v, delv) in self.range_v(sequence) {
@@ -155,15 +140,7 @@ impl FeaturesVDJ {
                 }
 
                 // extract both inserted sequences
-                let (insvd, insdj) = sequence.get_insertions_vd_dj(EventVDJ {
-                    v,
-                    j,
-                    d,
-                    delv,
-                    delj,
-                    deld3,
-                    deld5,
-                });
+                let (insvd, insdj) = sequence.get_insertions_vd_dj(&e);
 
                 l_total *= self.insvd.likelihood(&insvd);
                 l_total *= self.insdj.likelihood(&insdj);
@@ -173,12 +150,13 @@ impl FeaturesVDJ {
                     continue;
                 }
 
-                if (nb_best_events > 0)
-                    & ((best_events.len() < nb_best_events)
-                        | (best_events.last().unwrap.0 < l_total))
-                {
-                    best_events = insert_in_order(&best_events, (l_total, e));
-                    best_events.truncate(nb_best_events);
+                if nb_best_events > 0 {
+                    if (best_events.len() < nb_best_events)
+                        || (best_events.last().unwrap().0 < l_total)
+                    {
+                        best_events = insert_in_order(best_events, (l_total, e.to_static()));
+                        best_events.truncate(nb_best_events);
+                    }
                 }
                 probability_generation += l_total;
 
@@ -244,17 +222,45 @@ pub fn infer_features(
 ) -> Result<FeaturesVDJ> {
     let mut feature = FeaturesVDJ::new(&model, &inference_params)?;
     let _ = feature.infer(&sequence, &inference_params, 0);
-    feature.cleanup()?;
+    feature = feature.cleanup()?;
     Ok(feature)
 }
 
-fn insert_in_order(v: &Vec<(f64, EventVDJ)>, elem: (f64, EventVDJ)) -> Vec<(f64, EventVDJ)> {
-    let pos =
-        v.binary_search_by(|(f, _)| f.partial_cmp(&elem.0).unwrap_or(std::cmp::Ordering::Less));
+#[pyfunction]
+pub fn most_likely_recombinations(
+    nb_scenarios: usize,
+    sequence: SequenceVDJ,
+    model: ModelVDJ,
+    inference_params: InferenceParameters,
+) -> Result<Vec<(f64, StaticEventVDJ)>> {
+    let mut feature = FeaturesVDJ::new(&model, &inference_params)?;
+    let (_, res) = feature.infer(&sequence, &inference_params, nb_scenarios);
+    Ok(res)
+}
+
+#[pyfunction]
+pub fn pgen(
+    sequence: SequenceVDJ,
+    model: ModelVDJ,
+    inference_params: InferenceParameters,
+) -> Result<f64> {
+    let mut feature = FeaturesVDJ::new(&model, &inference_params)?;
+    let (pg, _) = feature.infer(&sequence, &inference_params, 0);
+    Ok(pg)
+}
+
+fn insert_in_order(
+    v: Vec<(f64, StaticEventVDJ)>,
+    elem: (f64, StaticEventVDJ),
+) -> Vec<(f64, StaticEventVDJ)> {
+    let pos = v.binary_search_by(|(f, _)| {
+        (-f).partial_cmp(&(-elem.0))
+            .unwrap_or(std::cmp::Ordering::Less)
+    });
     let index = match pos {
         Ok(i) | Err(i) => i,
     };
-    let mut vcloned = v.clone();
+    let mut vcloned: Vec<(f64, StaticEventVDJ)> = v.iter().cloned().collect();
     vcloned.insert(index, elem);
     vcloned
 }

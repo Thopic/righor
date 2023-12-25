@@ -5,6 +5,7 @@ use crate::feature::{
 
 use crate::model::{ModelVDJ, ModelVJ};
 use crate::utils_sequences::AminoAcid;
+use crate::FeaturesVDJ;
 use anyhow::Result;
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
 use pyo3::prelude::*;
@@ -213,6 +214,19 @@ impl ModelVJ {
 
 #[pymethods]
 impl ModelVDJ {
+    pub fn update(&mut self, feature: &FeaturesVDJ) {
+        self.p_v = feature.v.probas.clone();
+        self.p_del_v_given_v = feature.delv.probas.clone();
+        self.p_dj = feature.dj.probas.clone();
+        self.p_del_j_given_j = feature.delj.probas.clone();
+        self.p_del_d3_del_d5 = feature.deld.probas.clone();
+        self.p_ins_vd = feature.nb_insvd.probas.clone();
+        self.p_ins_dj = feature.nb_insdj.probas.clone();
+        (self.first_nt_bias_ins_vd, self.markov_coefficients_vd) = feature.insvd.get_parameters();
+        (self.first_nt_bias_ins_dj, self.markov_coefficients_dj) = feature.insvd.get_parameters();
+        self.error_rate = feature.error.error_rate;
+    }
+
     #[staticmethod]
     #[pyo3(name = "load_model")]
     pub fn py_load_model(

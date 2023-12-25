@@ -11,7 +11,9 @@ use feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
     ErrorPoisson, MarkovFeature,
 };
-use inference::{infer_features, FeaturesVDJ, InferenceParameters};
+use inference::{
+    infer_features, most_likely_recombinations, pgen, FeaturesVDJ, InferenceParameters,
+};
 use model::{ModelVDJ, ModelVJ};
 use py_binding::{GenerationResult, GeneratorVDJ, GeneratorVJ};
 use pyo3::prelude::*;
@@ -42,5 +44,7 @@ fn ihor(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<ErrorPoisson>()?;
     m.add_class::<FeaturesVDJ>()?;
     m.add_function(wrap_pyfunction!(infer_features, m)?)?;
+    m.add_function(wrap_pyfunction!(pgen, m)?)?;
+    m.add_function(wrap_pyfunction!(most_likely_recombinations, m)?)?;
     Ok(())
 }

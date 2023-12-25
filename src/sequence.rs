@@ -16,9 +16,36 @@ pub struct EventVDJ<'a> {
     pub deld5: usize,
 }
 
-impl EventVDJ {
-    // TODO: add a function that map EventVDJ to a more static version (one
-    // that does not rely on reference)
+#[pyclass(name = "EventVDJ", get_all, set_all)]
+#[derive(Default, Clone, Debug)]
+pub struct StaticEventVDJ {
+    pub v_index: usize,
+    pub v_start_gene: usize, // start of the sequence in the gene
+    pub delv: usize,
+    pub j_index: usize,
+    pub j_start_seq: usize, // start of the sequence in the sequence
+    pub delj: usize,
+    pub d_index: usize,
+    pub d_start_seq: usize,
+    pub deld3: usize,
+    pub deld5: usize,
+}
+
+impl EventVDJ<'_> {
+    pub fn to_static(&self) -> StaticEventVDJ {
+        StaticEventVDJ {
+            v_index: self.v.index,
+            v_start_gene: self.v.start_gene,
+            delv: self.delv,
+            j_index: self.j.index,
+            j_start_seq: self.j.start_seq,
+            delj: self.delj,
+            d_index: self.d.index,
+            d_start_seq: self.d.pos,
+            deld3: self.deld3,
+            deld5: self.deld5,
+        }
+    }
 }
 
 #[pyclass(get_all, set_all)]
@@ -131,8 +158,8 @@ impl SequenceVDJ {
             .v_genes
             .iter()
             .map(|v| {
-                if v.end_seq > model.max_del_v {
-                    v.end_seq - model.max_del_v
+                if v.end_seq > (model.range_del_v.1 as usize) {
+                    v.end_seq - (model.range_del_v.1 as usize)
                 } else {
                     0
                 }
@@ -142,7 +169,7 @@ impl SequenceVDJ {
         let right_bound = seq
             .j_genes
             .iter()
-            .map(|j| cmp::min(j.start_seq + model.max_del_j, dna_seq.len()))
+            .map(|j| cmp::min(j.start_seq + (model.range_del_j.1 as usize), dna_seq.len()))
             .max()
             .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
 
@@ -153,7 +180,7 @@ impl SequenceVDJ {
 }
 
 impl SequenceVDJ {
-    pub fn get_insertions_vd_dj(&self, e: EventVDJ) -> (Dna, Dna) {
+    pub fn get_insertions_vd_dj(&self, e: &EventVDJ) -> (Dna, Dna) {
         // seq         :          SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
         // V-gene      : VVVVVVVVVVVVVVVVVVVV
         // del V-gene  :                   xx
@@ -216,7 +243,7 @@ fn align_all_vgenes(
                         .iter()
                         .rev()
                         .copied(),
-                    model.max_del_v,
+                    (model.range_del_v.1 - model.range_del_v.0) as usize,
                 ),
             });
         }
@@ -248,7 +275,7 @@ fn align_all_jgenes(
                 errors: differences_remaining(
                     seq.seq[alignment.xstart..].iter().copied(),
                     palj.seq.iter().copied(),
-                    model.max_del_j,
+                    (model.range_del_j.1 - model.range_del_j.0) as usize,
                 ),
             });
         }

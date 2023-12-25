@@ -51,7 +51,7 @@ fn main() -> io::Result<()> {
     };
 
     let infer_params = InferenceParameters {
-        nb_rounds_em: 3,
+        //nb_rounds_em: 3,
         min_likelihood: 1e-40,
         min_likelihood_error: 1e-60,
     };
@@ -101,7 +101,7 @@ fn main() -> io::Result<()> {
     pb.finish_with_message("Reading complete");
     println!("{:?}", sequences[0]);
 
-    //    let margs = FeaturesVDJ::new(&model, &infer_params).unwrap();
+    let margs = FeaturesVDJ::new(&model, &infer_params).unwrap();
     //    println!("{:?}", margs);
     println!("Expectation-Maximization");
     //    let margs_new = expectation_maximization(&margs, &sequences, &infer_params);

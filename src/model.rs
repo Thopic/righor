@@ -57,13 +57,13 @@ pub struct ModelVDJ {
     pub first_nt_bias_ins_vd: Array1<f64>,
     pub first_nt_bias_ins_dj: Array1<f64>,
     #[pyo3(get, set)]
-    pub max_del_v: usize,
+    pub range_del_v: (i64, i64),
     #[pyo3(get, set)]
-    pub max_del_j: usize,
+    pub range_del_j: (i64, i64),
     #[pyo3(get, set)]
-    pub max_del_d3: usize,
+    pub range_del_d3: (i64, i64),
     #[pyo3(get, set)]
-    pub max_del_d5: usize,
+    pub range_del_d5: (i64, i64),
     #[pyo3(get, set)]
     pub error_rate: f64,
     #[pyo3(get, set)]
@@ -107,9 +107,9 @@ pub struct ModelVJ {
     pub markov_coefficients_vj: Array2<f64>,
     pub first_nt_bias_ins_vj: Array1<f64>,
     #[pyo3(get, set)]
-    pub max_del_v: usize,
+    pub range_del_v: (i64, i64),
     #[pyo3(get, set)]
-    pub max_del_j: usize,
+    pub range_del_j: (i64, i64),
     #[pyo3(get, set)]
     pub error_rate: f64,
     #[pyo3(get, set)]
@@ -177,36 +177,43 @@ impl ModelVDJ {
             .ok_or(anyhow!("Invalid v_3_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_v = (-arrdelv.iter().min().ok_or(anyhow!("Empty v_3_del"))?)
-            .try_into()
-            .map_err(|_e| anyhow!("Invalid v_3_del"))?;
+        model.range_del_v = (
+            (*arrdelv.iter().min().ok_or(anyhow!("Empty v_3_del"))?),
+            (*arrdelv.iter().max().ok_or(anyhow!("Empty v_3_del"))?),
+        );
         let arrdelj = pp
             .params
             .get("j_5_del")
             .ok_or(anyhow!("Invalid j_5_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_j = (-arrdelj.iter().min().ok_or(anyhow!("Empty j_5_del"))?)
-            .try_into()
-            .map_err(|_e| anyhow!("Invalid j_5_del"))?;
+        model.range_del_j = (
+            *arrdelj.iter().min().ok_or(anyhow!("Empty j_5_del"))?,
+            *arrdelj.iter().max().ok_or(anyhow!("Empty j_5_del"))?,
+        );
         let arrdeld3 = pp
             .params
             .get("d_3_del")
             .ok_or(anyhow!("Invalid d_3_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_d3 = (-arrdeld3.iter().min().ok_or(anyhow!("Empty d_3_del"))?)
-            .try_into()
-            .map_err(|_e| anyhow!("Invalid d_3_del"))?;
+
+        model.range_del_d3 = (
+            *arrdeld3.iter().min().ok_or(anyhow!("Empty d_3_del"))?,
+            *arrdeld3.iter().max().ok_or(anyhow!("Empty d_3_del"))?,
+        );
+
         let arrdeld5 = pp
             .params
             .get("d_5_del")
             .ok_or(anyhow!("Invalid d_5_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_d5 = (-arrdeld5.iter().min().ok_or(anyhow!("Empty d_5_del"))?)
-            .try_into()
-            .map_err(|_e| anyhow!("Invalid d_5_del"))?;
+
+        model.range_del_d5 = (
+            *arrdeld5.iter().min().ok_or(anyhow!("Empty d_5_del"))?,
+            *arrdeld5.iter().max().ok_or(anyhow!("Empty d_5_del"))?,
+        );
 
         model.sanitize_genes()?;
 
@@ -356,18 +363,21 @@ impl ModelVDJ {
 
         // Add the palindromic insertions
         for g in self.seg_vs.iter_mut() {
-            g.create_palindromic_ends(0, self.max_del_v);
+            g.create_palindromic_ends(0, (-self.range_del_v.0) as usize);
         }
         for g in self.seg_js.iter_mut() {
-            g.create_palindromic_ends(self.max_del_j, 0);
+            g.create_palindromic_ends((-self.range_del_j.0) as usize, 0);
         }
         for g in self.seg_ds.iter_mut() {
-            g.create_palindromic_ends(self.max_del_d5, self.max_del_d3);
+            g.create_palindromic_ends(
+                (-self.range_del_d5.0) as usize,
+                (-self.range_del_d3.0) as usize,
+            );
         }
 
         // cut the V/J at the CDR3 region
         self.seg_vs_sanitized = sanitize_v(self.seg_vs.clone())?;
-        self.seg_js_sanitized = sanitize_j(self.seg_js.clone(), self.max_del_j)?;
+        self.seg_js_sanitized = sanitize_j(self.seg_js.clone(), (-self.range_del_j.0) as usize)?;
         Ok(())
     }
 
@@ -514,21 +524,24 @@ impl ModelVJ {
         let arrdelv = pp
             .params
             .get("v_3_del")
-            .ok_or(anyhow!("Invalid v_3_del"))?
+            .ok_or(anyhow!("Invalid v_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_v = (-arrdelv.iter().min().ok_or(anyhow!("Empty v_3_del"))?)
-            .try_into()
-            .map_err(|_e| anyhow!("Invalid v_3_del"))?;
+
+        model.range_del_v = (
+            *arrdelv.iter().min().ok_or(anyhow!("Empty v_3_del"))?,
+            *arrdelv.iter().max().ok_or(anyhow!("Empty v_3_del"))?,
+        );
         let arrdelj = pp
             .params
             .get("j_5_del")
             .ok_or(anyhow!("Invalid j_5_del"))?
             .clone()
             .to_numbers()?;
-        model.max_del_j = (-arrdelj.iter().min().ok_or(anyhow!("Empty j_5_del"))?)
-            .try_into()
-            .map_err(|_e| anyhow!("Invalid j_5_del"))?;
+        model.range_del_j = (
+            *arrdelj.iter().min().ok_or(anyhow!("Empty j_5_del"))?,
+            *arrdelj.iter().max().ok_or(anyhow!("Empty j_5_del"))?,
+        );
 
         model.sanitize_genes()?;
 
@@ -629,14 +642,14 @@ impl ModelVJ {
         // Add the palindromic insertions
 
         for g in self.seg_vs.iter_mut() {
-            g.create_palindromic_ends(0, self.max_del_v);
+            g.create_palindromic_ends(0, (-self.range_del_v.0) as usize);
         }
         for g in self.seg_js.iter_mut() {
-            g.create_palindromic_ends(self.max_del_j, 0);
+            g.create_palindromic_ends((-self.range_del_j.0) as usize, 0);
         }
 
         self.seg_vs_sanitized = sanitize_v(self.seg_vs.clone())?;
-        self.seg_js_sanitized = sanitize_j(self.seg_js.clone(), self.max_del_j)?;
+        self.seg_js_sanitized = sanitize_j(self.seg_js.clone(), (-self.range_del_j.0) as usize)?;
         Ok(())
     }
 
