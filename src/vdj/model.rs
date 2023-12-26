@@ -1,18 +1,22 @@
-use crate::parser::{ParserMarginals, ParserParams};
-use crate::utils::{
+use crate::sequence::{AlignmentParameters, AminoAcid, Dna};
+use crate::shared::model::{sanitize_j, sanitize_v};
+use crate::shared::parser::{ParserMarginals, ParserParams};
+use crate::shared::utils::{
     add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
-    DiscreteDistribution, Gene, MarkovDNA,
+    DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
 };
-use crate::utils_sequences::{AminoAcid, Dna};
+use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
+use crate::vdj::{Features, Sequence, StaticEvent};
 use anyhow::{anyhow, Result};
-use duplicate::duplicate_item;
 use ndarray::{s, Array1, Array2, Array3, Axis};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
 use pyo3::prelude::*;
 use rand::Rng;
+use std::cmp;
 use std::path::Path;
 
 #[derive(Default, Clone, Debug)]
-pub struct GenerativeVDJ {
+pub struct Generative {
     // Contains the distribution needed to generate the model
     d_v: DiscreteDistribution,
     d_dj: DiscreteDistribution,
@@ -27,7 +31,7 @@ pub struct GenerativeVDJ {
 
 #[pyclass]
 #[derive(Default, Clone, Debug)]
-pub struct ModelVDJ {
+pub struct Model {
     // Sequence information
     #[pyo3(get, set)]
     pub seg_vs: Vec<Gene>,
@@ -51,7 +55,7 @@ pub struct ModelVDJ {
     pub p_del_v_given_v: Array2<f64>,
     pub p_del_j_given_j: Array2<f64>,
     pub p_del_d3_del_d5: Array3<f64>,
-    pub gen: GenerativeVDJ,
+    pub gen: Generative,
     pub markov_coefficients_vd: Array2<f64>,
     pub markov_coefficients_dj: Array2<f64>,
     pub first_nt_bias_ins_vd: Array1<f64>,
@@ -70,83 +74,14 @@ pub struct ModelVDJ {
     pub thymic_q: f64,
 }
 
-#[derive(Default, Clone, Debug)]
-struct GenerativeVJ {
-    // Contains the distribution needed to generate the model
-    d_v: DiscreteDistribution,
-    d_j_given_v: Vec<DiscreteDistribution>,
-    d_ins_vj: DiscreteDistribution,
-    d_del_v_given_v: Vec<DiscreteDistribution>,
-    d_del_j_given_j: Vec<DiscreteDistribution>,
-    markov_vj: MarkovDNA,
-}
-
-#[pyclass]
-#[derive(Default, Clone, Debug)]
-pub struct ModelVJ {
-    // Sequence information
-    #[pyo3(get, set)]
-    pub seg_vs: Vec<Gene>,
-    #[pyo3(get, set)]
-    pub seg_js: Vec<Gene>,
-
-    // V/J nucleotides sequences trimmed at the CDR3 region (include F/W/C residues) with
-    // the maximum number of reverse palindromic insertions appended.
-    #[pyo3(get, set)]
-    pub seg_vs_sanitized: Vec<Dna>, // match genomic_data.cutV_genomic_CDR3_seqs
-    #[pyo3(get, set)]
-    pub seg_js_sanitized: Vec<Dna>,
-
-    // Probabilities of the different events
-    pub p_v: Array1<f64>,
-    pub p_j_given_v: Array2<f64>,
-    pub p_ins_vj: Array1<f64>,
-    pub p_del_v_given_v: Array2<f64>,
-    pub p_del_j_given_j: Array2<f64>,
-    gen: GenerativeVJ,
-    pub markov_coefficients_vj: Array2<f64>,
-    pub first_nt_bias_ins_vj: Array1<f64>,
-    #[pyo3(get, set)]
-    pub range_del_v: (i64, i64),
-    #[pyo3(get, set)]
-    pub range_del_j: (i64, i64),
-    #[pyo3(get, set)]
-    pub error_rate: f64,
-    #[pyo3(get, set)]
-    pub thymic_q: f64,
-}
-
-#[duplicate_item(model; [ModelVDJ]; [ModelVJ])]
-impl model {
-    pub fn recreate_full_sequence(
-        &self,
-        dna: &Dna,
-        v_index: usize,
-        j_index: usize,
-    ) -> (Dna, String, String) {
-        // Re-create the full sequence of the variable region (with complete V/J gene, not just the CDR3)
-        let mut seq: Dna = Dna::new();
-        let vgene = self.seg_vs[v_index].clone();
-        let jgene = self.seg_js[j_index].clone();
-        seq.extend(&vgene.seq.extract_subsequence(0, vgene.cdr3_pos.unwrap()));
-        seq.extend(dna);
-        seq.extend(
-            &jgene
-                .seq
-                .extract_subsequence(jgene.cdr3_pos.unwrap() + 3, jgene.seq.len()),
-        );
-        (seq, vgene.name, jgene.name)
-    }
-}
-
-impl ModelVDJ {
+impl Model {
     pub fn load_model(
         path_params: &Path,
         path_marginals: &Path,
         path_anchor_vgene: &Path,
         path_anchor_jgene: &Path,
-    ) -> Result<ModelVDJ> {
-        let mut model: ModelVDJ = Default::default();
+    ) -> Result<Model> {
+        let mut model: Model = Default::default();
         let pm: ParserMarginals = ParserMarginals::parse(path_marginals)?;
         let mut pp: ParserParams = ParserParams::parse(path_params)?;
         pp.add_anchors_gene(path_anchor_vgene, "v_choice")?;
@@ -356,7 +291,7 @@ impl ModelVDJ {
     }
 }
 
-impl ModelVDJ {
+impl Model {
     pub fn sanitize_genes(&mut self) -> Result<()> {
         // Trim the V/J nucleotides sequences at the CDR3 region (include F/W/C residues)
         // and append the maximum number of reverse palindromic insertions appended.
@@ -495,292 +430,235 @@ impl ModelVDJ {
     }
 }
 
-impl ModelVJ {
-    pub fn load_model(
-        path_params: &Path,
-        path_marginals: &Path,
-        path_anchor_vgene: &Path,
-        path_anchor_jgene: &Path,
-    ) -> Result<ModelVJ> {
-        let mut model: ModelVJ = Default::default();
-        let pm: ParserMarginals = ParserMarginals::parse(path_marginals)?;
-        let mut pp: ParserParams = ParserParams::parse(path_params)?;
-        pp.add_anchors_gene(path_anchor_vgene, "v_choice")?;
-        pp.add_anchors_gene(path_anchor_jgene, "j_choice")?;
-
-        model.seg_vs = pp
-            .params
-            .get("v_choice")
-            .ok_or(anyhow!("Error with unwrapping the Params data"))?
-            .clone()
-            .to_genes()?;
-        model.seg_js = pp
-            .params
-            .get("j_choice")
-            .ok_or(anyhow!("Error with unwrapping the Params data"))?
-            .clone()
-            .to_genes()?;
-
-        let arrdelv = pp
-            .params
-            .get("v_3_del")
-            .ok_or(anyhow!("Invalid v_del"))?
-            .clone()
-            .to_numbers()?;
-
-        model.range_del_v = (
-            *arrdelv.iter().min().ok_or(anyhow!("Empty v_3_del"))?,
-            *arrdelv.iter().max().ok_or(anyhow!("Empty v_3_del"))?,
-        );
-        let arrdelj = pp
-            .params
-            .get("j_5_del")
-            .ok_or(anyhow!("Invalid j_5_del"))?
-            .clone()
-            .to_numbers()?;
-        model.range_del_j = (
-            *arrdelj.iter().min().ok_or(anyhow!("Empty j_5_del"))?,
-            *arrdelj.iter().max().ok_or(anyhow!("Empty j_5_del"))?,
-        );
-
-        model.sanitize_genes()?;
-
-        if !(sorted_and_complete(arrdelv)
-            & sorted_and_complete(arrdelj)
-            & sorted_and_complete_0start(
-                pp.params
-                    .get("vj_ins")
-                    .ok_or(anyhow!("Invalid vj_ins"))?
-                    .clone()
-                    .to_numbers()?,
-            ))
-        {
-            return Err(anyhow!(
-                "The number of insertion or deletion in the model parameters should\
-			be sorted and should not contain missing value. E.g.:\n\
-			%0;0\n\
-			%12;1\n\
-			or: \n\
-			%0;1\n\
-			%1;0\n\
-			will both result in this error."
-            ));
-        }
-
-        // Set the different probabilities for the model
-        model.p_v = pm
-            .marginals
-            .get("v_choice")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_dimensionality()
-            .unwrap();
-        model.p_j_given_v = pm
-            .marginals
-            .get("j_choice")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_dimensionality()
-            .unwrap()
-            .t()
-            .to_owned();
-        model.p_del_v_given_v = pm
-            .marginals
-            .get("v_3_del")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_dimensionality()
-            .unwrap()
-            .t()
-            .to_owned();
-        model.p_del_j_given_j = pm
-            .marginals
-            .get("j_5_del")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_dimensionality()
-            .unwrap()
-            .t()
-            .to_owned();
-
-        model.p_ins_vj = pm
-            .marginals
-            .get("vj_ins")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_dimensionality()
-            .unwrap();
-
-        // Markov coefficients
-        model.markov_coefficients_vj = pm
-            .marginals
-            .get("vj_dinucl")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_shape((4, 4))
-            .map_err(|_e| anyhow!("Wrong size for vj_dinucl"))?;
-
-        // TODO: Need to deal with potential first nt bias
-
-        // generative model
-        model.initialize_generative_model()?;
-
-        model.error_rate = pp.error_rate;
-        model.thymic_q = 9.41; // TODO: deal with this
-        Ok(model)
+#[pymethods]
+impl Model {
+    pub fn infer_features(
+        &self,
+        sequence: &Sequence,
+        inference_params: &InferenceParameters,
+    ) -> Result<Features> {
+        let mut feature = Features::new(self, inference_params)?;
+        let _ = feature.infer(sequence, inference_params, 0);
+        feature = feature.cleanup()?;
+        Ok(feature)
+    }
+    pub fn most_likely_recombinations(
+        &self,
+        sequence: &Sequence,
+        nb_scenarios: usize,
+        inference_params: &InferenceParameters,
+    ) -> Result<Vec<(f64, StaticEvent)>> {
+        let mut feature = Features::new(self, inference_params)?;
+        let (_, res) = feature.infer(sequence, inference_params, nb_scenarios);
+        Ok(res)
+    }
+    pub fn pgen(&self, sequence: &Sequence, inference_params: &InferenceParameters) -> Result<f64> {
+        let mut feature = Features::new(self, inference_params)?;
+        let (pg, _) = feature.infer(sequence, inference_params, 0);
+        Ok(pg)
     }
 
-    fn sanitize_genes(&mut self) -> Result<()> {
-        // Trim the V/J nucleotides sequences at the CDR3 region (include F/W/C residues)
-        // and append the maximum number of reverse palindromic insertions appended.
-        // Add the palindromic insertions
+    pub fn align_sequence(
+        &self,
+        dna_seq: Dna,
+        align_params: &AlignmentParameters,
+    ) -> Result<Sequence> {
+        let mut seq = Sequence {
+            sequence: dna_seq.clone(),
+            v_genes: align_all_vgenes(&dna_seq, self, align_params),
+            j_genes: align_all_jgenes(&dna_seq, self, align_params),
+            d_genes: Vec::new(),
+        };
 
-        for g in self.seg_vs.iter_mut() {
-            g.create_palindromic_ends(0, (-self.range_del_v.0) as usize);
-        }
-        for g in self.seg_js.iter_mut() {
-            g.create_palindromic_ends((-self.range_del_j.0) as usize, 0);
+        // if we don't have v genes, don't try inferring the d gene
+        if (seq.v_genes.is_empty()) | (seq.j_genes.is_empty()) {
+            return Ok(seq);
         }
 
-        self.seg_vs_sanitized = sanitize_v(self.seg_vs.clone())?;
-        self.seg_js_sanitized = sanitize_j(self.seg_js.clone(), (-self.range_del_j.0) as usize)?;
+        // roughly estimate bounds for the position of d
+        // TODO: not great, improve on that
+        let left_bound = seq
+            .v_genes
+            .iter()
+            .map(|v| {
+                if v.end_seq > (self.range_del_v.1 as usize) {
+                    v.end_seq - (self.range_del_v.1 as usize)
+                } else {
+                    0
+                }
+            })
+            .min()
+            .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
+        let right_bound = seq
+            .j_genes
+            .iter()
+            .map(|j| cmp::min(j.start_seq + (self.range_del_j.1 as usize), dna_seq.len()))
+            .max()
+            .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
+
+        // initialize all the d genes positions
+        seq.d_genes = align_all_dgenes(&dna_seq, self, left_bound, right_bound, align_params);
+        Ok(seq)
+    }
+
+    pub fn recreate_full_sequence(
+        &self,
+        dna: &Dna,
+        v_index: usize,
+        j_index: usize,
+    ) -> (Dna, String, String) {
+        // Re-create the full sequence of the variable region (with complete V/J gene, not just the CDR3)
+        let mut seq: Dna = Dna::new();
+        let vgene = self.seg_vs[v_index].clone();
+        let jgene = self.seg_js[j_index].clone();
+        seq.extend(&vgene.seq.extract_subsequence(0, vgene.cdr3_pos.unwrap()));
+        seq.extend(dna);
+        seq.extend(
+            &jgene
+                .seq
+                .extract_subsequence(jgene.cdr3_pos.unwrap() + 3, jgene.seq.len()),
+        );
+        (seq, vgene.name, jgene.name)
+    }
+
+    pub fn update(&mut self, feature: &Features) {
+        self.p_v = feature.v.probas.clone();
+        self.p_del_v_given_v = feature.delv.probas.clone();
+        self.p_dj = feature.dj.probas.clone();
+        self.p_del_j_given_j = feature.delj.probas.clone();
+        self.p_del_d3_del_d5 = feature.deld.probas.clone();
+        self.p_ins_vd = feature.nb_insvd.probas.clone();
+        self.p_ins_dj = feature.nb_insdj.probas.clone();
+        (self.first_nt_bias_ins_vd, self.markov_coefficients_vd) = feature.insvd.get_parameters();
+        (self.first_nt_bias_ins_dj, self.markov_coefficients_dj) = feature.insvd.get_parameters();
+        self.error_rate = feature.error.error_rate;
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "load_model")]
+    pub fn py_load_model(
+        path_params: &str,
+        path_marginals: &str,
+        path_anchor_vgene: &str,
+        path_anchor_jgene: &str,
+    ) -> Result<Model> {
+        Model::load_model(
+            Path::new(path_params),
+            Path::new(path_marginals),
+            Path::new(path_anchor_vgene),
+            Path::new(path_anchor_jgene),
+        )
+    }
+
+    #[getter]
+    fn get_p_v(&self, py: Python) -> Py<PyArray1<f64>> {
+        self.p_v.to_owned().into_pyarray(py).to_owned()
+    }
+    #[setter]
+    fn set_p_v(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
+        self.p_v = value.as_ref(py).to_owned_array();
         Ok(())
     }
-
-    fn initialize_generative_model(&mut self) -> Result<()> {
-        self.gen.d_v = DiscreteDistribution::new(self.p_v.to_vec())?;
-        self.gen.d_ins_vj = DiscreteDistribution::new(self.p_ins_vj.to_vec())?;
-
-        self.gen.d_j_given_v = Vec::new();
-        for row in self.p_j_given_v.axis_iter(Axis(1)) {
-            self.gen
-                .d_j_given_v
-                .push(DiscreteDistribution::new(row.to_vec())?);
-        }
-
-        self.gen.d_del_v_given_v = Vec::new();
-        for row in self.p_del_v_given_v.axis_iter(Axis(1)) {
-            self.gen
-                .d_del_v_given_v
-                .push(DiscreteDistribution::new(row.to_vec())?);
-        }
-        self.gen.d_del_j_given_j = Vec::new();
-        for row in self.p_del_j_given_j.axis_iter(Axis(1)) {
-            self.gen
-                .d_del_j_given_j
-                .push(DiscreteDistribution::new(row.to_vec())?);
-        }
-
-        self.gen.markov_vj = MarkovDNA::new(self.markov_coefficients_vj.t().to_owned(), None)?;
+    #[getter]
+    fn get_p_dj(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.p_dj.to_owned().into_pyarray(py).to_owned()
+    }
+    #[setter]
+    fn set_p_dj(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
+        self.p_dj = value.as_ref(py).to_owned_array();
         Ok(())
     }
-
-    pub fn generate<R: Rng>(
-        &mut self,
-        functional: bool,
-        rng: &mut R,
-    ) -> (Dna, Option<AminoAcid>, usize, usize) {
-        // loop until we find a valid sequence (if generating functional alone)
-        loop {
-            let v_index: usize = self.gen.d_v.generate(rng);
-            let j_index: usize = self.gen.d_j_given_v[v_index].generate(rng);
-
-            let seq_v: &Dna = &self.seg_vs_sanitized[v_index];
-            let seq_j: &Dna = &self.seg_js_sanitized[j_index];
-
-            let del_v: usize = self.gen.d_del_v_given_v[v_index].generate(rng);
-            let del_j: usize = self.gen.d_del_j_given_j[j_index].generate(rng);
-
-            let ins_vj: usize = self.gen.d_ins_vj.generate(rng);
-
-            let out_of_frame = (seq_v.len() - del_v + seq_j.len() - del_j + ins_vj) % 3 != 0;
-            if functional & out_of_frame {
-                continue;
-            }
-
-            let ins_seq_vj: Dna = self.gen.markov_vj.generate(ins_vj, rng);
-
-            // create the complete sequence
-            let mut seq: Dna = Dna::new();
-            seq.extend(&seq_v.extract_subsequence(0, seq_v.len() - del_v));
-            seq.extend(&ins_seq_vj);
-            seq.extend(&seq_j.extract_subsequence(del_j, seq_j.len()));
-
-            // add potential sequencing error
-            add_errors(&mut seq, self.error_rate, rng);
-
-            // translate
-            let seq_aa: Option<AminoAcid> = seq.translate().ok();
-
-            match seq_aa {
-                Some(saa) => {
-                    // check for stop codon
-                    if functional & saa.seq.contains(&b'*') {
-                        continue;
-                    }
-
-                    // check for conserved extremities (cysteine)
-                    if functional & (saa.seq[0] != b'C') {
-                        continue;
-                    }
-                    return (seq, Some(saa), v_index, j_index);
-                }
-                None => {
-                    if functional {
-                        continue;
-                    }
-                    return (seq, None, v_index, j_index);
-                }
-            }
-        }
+    #[getter]
+    fn get_p_ins_vd(&self, py: Python) -> Py<PyArray1<f64>> {
+        self.p_ins_vd.to_owned().into_pyarray(py).to_owned()
     }
-}
-
-fn sanitize_v(genes: Vec<Gene>) -> Result<Vec<Dna>> {
-    // Add palindromic inserted nucleotides to germline V sequences and cut all
-    // sequences to only keep their CDR3 parts
-    let mut cut_genes = Vec::<Dna>::new();
-    for g in genes {
-        // some V-genes are not complete. They don't appear in the model, but we
-        // can't ignore them
-        // TODO: I need to change the way this is done...
-        if g.cdr3_pos.unwrap() >= g.seq.len() {
-            cut_genes.push(Dna::new());
-            continue;
-        }
-
-        let gene_seq: Dna = g
-            .seq_with_pal
-            .ok_or(anyhow!("Palindromic sequences not created"))?;
-
-        let cut_gene: Dna = Dna {
-            seq: gene_seq.seq[g.cdr3_pos.unwrap()..].to_vec(),
-        };
-        cut_genes.push(cut_gene);
+    #[setter]
+    fn set_p_ins_vd(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
+        self.p_ins_vd = value.as_ref(py).to_owned_array();
+        Ok(())
     }
-    Ok(cut_genes)
-}
-
-fn sanitize_j(genes: Vec<Gene>, max_del_j: usize) -> Result<Vec<Dna>> {
-    // Add palindromic inserted nucleotides to germline J sequences and cut all
-    // sequences to only keep their CDR3 parts
-    let mut cut_genes = Vec::<Dna>::new();
-    for g in genes {
-        let gene_seq: Dna = g
-            .seq_with_pal
-            .ok_or(anyhow!("Palindromic sequences not created"))?;
-
-        // for J, we want to also add the last CDR3 amino-acid (F/W)
-        let cut_gene: Dna = Dna {
-            seq: gene_seq.seq[..g.cdr3_pos.unwrap() + 3 + max_del_j].to_vec(),
-        };
-        cut_genes.push(cut_gene);
+    #[getter]
+    fn get_p_ins_dj(&self, py: Python) -> Py<PyArray1<f64>> {
+        self.p_ins_dj.to_owned().into_pyarray(py).to_owned()
     }
-    Ok(cut_genes)
+    #[setter]
+    fn set_p_ins_dj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
+        self.p_ins_dj = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
+    #[getter]
+    fn get_p_del_v_given_v(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.p_del_v_given_v.to_owned().into_pyarray(py).to_owned()
+    }
+    #[setter]
+    fn set_p_del_v_given_v(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
+        self.p_del_v_given_v = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
+    #[getter]
+    fn get_p_del_j_given_j(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.p_del_j_given_j.to_owned().into_pyarray(py).to_owned()
+    }
+    #[setter]
+    fn set_p_del_j_given_j(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
+        self.p_del_j_given_j = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
+    #[getter]
+    fn get_p_del_d3_del_d5(&self, py: Python) -> Py<PyArray3<f64>> {
+        self.p_del_d3_del_d5.to_owned().into_pyarray(py).to_owned()
+    }
+    #[setter]
+    fn set_p_del_d3_del_d5(&mut self, py: Python, value: Py<PyArray3<f64>>) -> PyResult<()> {
+        self.p_del_d3_del_d5 = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
+    #[getter]
+    fn get_markov_coefficients_vd(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.markov_coefficients_vd
+            .to_owned()
+            .into_pyarray(py)
+            .to_owned()
+    }
+    #[setter]
+    fn set_markov_coefficients_vd(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
+        self.markov_coefficients_vd = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
+    #[getter]
+    fn get_markov_coefficients_dj(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.markov_coefficients_dj
+            .to_owned()
+            .into_pyarray(py)
+            .to_owned()
+    }
+    #[setter]
+    fn set_markov_coefficients_dj(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
+        self.markov_coefficients_dj = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
+    #[getter]
+    fn get_first_nt_bias_ins_vd(&self, py: Python) -> Py<PyArray1<f64>> {
+        self.first_nt_bias_ins_vd
+            .to_owned()
+            .into_pyarray(py)
+            .to_owned()
+    }
+    #[setter]
+    fn set_first_nt_bias_ins_vd(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
+        self.first_nt_bias_ins_vd = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
+    #[getter]
+    fn get_first_nt_bias_ins_dj(&self, py: Python) -> Py<PyArray1<f64>> {
+        self.first_nt_bias_ins_dj
+            .to_owned()
+            .into_pyarray(py)
+            .to_owned()
+    }
+    #[setter]
+    fn set_first_nt_bias_ins_dj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
+        self.first_nt_bias_ins_dj = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
 }

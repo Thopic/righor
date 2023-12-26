@@ -1,4 +1,4 @@
-use crate::utils_sequences::{Dna, NUCLEOTIDES};
+use crate::sequence::utils::{Dna, NUCLEOTIDES};
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3, Axis};
 use ndarray_linalg::Eig;
@@ -248,4 +248,44 @@ pub fn sorted_and_complete_0start(arr: Vec<i64>) -> bool {
         }
     }
     return true;
+}
+
+/// Return a vector with a tuple (f64, T) inserted, so that the vector stays sorted
+/// along the first element of the pair
+/// # Arguments
+/// * `v` – The original *decreasing* vector (which is going to be cloned and modified)
+/// * `elem` – The element to be inserted
+/// # Returns the vector v with elem inserted such that v.map(|x| x.0) is decreasing.
+pub fn insert_in_order<T>(v: Vec<(f64, T)>, elem: (f64, T)) -> Vec<(f64, T)>
+where
+    T: Clone,
+{
+    let pos = v.binary_search_by(|(f, _)| {
+        (-f).partial_cmp(&(-elem.0))
+            .unwrap_or(std::cmp::Ordering::Less)
+    });
+    let index = match pos {
+        Ok(i) | Err(i) => i,
+    };
+    let mut vcloned: Vec<(f64, T)> = v.iter().cloned().collect();
+    vcloned.insert(index, elem);
+    vcloned
+}
+
+#[derive(Default, Clone, Debug)]
+#[pyclass(get_all, set_all)]
+pub struct InferenceParameters {
+    pub min_likelihood_error: f64,
+    pub min_likelihood: f64,
+}
+
+#[pymethods]
+impl InferenceParameters {
+    #[new]
+    pub fn new(min_likelihood_error: f64, min_likelihood: f64) -> Self {
+        Self {
+            min_likelihood_error,
+            min_likelihood,
+        }
+    }
 }

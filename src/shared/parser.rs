@@ -1,7 +1,7 @@
 // Parser for the marginals and params files
 
-use crate::utils::Gene;
-use crate::utils_sequences::Dna;
+use crate::sequence::Dna;
+use crate::shared::utils::Gene;
 use anyhow::{anyhow, Result};
 use csv::Reader;
 use ndarray::{ArrayD, IxDyn};

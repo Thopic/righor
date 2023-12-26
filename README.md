@@ -45,8 +45,9 @@ Limitations:
 
 ```py
 import ihor
+from tqdm import tqdm
 
-model = ihor.ModelVDJ.load_model("models/human_T_beta/model_params.txt",
+model = ihor.vdj.Model.load_model("models/human_T_beta/model_params.txt",
 	"models/human_T_beta/model_marginals.txt",
 	"models/human_T_beta/V_gene_CDR3_anchors.csv",
 	"models/human_T_beta/J_gene_CDR3_anchors.csv")
@@ -55,10 +56,13 @@ align_params = ihor.AlignmentParameters(min_score_v= 40, min_score_j= 10, max_er
 
 seq = []
 with open('demo/murugan_naive1_noncoding_demo_seqs.txt') as f:
-	for l in f:
-		seq += [ihor.SequenceVDJ.align_sequence(ihor.Dna.from_string(l.strip()), model, align_params)]
+	for l in tqdm(f):
+		seq += [model.align_sequence(ihor.Dna.from_string(l.strip()), align_params)]
 
-infer_params = ihor.InferenceParameters(min_likelihood=1e-40, min_likelihood_error=1e-60, nb_rounds_em=3)
-ihor.expectation_maximization_vdj(sequences=seq, model=model, inference_params=infer_params)
+infer_params = ihor.InferenceParameters(min_likelihood=1e-40, min_likelihood_error=1e-60)
 
 ```
+
+Programming stuff:
+Some unneeded duplicated code, mostly because pyo3 not compatible with templates
+open_blas is a pain in the ass, all that for one not-very-important diagonalisation.

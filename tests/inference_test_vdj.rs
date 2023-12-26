@@ -4,21 +4,21 @@ use ndarray::array;
 #[test]
 fn test_most_likely_no_del() {
     // all the tests that relate to the inference of the most likely recombination scenario.
-    let gv = ihor::utils::Gene {
+    let gv = ihor::Gene {
         name: "V1".to_string(),
         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
         cdr3_pos: Some(0),
     };
-    let gj = ihor::utils::Gene {
+    let gj = ihor::Gene {
         name: "J1".to_string(),
         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
         cdr3_pos: Some(0),
     };
-    let gd = ihor::utils::Gene {
+    let gd = ihor::Gene {
         name: "D1".to_string(),
         seq: ihor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
         seq_with_pal: None,
@@ -26,7 +26,7 @@ fn test_most_likely_no_del() {
         cdr3_pos: Some(0),
     };
 
-    let mut model = ihor::ModelVDJ {
+    let mut model = ihor::vdj::Model {
         seg_vs: vec![gv],
         seg_js: vec![gj],
         seg_ds: vec![gd],
@@ -72,34 +72,38 @@ fn test_most_likely_no_del() {
 
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
-    let seq_aligned = ihor::SequenceVDJ::align_sequence(myseq.unwrap(), &model, &al_params);
-    let result =
-        ihor::most_likely_recombinations(5, &seq_aligned.unwrap(), &model, &if_params).unwrap();
+    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
+    let result = model
+        .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
+        .unwrap();
     assert!(result.clone()[0].1.deld3 == 0);
     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
 
     // Add an insertion (VD)
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAACTTTTTTTTTTTTGGGGGGCAGTCAGT");
-    let seq_aligned = ihor::SequenceVDJ::align_sequence(myseq.unwrap(), &model, &al_params);
-    let result =
-        ihor::most_likely_recombinations(5, &seq_aligned.unwrap(), &model, &if_params).unwrap();
+    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
+    let result = model
+        .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
+        .unwrap();
     assert!(result.clone()[0].1.deld3 == 0);
     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("C").unwrap());
 
     // Add an insertion (DJ)
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTAGGGGGGCAGTCAGT");
-    let seq_aligned = ihor::SequenceVDJ::align_sequence(myseq.unwrap(), &model, &al_params);
-    let result =
-        ihor::most_likely_recombinations(5, &seq_aligned.unwrap(), &model, &if_params).unwrap();
+    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
+    let result = model
+        .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
+        .unwrap();
     assert!(result.clone()[0].1.deld3 == 0);
     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("A").unwrap());
 
     // Add two insertions (VD/DJ)
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGCTTTTTTTTTTTTCGGGGGGGCAGTCAGT");
-    let seq_aligned = ihor::SequenceVDJ::align_sequence(myseq.unwrap(), &model, &al_params);
-    let result =
-        ihor::most_likely_recombinations(5, &seq_aligned.unwrap(), &model, &if_params).unwrap();
+    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
+    let result = model
+        .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
+        .unwrap();
     assert!(result.clone()[0].1.deld3 == 0);
     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("GC").unwrap());
     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("CG").unwrap());
@@ -107,9 +111,10 @@ fn test_most_likely_no_del() {
     // Add two insertions. Could be GT-TT or GTT-T or G-TTT. 2 and 3 are more likely (with
     // the first one having an edge because G->T is more likely than T->T)
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGTTTTTTTTTTTTTTTGGGGGGCAGTCAGT");
-    let seq_aligned = ihor::SequenceVDJ::align_sequence(myseq.unwrap(), &model, &al_params);
-    let result =
-        ihor::most_likely_recombinations(5, &seq_aligned.unwrap(), &model, &if_params).unwrap();
+    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
+    let result = model
+        .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
+        .unwrap();
     println!("{:?}", result);
 
     assert!(result.clone()[2].1.insvd == ihor::Dna::from_string("GT").unwrap());
@@ -123,21 +128,21 @@ fn test_most_likely_no_del() {
 #[test]
 fn test_most_likely_no_ins() {
     // all the tests that relate to the inference of the most likely recombination scenario.
-    let gv = ihor::utils::Gene {
+    let gv = ihor::Gene {
         name: "V1".to_string(),
         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
         seq_with_pal: None,
         functional: "".to_string(),
         cdr3_pos: Some(0),
     };
-    let gj = ihor::utils::Gene {
+    let gj = ihor::Gene {
         name: "J1".to_string(),
         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
         seq_with_pal: None,
         functional: "".to_string(),
         cdr3_pos: Some(0),
     };
-    let gd = ihor::utils::Gene {
+    let gd = ihor::Gene {
         name: "D1".to_string(),
         seq: ihor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
         seq_with_pal: None,
@@ -145,7 +150,7 @@ fn test_most_likely_no_ins() {
         cdr3_pos: Some(0),
     };
 
-    let mut model = ihor::ModelVDJ {
+    let mut model = ihor::vdj::Model {
         seg_vs: vec![gv],
         seg_js: vec![gj],
         seg_ds: vec![gd],
@@ -191,9 +196,10 @@ fn test_most_likely_no_ins() {
 
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
-    let seq_aligned =
-        ihor::SequenceVDJ::align_sequence(myseq.unwrap(), &model, &al_params).unwrap();
-    let result = ihor::most_likely_recombinations(5, &seq_aligned, &model, &if_params).unwrap();
+    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
+    let result = model
+        .most_likely_recombinations(&seq_aligned, 5, &if_params)
+        .unwrap();
     println!("{:?}", result);
     assert!(result.clone()[0].1.delv == 1);
     assert!(result.clone()[0].1.delj == 1);
@@ -201,9 +207,10 @@ fn test_most_likely_no_ins() {
 
     // 1 palindromic insertion on V
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTTGGGGGGCAGTCAGT");
-    let seq_aligned =
-        ihor::SequenceVDJ::align_sequence(myseq.unwrap(), &model, &al_params).unwrap();
-    let result = ihor::most_likely_recombinations(5, &seq_aligned, &model, &if_params).unwrap();
+    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
+    let result = model
+        .most_likely_recombinations(&seq_aligned, 5, &if_params)
+        .unwrap();
     println!("{:?}", result);
     assert!(result.clone()[0].1.delv == 0);
     assert!(result.clone()[0].1.delj == 1);
@@ -211,9 +218,10 @@ fn test_most_likely_no_ins() {
 
     // 2 deletion on V, one palindromic insert on J
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAATTTTTTTTTTTTCGGGGGGCAGTCAGT");
-    let seq_aligned =
-        ihor::SequenceVDJ::align_sequence(myseq.unwrap(), &model, &al_params).unwrap();
-    let result = ihor::most_likely_recombinations(5, &seq_aligned, &model, &if_params).unwrap();
+    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
+    let result = model
+        .most_likely_recombinations(&seq_aligned, 5, &if_params)
+        .unwrap();
     println!("{:?}", result);
     assert!(result.clone()[0].1.delv == 3);
     assert!(result.clone()[0].1.delj == 0);

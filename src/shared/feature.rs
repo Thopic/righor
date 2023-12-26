@@ -1,5 +1,5 @@
-use crate::utils::Normalize;
-use crate::utils_sequences::{Dna, NUCLEOTIDES_INV};
+use crate::sequence::utils::{Dna, NUCLEOTIDES_INV};
+use crate::shared::utils::Normalize;
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3, Axis};
 use pyo3::pyclass;

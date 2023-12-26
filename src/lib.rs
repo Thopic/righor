@@ -1,37 +1,31 @@
-pub mod feature;
-pub mod inference;
-pub mod model;
-pub mod parser;
-pub mod py_binding;
-pub mod sequence;
-pub mod utils;
-pub mod utils_sequences;
+mod sequence;
+mod shared;
+pub mod vdj;
+pub mod vj;
 
-use feature::{
-    CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
-    ErrorPoisson, MarkovFeature,
-};
-pub use inference::{
-    infer_features, most_likely_recombinations, pgen, FeaturesVDJ, InferenceParameters,
-};
-pub use model::{ModelVDJ, ModelVJ};
-use py_binding::{GenerationResult, GeneratorVDJ, GeneratorVJ};
 use pyo3::prelude::*;
-pub use sequence::{DAlignment, SequenceVDJ, VJAlignment};
-pub use utils::Gene;
-pub use utils_sequences::{AlignmentParameters, AminoAcid, Dna};
+pub use sequence::{AlignmentParameters, AminoAcid, DAlignment, Dna, VJAlignment};
+pub use shared::{
+    CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
+    ErrorPoisson, Gene, GenerationResult, InferenceParameters, MarkovFeature,
+};
 
 #[pymodule]
-fn ihor(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
-    m.add_class::<GeneratorVDJ>()?;
-    m.add_class::<GeneratorVJ>()?;
-    m.add_class::<GenerationResult>()?;
-    m.add_class::<SequenceVDJ>()?;
+fn ihor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
+    let vdj_submod = PyModule::new(py, "vdj")?;
+    let vj_submod = PyModule::new(py, "vj")?;
+
+    vdj_submod.add_class::<vdj::Generator>()?;
+    vj_submod.add_class::<vj::Generator>()?;
+    vdj_submod.add_class::<vdj::Sequence>()?;
+    vj_submod.add_class::<vj::Sequence>()?;
+    vdj_submod.add_class::<vdj::Features>()?;
+    vj_submod.add_class::<vj::Features>()?;
+    vdj_submod.add_class::<vdj::Model>()?;
+    vj_submod.add_class::<vj::Model>()?;
     m.add_class::<Gene>()?;
     m.add_class::<Dna>()?;
     m.add_class::<AminoAcid>()?;
-    m.add_class::<ModelVDJ>()?;
-    m.add_class::<ModelVJ>()?;
     m.add_class::<VJAlignment>()?;
     m.add_class::<DAlignment>()?;
     m.add_class::<InferenceParameters>()?;
@@ -42,9 +36,10 @@ fn ihor(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<CategoricalFeature2g1>()?;
     m.add_class::<MarkovFeature>()?;
     m.add_class::<ErrorPoisson>()?;
-    m.add_class::<FeaturesVDJ>()?;
-    m.add_function(wrap_pyfunction!(infer_features, m)?)?;
-    m.add_function(wrap_pyfunction!(pgen, m)?)?;
-    m.add_function(wrap_pyfunction!(most_likely_recombinations, m)?)?;
+    m.add_class::<GenerationResult>()?;
+
+    m.add_submodule(vdj_submod)?;
+    m.add_submodule(vj_submod)?;
+
     Ok(())
 }
