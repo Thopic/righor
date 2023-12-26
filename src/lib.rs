@@ -11,15 +11,15 @@ use feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
     ErrorPoisson, MarkovFeature,
 };
-use inference::{
+pub use inference::{
     infer_features, most_likely_recombinations, pgen, FeaturesVDJ, InferenceParameters,
 };
-use model::{ModelVDJ, ModelVJ};
+pub use model::{ModelVDJ, ModelVJ};
 use py_binding::{GenerationResult, GeneratorVDJ, GeneratorVJ};
 use pyo3::prelude::*;
-use sequence::{DAlignment, SequenceVDJ, VJAlignment};
-use utils::Gene;
-use utils_sequences::{AlignmentParameters, AminoAcid, Dna};
+pub use sequence::{DAlignment, SequenceVDJ, VJAlignment};
+pub use utils::Gene;
+pub use utils_sequences::{AlignmentParameters, AminoAcid, Dna};
 
 #[pymodule]
 fn ihor(_py: Python<'_>, m: &PyModule) -> PyResult<()> {

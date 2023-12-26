@@ -83,13 +83,13 @@ impl AlignmentParameters {
 }
 
 #[pyclass(get_all, set_all)]
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Dna {
     pub seq: Vec<u8>,
 }
 
 #[pyclass(get_all, set_all)]
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct AminoAcid {
     pub seq: Vec<u8>,
 }

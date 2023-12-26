@@ -12,7 +12,7 @@ use rand::Rng;
 use std::path::Path;
 
 #[derive(Default, Clone, Debug)]
-struct GenerativeVDJ {
+pub struct GenerativeVDJ {
     // Contains the distribution needed to generate the model
     d_v: DiscreteDistribution,
     d_dj: DiscreteDistribution,
@@ -39,9 +39,9 @@ pub struct ModelVDJ {
     // V/J sequences trimmed at the CDR3 region (include F/W/C residues) with
     // the maximum number of reverse palindromic insertions appended.
     #[pyo3(get, set)]
-    seg_vs_sanitized: Vec<Dna>, // match genomic_data.cutV_genomic_CDR3_seqs
+    pub seg_vs_sanitized: Vec<Dna>, // match genomic_data.cutV_genomic_CDR3_seqs
     #[pyo3(get, set)]
-    seg_js_sanitized: Vec<Dna>,
+    pub seg_js_sanitized: Vec<Dna>,
 
     // Probabilities of the different events
     pub p_v: Array1<f64>,
@@ -51,7 +51,7 @@ pub struct ModelVDJ {
     pub p_del_v_given_v: Array2<f64>,
     pub p_del_j_given_j: Array2<f64>,
     pub p_del_d3_del_d5: Array3<f64>,
-    gen: GenerativeVDJ,
+    pub gen: GenerativeVDJ,
     pub markov_coefficients_vd: Array2<f64>,
     pub markov_coefficients_dj: Array2<f64>,
     pub first_nt_bias_ins_vd: Array1<f64>,
@@ -67,7 +67,7 @@ pub struct ModelVDJ {
     #[pyo3(get, set)]
     pub error_rate: f64,
     #[pyo3(get, set)]
-    thymic_q: f64,
+    pub thymic_q: f64,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -357,7 +357,7 @@ impl ModelVDJ {
 }
 
 impl ModelVDJ {
-    fn sanitize_genes(&mut self) -> Result<()> {
+    pub fn sanitize_genes(&mut self) -> Result<()> {
         // Trim the V/J nucleotides sequences at the CDR3 region (include F/W/C residues)
         // and append the maximum number of reverse palindromic insertions appended.
 

@@ -106,8 +106,9 @@ pub struct DAlignment {
     // SXSSSXSSXSX
     // errors_left:  [4,4,3,3,3,3,2,2,2,1,1]
     // errors_right: [4,3,3,2,2,2,1,1,1,1,0]
+    // "pos" represents the start of the sequence *with palindromes added*
     pub index: usize,
-    len_d: usize,   // length of the D gene
+    len_d: usize,   // length of the D gene (with palindromic inserts)
     pub pos: usize, // begining of the D-gene in the sequence (can't be < 0)
     pub errors_left: Vec<usize>,
     pub errors_right: Vec<usize>,
@@ -231,6 +232,12 @@ fn align_all_vgenes(
     for (indexv, v) in model.seg_vs.iter().enumerate() {
         let palv = v.seq_with_pal.as_ref().unwrap();
         let alignment = Dna::align_left_right(palv, seq, align_params);
+        // println!(
+        //     "{}",
+        //     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 200)
+        // );
+        // println!("{:?}", alignment.score);
+
         if align_params.valid_v_alignment(&alignment) {
             v_genes.push(VJAlignment {
                 index: indexv,

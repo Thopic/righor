@@ -86,6 +86,8 @@ impl FeaturesVDJ {
     fn likelihood_dj(&self, e: &EventVDJ) -> f64 {
         // Estimate the likelihood of the d/j portion of the alignment
         // First check that nothing overlaps
+
+        // v_end: position of the last element of the V gene + 1
         let v_end = difference_as_i64(e.v.end_seq, e.delv);
         let d_start = e.d.pos + e.deld5;
         let d_end = e.d.pos + e.d.len() - e.deld3;
@@ -132,6 +134,7 @@ impl FeaturesVDJ {
                     deld3,
                     deld5,
                 };
+
                 let lhood_dj = self.likelihood_dj(&e);
                 let mut l_total = lhood_v * lhood_dj;
                 // drop that specific recombination event if the likelihood is too low
@@ -219,12 +222,12 @@ impl FeaturesVDJ {
 
 #[pyfunction]
 pub fn infer_features(
-    sequence: SequenceVDJ,
-    model: ModelVDJ,
-    inference_params: InferenceParameters,
+    sequence: &SequenceVDJ,
+    model: &ModelVDJ,
+    inference_params: &InferenceParameters,
 ) -> Result<FeaturesVDJ> {
-    let mut feature = FeaturesVDJ::new(&model, &inference_params)?;
-    let _ = feature.infer(&sequence, &inference_params, 0);
+    let mut feature = FeaturesVDJ::new(model, inference_params)?;
+    let _ = feature.infer(sequence, inference_params, 0);
     feature = feature.cleanup()?;
     Ok(feature)
 }
@@ -232,23 +235,23 @@ pub fn infer_features(
 #[pyfunction]
 pub fn most_likely_recombinations(
     nb_scenarios: usize,
-    sequence: SequenceVDJ,
-    model: ModelVDJ,
-    inference_params: InferenceParameters,
+    sequence: &SequenceVDJ,
+    model: &ModelVDJ,
+    inference_params: &InferenceParameters,
 ) -> Result<Vec<(f64, StaticEventVDJ)>> {
-    let mut feature = FeaturesVDJ::new(&model, &inference_params)?;
-    let (_, res) = feature.infer(&sequence, &inference_params, nb_scenarios);
+    let mut feature = FeaturesVDJ::new(model, inference_params)?;
+    let (_, res) = feature.infer(sequence, inference_params, nb_scenarios);
     Ok(res)
 }
 
 #[pyfunction]
 pub fn pgen(
-    sequence: SequenceVDJ,
-    model: ModelVDJ,
-    inference_params: InferenceParameters,
+    sequence: &SequenceVDJ,
+    model: &ModelVDJ,
+    inference_params: &InferenceParameters,
 ) -> Result<f64> {
-    let mut feature = FeaturesVDJ::new(&model, &inference_params)?;
-    let (pg, _) = feature.infer(&sequence, &inference_params, 0);
+    let mut feature = FeaturesVDJ::new(model, inference_params)?;
+    let (pg, _) = feature.infer(sequence, inference_params, 0);
     Ok(pg)
 }
 
