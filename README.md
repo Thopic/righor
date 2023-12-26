@@ -22,16 +22,24 @@ How to use:
 Fast generation:
 ```py
 # Create generation model (once only)
-gen = ihor.GeneratorVDJ( # ihor.GeneratorVJ
+gen = ihor.vdj.Generator(
 "models/human_T_beta/model_params.txt",
 "models/human_T_beta/model_marginals.txt",
 "models/human_T_beta/V_gene_CDR3_anchors.csv",
 "models/human_T_beta/J_gene_CDR3_anchors.csv")
 
+# For a VJ model
+# gen = ihor.vj.Generator(
+# "models/human_T_alpha/model_params.txt",
+# "models/human_T_alpha/model_marginals.txt",
+# "models/human_T_alpha/V_gene_CDR3_anchors.csv",
+# "models/human_T_alpha/J_gene_CDR3_anchors.csv")
+
+
 # Generate productive amino-acid sequence
 result = gen.generate(True) # False for unproductive
 print(f"Full sequence: {result.full_seq}")
-print(f"V gene: {result.v_name}, J gene: {result.j_name}")
+print(f"V gene: {result.v_gene}, J gene: {result.j_gene}")
 print(f"CDR3: {result.cdr3_nt} {result.cdr3_aa}")
 ```
 
