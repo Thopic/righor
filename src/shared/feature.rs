@@ -241,7 +241,10 @@ impl Feature<&Dna> for MarkovFeature {
         if observation.is_empty() {
             return;
         }
-        self.initial_distribution_dirty[[NUCLEOTIDES_INV[&observation.seq[0]]]] += likelihood;
+        // N doesn't bring any information, so we ignore it in the update
+        if observation.seq[0] != b'N' {
+            self.initial_distribution_dirty[[NUCLEOTIDES_INV[&observation.seq[0]]]] += likelihood;
+        }
         for ii in 1..observation.len() {
             if (observation.seq[ii - 1] != b'N') & (observation.seq[ii] != b'N') {
                 self.transition_matrix_dirty[[

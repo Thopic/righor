@@ -1,5 +1,7 @@
+use anyhow::Result;
 use ihor;
 use ndarray::array;
+use std::path::Path;
 
 #[test]
 fn test_most_likely_no_del() {
@@ -226,4 +228,27 @@ fn test_most_likely_no_ins() {
     assert!(result.clone()[0].1.delv == 3);
     assert!(result.clone()[0].1.delj == 0);
     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+}
+
+#[test]
+fn test_infer_feature_real() -> Result<()> {
+    let model = ihor::vdj::Model::load_model(
+        Path::new("models/human_T_beta/model_params.txt"),
+        Path::new("models/human_T_beta/model_marginals.txt"),
+        Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
+        Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
+    )?;
+    let align_params = ihor::sequence::AlignmentParameters {
+        min_score_v: 40,
+        min_score_j: 10,
+        max_error_d: 8,
+    };
+    let inference_params = ihor::shared::InferenceParameters {
+        min_likelihood: 1e-40,
+        min_likelihood_error: 1e-60,
+    };
+    let seq_str = "AGTCTGCCATCCCCAACCAGACAGCTCTTTACTTCTGTGCCACCGGGGCAGGAAGGGCTA".to_string();
+    let seq = model.align_sequence(ihor::sequence::Dna::from_string(&seq_str)?, &align_params)?;
+    model.infer_features(&seq, &inference_params)?;
+    Ok(())
 }

@@ -148,7 +148,7 @@ impl Features {
 #[pymethods]
 impl Features {
     #[staticmethod]
-    fn average(features: Vec<Features>) -> Result<Features> {
+    pub fn average(features: Vec<Features>) -> Result<Features> {
         Ok(Features {
             v: CategoricalFeature1::average(features.iter().map(|a| a.v.clone()))?,
             delv: CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?,

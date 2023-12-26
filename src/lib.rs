@@ -1,5 +1,5 @@
-mod sequence;
-mod shared;
+pub mod sequence;
+pub mod shared;
 pub mod vdj;
 pub mod vj;
 

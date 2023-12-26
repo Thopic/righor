@@ -7,7 +7,7 @@ edition = "2021"
 [lib]
 name = "ihor"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
 
 [profile.release]
 debug = true
@@ -27,7 +27,7 @@ pyo3 = {version = "0.20.0", features = ["extension-module", "anyhow"]}
 ndarray-linalg = {version = "0.14", features = ["openblas"]}
 duplicate = {version = "1.0.0"}
 bio = "1.5"
-indicatif = "0.17.7"
+kdam = "0.5.1"
 approx_eq = "0.1.8"
 itertools = "0.10.0"
 numpy = "0.20"

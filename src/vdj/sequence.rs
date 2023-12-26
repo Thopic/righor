@@ -62,13 +62,13 @@ pub fn align_all_vgenes(
     for (indexv, v) in model.seg_vs.iter().enumerate() {
         let palv = v.seq_with_pal.as_ref().unwrap();
         let alignment = Dna::align_left_right(palv, seq, align_params);
-        // println!(
-        //     "{}",
-        //     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 200)
-        // );
-        // println!("{:?}", alignment.score);
-
         if align_params.valid_v_alignment(&alignment) {
+            // println!(
+            //     "{}",
+            //     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 200)
+            // );
+            // println!("{:?}", alignment.score);
+
             v_genes.push(VJAlignment {
                 index: indexv,
                 start_gene: alignment.xstart,
@@ -101,12 +101,13 @@ pub fn align_all_jgenes(
     for (indexj, j) in model.seg_js.iter().enumerate() {
         let palj = j.seq_with_pal.as_ref().unwrap();
         let alignment = Dna::align_left_right(seq, palj, align_params);
-        // println!(
-        //     "{}",
-        //     alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 200)
-        // );
-        // println!("{:?}", alignment.score);
         if align_params.valid_j_alignment(&alignment) {
+            // println!(
+            //     "{}",
+            //     alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 200)
+            // );
+            // println!("{:?}", alignment.score);
+
             j_aligns.push(VJAlignment {
                 index: indexj,
                 start_gene: alignment.ystart,
