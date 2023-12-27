@@ -29,6 +29,30 @@ static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
     b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G', b'N' => b'N',
 };
 
+// pub fn nucleotides_inv(n: u8) -> usize {
+//     match n {
+//         b'A' => 0,
+//         b'T' => 3,
+//         b'G' => 2,
+//         b'C' => 1,
+//         b'N' => 4,
+//         _ => panic!("Wrong nucleotide type"),
+//     }
+// }
+// potentially faster
+pub fn nucleotides_inv(n: u8) -> usize {
+    static LOOKUP_TABLE: [usize; 256] = {
+        let mut table = [0; 256];
+        table[b'A' as usize] = 0;
+        table[b'T' as usize] = 3;
+        table[b'G' as usize] = 2;
+        table[b'C' as usize] = 1;
+        table[b'N' as usize] = 4;
+        table
+    };
+
+    LOOKUP_TABLE[n as usize]
+}
 #[pyclass(get_all, set_all)]
 pub struct AlignmentParameters {
     // Structure containing all the parameters for the alignment

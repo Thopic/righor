@@ -94,4 +94,4 @@ Programming stuff:
 
 Things to do:
 - add more tests (interaction insertion + deletion, more than one v gene)
-- work on the speed (limit the valid D positions)
+- work on the speed (limit the valid D positions): One reasonable thing would be to modify VDJ to iterate on v/delv, then j/delj, then d. The v <-> j distance would give a reasonable bound on the number of insertion (and help remove a lot of shit). That said maybe it's not needed. Depend on how fast it all ends up being.

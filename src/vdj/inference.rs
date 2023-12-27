@@ -15,10 +15,10 @@ pub struct Features {
     pub dj: CategoricalFeature2,
     pub delj: CategoricalFeature1g1,
     pub deld: CategoricalFeature2g1,
-    pub nb_insvd: CategoricalFeature1,
-    pub nb_insdj: CategoricalFeature1,
-    pub insvd: MarkovFeature,
-    pub insdj: MarkovFeature,
+    // pub nb_insvd: CategoricalFeature1,
+    // pub nb_insdj: CategoricalFeature1,
+    pub insvd: InsertionFeature,
+    pub insdj: InsertionFeature,
     pub error: ErrorPoisson,
 }
 
@@ -30,15 +30,23 @@ impl Features {
             dj: CategoricalFeature2::new(&model.p_dj)?,
             delj: CategoricalFeature1g1::new(&model.p_del_j_given_j)?,
             deld: CategoricalFeature2g1::new(&model.p_del_d3_del_d5)?, // dim: (d3, d5, d)
-            nb_insvd: CategoricalFeature1::new(&model.p_ins_vd)?,
-            nb_insdj: CategoricalFeature1::new(&model.p_ins_dj)?,
-            insvd: MarkovFeature::new(&model.first_nt_bias_ins_vd, &model.markov_coefficients_vd)?,
-            insdj: MarkovFeature::new(&model.first_nt_bias_ins_dj, &model.markov_coefficients_dj)?,
+            // nb_insvd: CategoricalFeature1::new(&model.p_ins_vd)?,
+            // nb_insdj: CategoricalFeature1::new(&model.p_ins_dj)?,
+            insvd: InsertionFeature::new(
+                &model.p_ins_vd,
+                &model.first_nt_bias_ins_vd,
+                &model.markov_coefficients_vd,
+            )?,
+            insdj: InsertionFeature::new(
+                &model.p_ins_dj,
+                &model.first_nt_bias_ins_dj,
+                &model.markov_coefficients_dj,
+            )?,
             error: ErrorPoisson::new(model.error_rate, inference_params.min_likelihood_error)?,
         })
     }
 
-    // Return an iterator over V & delV
+    // Return an iterator over V, D and J
     fn range_v<'a>(
         &self,
         sequence: &'a Sequence,
@@ -81,12 +89,14 @@ impl Features {
         }
 
         // Then compute the likelihood of each part (including insertion length)
-        // We ignore the V/delV part (already computed)
+        // We ignore the V/delV part (already computed)e.j.index) *
         self.dj.likelihood((e.d.index, e.j.index))
             * self.delj.likelihood((e.delj, e.j.index))
             * self.deld.likelihood((e.deld3, e.deld5, e.d.index))
-            * self.nb_insvd.likelihood((d_start as i64 - v_end) as usize)
-            * self.nb_insdj.likelihood(j_start - d_end)
+            * self
+                .insvd
+                .likelihood_length((d_start as i64 - v_end) as usize)
+            * self.insdj.likelihood_length(j_start - d_end)
             * self.error.likelihood(e.d.nb_errors(e.deld3, e.deld5))
             * self.error.likelihood(e.j.nb_errors(e.delj))
     }
@@ -128,8 +138,8 @@ impl Features {
                 // extract both inserted sequences
                 let (insvd, insdj) = sequence.get_insertions_vd_dj(&e);
 
-                l_total *= self.insvd.likelihood(&insvd);
-                l_total *= self.insdj.likelihood(&insdj);
+                l_total *= self.insvd.likelihood_sequence(&insvd);
+                l_total *= self.insdj.likelihood_sequence(&insdj);
 
                 // drop that specific recombination event if the likelihood is too low
                 if l_total < inference_params.min_likelihood {
@@ -155,8 +165,8 @@ impl Features {
                 self.delv.dirty_update((delv, v.index), l_total);
                 self.delj.dirty_update((delj, j.index), l_total);
                 self.deld.dirty_update((deld3, deld5, d.index), l_total);
-                self.nb_insvd.dirty_update(insvd.len(), l_total);
-                self.nb_insdj.dirty_update(insdj.len(), l_total);
+                // self.nb_insvd.dirty_update(insvd.len(), l_total);
+                // self.nb_insdj.dirty_update(insdj.len(), l_total);
                 self.insvd.dirty_update(&insvd, l_total);
                 self.insdj.dirty_update(&insdj, l_total);
                 self.error.dirty_update(
@@ -176,8 +186,8 @@ impl Features {
             delv: self.delv.cleanup()?,
             delj: self.delj.cleanup()?,
             deld: self.deld.cleanup()?,
-            nb_insvd: self.nb_insvd.cleanup()?,
-            nb_insdj: self.nb_insdj.cleanup()?,
+            // nb_insvd: self.nb_insvd.cleanup()?,
+            // nb_insdj: self.nb_insdj.cleanup()?,
             insvd: self.insvd.cleanup()?,
             insdj: self.insdj.cleanup()?,
             error: self.error.cleanup()?,
@@ -194,10 +204,10 @@ impl Features {
             dj: CategoricalFeature2::average(features.iter().map(|a| a.dj.clone()))?,
             delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
             deld: CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?,
-            nb_insvd: CategoricalFeature1::average(features.iter().map(|a| a.nb_insvd.clone()))?,
-            nb_insdj: CategoricalFeature1::average(features.iter().map(|a| a.nb_insdj.clone()))?,
-            insvd: MarkovFeature::average(features.iter().map(|a| a.insvd.clone()))?,
-            insdj: MarkovFeature::average(features.iter().map(|a| a.insdj.clone()))?,
+            // nb_insvd: CategoricalFeature1::average(features.iter().map(|a| a.nb_insvd.clone()))?,
+            // nb_insdj: CategoricalFeature1::average(features.iter().map(|a| a.nb_insdj.clone()))?,
+            insvd: InsertionFeature::average(features.iter().map(|a| a.insvd.clone()))?,
+            insdj: InsertionFeature::average(features.iter().map(|a| a.insdj.clone()))?,
             error: ErrorPoisson::average(features.iter().map(|a| a.error.clone()))?,
         })
     }

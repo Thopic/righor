@@ -1,4 +1,4 @@
-use crate::sequence::utils::{Dna, NUCLEOTIDES_INV};
+use crate::sequence::utils::{nucleotides_inv, Dna};
 use crate::shared::utils::Normalize;
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3, Axis};
@@ -243,13 +243,13 @@ impl Feature<&Dna> for MarkovFeature {
         }
         // N doesn't bring any information, so we ignore it in the update
         if observation.seq[0] != b'N' {
-            self.initial_distribution_dirty[[NUCLEOTIDES_INV[&observation.seq[0]]]] += likelihood;
+            self.initial_distribution_dirty[nucleotides_inv(observation.seq[0])] += likelihood;
         }
         for ii in 1..observation.len() {
             if (observation.seq[ii - 1] != b'N') & (observation.seq[ii] != b'N') {
                 self.transition_matrix_dirty[[
-                    NUCLEOTIDES_INV[&observation.seq[ii - 1]],
-                    NUCLEOTIDES_INV[&observation.seq[ii]],
+                    nucleotides_inv(observation.seq[ii - 1]),
+                    nucleotides_inv(observation.seq[ii]),
                 ]] += likelihood;
             }
         }
@@ -258,17 +258,20 @@ impl Feature<&Dna> for MarkovFeature {
         if observation.is_empty() {
             return 1.;
         }
-        let mut proba = self.initial_distribution_internal[NUCLEOTIDES_INV[&observation.seq[0]]];
+        let mut proba = self.initial_distribution_internal[nucleotides_inv(observation.seq[0])];
         for ii in 1..observation.len() {
             proba *= self.transition_matrix_internal[[
-                NUCLEOTIDES_INV[&observation.seq[ii - 1]],
-                NUCLEOTIDES_INV[&observation.seq[ii]],
+                nucleotides_inv(observation.seq[ii - 1]),
+                nucleotides_inv(observation.seq[ii]),
             ]];
         }
         proba
     }
     fn cleanup(&self) -> Result<MarkovFeature> {
-        MarkovFeature::new(&self.initial_distribution, &self.transition_matrix)
+        MarkovFeature::new(
+            &self.initial_distribution_dirty,
+            &self.transition_matrix_dirty,
+        )
     }
     fn average(
         mut iter: impl Iterator<Item = MarkovFeature> + ExactSizeIterator,
@@ -415,5 +418,149 @@ impl Feature<usize> for ErrorPoisson {
             len += 1;
         }
         ErrorPoisson::new(average_err / (len as f64), min_likelihood)
+    }
+}
+
+// Markov chain structure for Dna insertion
+#[derive(Default, Clone, Debug)]
+#[pyclass]
+pub struct InsertionFeature {
+    pub length_distribution: Array1<f64>,
+    pub initial_distribution: Array1<f64>,
+    initial_distribution_internal: Array1<f64>,
+    pub transition_matrix: Array2<f64>,
+    transition_matrix_internal: Array2<f64>,
+    initial_distribution_dirty: Array1<f64>,
+    transition_matrix_dirty: Array2<f64>,
+    length_distribution_dirty: Array1<f64>,
+    length_distribution_internal: Array1<f64>,
+}
+
+impl Feature<&Dna> for InsertionFeature {
+    fn dirty_update(&mut self, observation: &Dna, likelihood: f64) {
+        if observation.is_empty() {
+            return;
+        }
+        self.length_distribution_dirty[observation.len()] += likelihood;
+        // N doesn't bring any information, so we ignore it in the update
+        if observation.seq[0] != b'N' {
+            self.initial_distribution_dirty[nucleotides_inv(observation.seq[0])] += likelihood;
+        }
+        for ii in 1..observation.len() {
+            if (observation.seq[ii - 1] != b'N') & (observation.seq[ii] != b'N') {
+                self.transition_matrix_dirty[[
+                    nucleotides_inv(observation.seq[ii - 1]),
+                    nucleotides_inv(observation.seq[ii]),
+                ]] += likelihood;
+            }
+        }
+    }
+    fn likelihood(&self, _observation: &Dna) -> f64 {
+        panic!("Do not use");
+    }
+    fn cleanup(&self) -> Result<InsertionFeature> {
+        InsertionFeature::new(
+            &self.length_distribution_dirty,
+            &self.initial_distribution_dirty,
+            &self.transition_matrix_dirty,
+        )
+    }
+    fn average(
+        mut iter: impl Iterator<Item = InsertionFeature> + ExactSizeIterator,
+    ) -> Result<InsertionFeature> {
+        let mut len = 1;
+        let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
+        let mut average_init = first_feat.initial_distribution;
+        let mut average_length = first_feat.length_distribution;
+        let mut average_mat = first_feat.transition_matrix;
+        for feat in iter {
+            average_init = average_init + feat.initial_distribution;
+            average_mat = average_mat + feat.transition_matrix;
+            average_length = average_length + feat.length_distribution;
+            len += 1;
+        }
+        InsertionFeature::new(
+            &(average_length / (len as f64)),
+            &(average_init / (len as f64)),
+            &(average_mat / (len as f64)),
+        )
+    }
+}
+
+impl InsertionFeature {
+    pub fn new(
+        length_distribution: &Array1<f64>,
+        initial_distribution: &Array1<f64>,
+        transition_matrix: &Array2<f64>,
+    ) -> Result<InsertionFeature> {
+        let mut m = InsertionFeature {
+            length_distribution: length_distribution.normalize_distribution(None)?,
+            transition_matrix: transition_matrix.normalize_distribution(Some(Axis(1)))?,
+            initial_distribution: initial_distribution.normalize_distribution(None)?,
+            transition_matrix_dirty: Array2::<f64>::zeros(transition_matrix.dim()),
+            initial_distribution_dirty: Array1::<f64>::zeros(initial_distribution.dim()),
+            transition_matrix_internal: Array2::<f64>::zeros((5, 5)),
+            initial_distribution_internal: Array1::<f64>::zeros(5),
+            length_distribution_internal: Array1::<f64>::zeros(length_distribution.dim()),
+            length_distribution_dirty: Array1::<f64>::zeros(length_distribution.dim()),
+        };
+
+        m.define_internal();
+        Ok(m)
+    }
+
+    pub fn likelihood_sequence(&self, observation: &Dna) -> f64 {
+        if observation.is_empty() {
+            return 1.;
+        }
+        let len = observation.len();
+        let mut proba = self.initial_distribution_internal[nucleotides_inv(observation.seq[0])];
+        for ii in 1..len {
+            proba *= self.transition_matrix_internal[[
+                nucleotides_inv(observation.seq[ii - 1]),
+                nucleotides_inv(observation.seq[ii]),
+            ]];
+        }
+        proba
+    }
+
+    pub fn likelihood_length(&self, observation: usize) -> f64 {
+        if observation >= self.length_distribution_internal.len() {
+            return 0.;
+        }
+        self.length_distribution_internal[observation]
+    }
+
+    pub fn get_parameters(&self) -> (Array1<f64>, Array1<f64>, Array2<f64>) {
+        (
+            self.length_distribution.clone(),
+            self.initial_distribution.clone(),
+            self.transition_matrix.clone(),
+        )
+    }
+
+    /// The point of this function is:
+    /// 1- deal with undefined (N) nucleotides
+    /// 2- improve speed by modifying the normalisation of the transition_matrix and
+    /// length distribution.
+    /// Caveat is that it makes min_likelihood a bit inexact, oh well.
+    fn define_internal(&mut self) {
+        let mean_markov = self.transition_matrix.mean().unwrap();
+        for ii in 0..self.length_distribution.dim() {
+            self.length_distribution_internal[ii] = self.length_distribution[ii] * mean_markov;
+        }
+
+        for ii in 0..4 {
+            self.initial_distribution_internal[ii] = self.initial_distribution[ii] / mean_markov;
+            for jj in 0..4 {
+                self.transition_matrix_internal[[ii, jj]] =
+                    self.transition_matrix[[ii, jj]] / mean_markov;
+            }
+        }
+        self.initial_distribution_internal[4] = 1. / mean_markov;
+        for ii in 0..5 {
+            self.transition_matrix_internal[[ii, 4]] = 1. / mean_markov;
+            self.transition_matrix_internal[[4, ii]] = 1. / mean_markov;
+        }
     }
 }

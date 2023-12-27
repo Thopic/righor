@@ -67,7 +67,7 @@ pub fn align_all_vgenes(
             //     "{}",
             //     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 200)
             // );
-            // println!("{:?}", alignment.score);
+            // println!("V: {:?}", alignment.score);
 
             v_genes.push(VJAlignment {
                 index: indexv,
@@ -106,7 +106,7 @@ pub fn align_all_jgenes(
             //     "{}",
             //     alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 200)
             // );
-            // println!("{:?}", alignment.score);
+            // println!("J: {:?}", alignment.score);
 
             j_aligns.push(VJAlignment {
                 index: indexj,

@@ -527,10 +527,18 @@ impl Model {
         self.p_dj = feature.dj.probas.clone();
         self.p_del_j_given_j = feature.delj.probas.clone();
         self.p_del_d3_del_d5 = feature.deld.probas.clone();
-        self.p_ins_vd = feature.nb_insvd.probas.clone();
-        self.p_ins_dj = feature.nb_insdj.probas.clone();
-        (self.first_nt_bias_ins_vd, self.markov_coefficients_vd) = feature.insvd.get_parameters();
-        (self.first_nt_bias_ins_dj, self.markov_coefficients_dj) = feature.insvd.get_parameters();
+        // self.p_ins_vd = feature.nb_insvd.probas.clone();
+        // self.p_ins_dj = feature.nb_insdj.probas.clone();
+        (
+            self.p_ins_vd,
+            self.first_nt_bias_ins_vd,
+            self.markov_coefficients_vd,
+        ) = feature.insvd.get_parameters();
+        (
+            self.p_ins_dj,
+            self.first_nt_bias_ins_dj,
+            self.markov_coefficients_dj,
+        ) = feature.insvd.get_parameters();
         self.error_rate = feature.error.error_rate;
     }
 

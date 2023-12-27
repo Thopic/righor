@@ -19,9 +19,9 @@ fn main() -> Result<()> {
         Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
     )?;
     let align_params = sequence::AlignmentParameters {
-        min_score_v: 40,
-        min_score_j: 10,
-        max_error_d: 8,
+        min_score_v: 80,
+        min_score_j: 40,
+        max_error_d: 5,
     };
     let inference_params = shared::InferenceParameters {
         min_likelihood: 1e-40,
@@ -38,15 +38,15 @@ fn main() -> Result<()> {
         seq.push(model.align_sequence(sequence::Dna::from_string(l.trim())?, &align_params)?);
     }
 
-    for _ in 0..5 {
+    for _ in 0..10 {
         let mut features = Vec::new();
         for s in tqdm!(seq.clone().iter(), total = seq.len()) {
-            println!("{}", s.sequence);
             features.push(model.infer_features(&s, &inference_params)?);
         }
         let new_features = vdj::Features::average(features)?;
         model.update(&new_features);
     }
+    println!("{:?}", model);
 
     Ok(())
 }

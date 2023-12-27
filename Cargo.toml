@@ -11,6 +11,7 @@ crate-type = ["cdylib", "lib"]
 
 [profile.release]
 debug = true
+opt-level = 3
 [profile.bench]
 debug = true
 
