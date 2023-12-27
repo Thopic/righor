@@ -5,3 +5,4 @@ build-backend = "maturin"
 [tool.maturin]
 python-source = "python"
 data = "data"
+features = ["pyo3"]

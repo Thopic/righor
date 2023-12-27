@@ -3,24 +3,22 @@ use crate::shared::feature::{
     MarkovFeature,
 };
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 #[derive(Debug, Clone)]
 pub struct GenerationResult {
-    #[pyo3(get, set)]
     pub cdr3_nt: String,
-    #[pyo3(get, set)]
     pub cdr3_aa: Option<String>,
-    #[pyo3(get, set)]
     pub full_seq: String,
-    #[pyo3(get, set)]
     pub v_gene: String,
-    #[pyo3(get, set)]
     pub j_gene: String,
 }
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymethods]
 impl CategoricalFeature1 {
     #[getter]
@@ -29,6 +27,7 @@ impl CategoricalFeature1 {
     }
 }
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymethods]
 impl CategoricalFeature1g1 {
     #[getter]
@@ -37,6 +36,7 @@ impl CategoricalFeature1g1 {
     }
 }
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymethods]
 impl CategoricalFeature2 {
     #[getter]
@@ -50,6 +50,7 @@ impl CategoricalFeature2 {
     }
 }
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymethods]
 impl CategoricalFeature2g1 {
     #[getter]
@@ -58,6 +59,7 @@ impl CategoricalFeature2g1 {
     }
 }
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymethods]
 impl MarkovFeature {
     #[getter]

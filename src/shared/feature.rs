@@ -2,6 +2,7 @@ use crate::sequence::utils::{nucleotides_inv, Dna};
 use crate::shared::utils::Normalize;
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3, Axis};
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::pyclass;
 
 // This class define different type of Feature
@@ -32,7 +33,7 @@ pub trait Feature<T> {
 
 // One-dimensional categorical distribution
 #[derive(Default, Clone, Debug)]
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct CategoricalFeature1 {
     pub probas: Array1<f64>,
     probas_dirty: Array1<f64>,
@@ -62,7 +63,7 @@ impl Feature<usize> for CategoricalFeature1 {
             .ok_or(anyhow!("Cannot average empty vector"))?
             .probas;
         for feat in iter {
-            average_proba = average_proba + feat.probas;
+            average_proba += &feat.probas;
             len += 1;
         }
         CategoricalFeature1::new(&(average_proba / (len as f64)))
@@ -83,7 +84,7 @@ impl CategoricalFeature1 {
 
 // One-dimensional categorical distribution, given one external parameter
 #[derive(Default, Clone, Debug)]
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct CategoricalFeature1g1 {
     pub probas: Array2<f64>,
     probas_dirty: Array2<f64>,
@@ -109,7 +110,7 @@ impl Feature<(usize, usize)> for CategoricalFeature1g1 {
             .ok_or(anyhow!("Cannot average empty vector"))?
             .probas;
         for feat in iter {
-            average_proba = average_proba + feat.probas;
+            average_proba += &feat.probas;
             len += 1;
         }
         CategoricalFeature1g1::new(&(average_proba / (len as f64)))
@@ -130,7 +131,7 @@ impl CategoricalFeature1g1 {
 
 // Two-dimensional categorical distribution
 #[derive(Default, Clone, Debug)]
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct CategoricalFeature2 {
     pub probas: Array2<f64>,
     probas_dirty: Array2<f64>,
@@ -155,7 +156,7 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
             .ok_or(anyhow!("Cannot average empty vector"))?
             .probas;
         for feat in iter {
-            average_proba = average_proba + feat.probas;
+            average_proba += &feat.probas;
             len += 1;
         }
         CategoricalFeature2::new(&(average_proba / (len as f64)))
@@ -178,7 +179,7 @@ impl CategoricalFeature2 {
 
 // Two-dimensional categorical distribution, given one external parameter
 #[derive(Default, Clone, Debug)]
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct CategoricalFeature2g1 {
     pub probas: Array3<f64>,
     probas_dirty: Array3<f64>,
@@ -203,7 +204,7 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
             .ok_or(anyhow!("Cannot average empty vector"))?
             .probas;
         for feat in iter {
-            average_proba = average_proba + feat.probas;
+            average_proba += &feat.probas;
             len += 1;
         }
         CategoricalFeature2g1::new(&(average_proba / (len as f64)))
@@ -226,7 +227,7 @@ impl CategoricalFeature2g1 {
 
 // Markov chain structure for Dna insertion
 #[derive(Default, Clone, Debug)]
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct MarkovFeature {
     pub initial_distribution: Array1<f64>,
     initial_distribution_internal: Array1<f64>,
@@ -281,8 +282,8 @@ impl Feature<&Dna> for MarkovFeature {
         let mut average_init = first_feat.initial_distribution;
         let mut average_mat = first_feat.transition_matrix;
         for feat in iter {
-            average_init = average_init + feat.initial_distribution;
-            average_mat = average_mat + feat.transition_matrix;
+            average_init += &feat.initial_distribution;
+            average_mat += &feat.transition_matrix;
             len += 1;
         }
         MarkovFeature::new(
@@ -333,9 +334,8 @@ impl MarkovFeature {
 
 // Most basic error model
 #[derive(Default, Clone, Debug)]
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 pub struct ErrorPoisson {
-    #[pyo3(get, set)]
     pub error_rate: f64,
     lookup_table: Vec<f64>,
     total_probas_dirty: f64, // useful for dirty updating
@@ -423,7 +423,7 @@ impl Feature<usize> for ErrorPoisson {
 
 // Markov chain structure for Dna insertion
 #[derive(Default, Clone, Debug)]
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct InsertionFeature {
     pub length_distribution: Array1<f64>,
     pub initial_distribution: Array1<f64>,

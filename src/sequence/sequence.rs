@@ -1,8 +1,8 @@
 // Align the sequence to V & J genes
-
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 
-#[pyclass(get_all, set_all)]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct VJAlignment {
     // Structure containing the alignment between a V/J gene and the sequence
@@ -28,7 +28,7 @@ pub struct VJAlignment {
     pub errors: Vec<usize>,
 }
 
-#[pymethods]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
 impl VJAlignment {
     pub fn nb_errors(&self, del: usize) -> usize {
         if del >= self.errors.len() {
@@ -41,7 +41,7 @@ impl VJAlignment {
     }
 }
 
-#[pyclass(get_all, set_all)]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct DAlignment {
     // Structure containing the alignment between a D gene and the sequence
@@ -64,7 +64,7 @@ pub struct DAlignment {
     pub errors_right: Vec<usize>,
 }
 
-#[pymethods]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
 impl DAlignment {
     pub fn nb_errors(&self, deld3: usize, deld5: usize) -> usize {
         self.errors_left[deld5] + self.errors_right[deld3]

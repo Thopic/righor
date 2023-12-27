@@ -4,17 +4,45 @@ use crate::sequence::AminoAcid;
 use crate::shared::GenerationResult;
 use crate::vdj::Model;
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
+
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use std::path::Path;
 
-#[pyclass]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct Generator {
     model: Model,
     rng: SmallRng,
 }
 
+#[cfg(not(features = "py_binds"))]
+impl Generator {
+    pub fn new(
+        path_params: &str,
+        path_marginals: &str,
+        path_v_anchors: &str,
+        path_j_anchors: &str,
+        seed: Option<u64>,
+    ) -> Generator {
+        let model = Model::load_model(
+            Path::new(path_params),
+            Path::new(path_marginals),
+            Path::new(path_v_anchors),
+            Path::new(path_j_anchors),
+        )
+        .unwrap();
+        let rng = match seed {
+            Some(s) => SmallRng::seed_from_u64(s),
+            None => SmallRng::from_entropy(),
+        };
+
+        Generator { model, rng }
+    }
+}
+
+#[cfg(features = "py_binds")]
 #[pymethods]
 impl Generator {
     #[new]
@@ -39,7 +67,10 @@ impl Generator {
 
         Generator { model, rng }
     }
+}
 
+#[cfg_attr(features = "py_bind", pymethods)]
+impl Generator {
     pub fn generate(&mut self, functional: bool) -> GenerationResult {
         let (cdr3_nt, cdr3_aa, v_index, j_index) = self.model.generate(functional, &mut self.rng);
         let (full_sequence, v_name, j_name) = self

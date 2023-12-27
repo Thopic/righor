@@ -2,9 +2,10 @@ use crate::sequence::utils::{difference_as_i64, differences_remaining};
 use crate::sequence::Dna;
 use crate::sequence::{AlignmentParameters, DAlignment, VJAlignment};
 use crate::vj::{Event, Model};
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::*;
 
-#[pyclass(get_all, set_all)]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct Sequence {
     pub sequence: Dna,

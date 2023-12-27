@@ -6,10 +6,11 @@ use crate::shared::InferenceParameters;
 use crate::vj::{Event, Model, Sequence, StaticEvent};
 use anyhow::Result;
 use itertools::iproduct;
-use pyo3::{pyclass, pymethods};
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+use pyo3::prelude::*;
 
 #[derive(Default, Clone, Debug)]
-#[pyclass(get_all)]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all))]
 pub struct Features {
     pub v: CategoricalFeature1,
     pub delv: CategoricalFeature1g1,
@@ -145,6 +146,23 @@ impl Features {
         })
     }
 }
+
+#[cfg(not(features = "py_binds"))]
+impl Features {
+    pub fn average(features: Vec<Features>) -> Result<Features> {
+        Ok(Features {
+            v: CategoricalFeature1::average(features.iter().map(|a| a.v.clone()))?,
+            delv: CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?,
+            j: CategoricalFeature1g1::average(features.iter().map(|a| a.j.clone()))?,
+            delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
+            nb_insvj: CategoricalFeature1::average(features.iter().map(|a| a.nb_insvj.clone()))?,
+            insvj: MarkovFeature::average(features.iter().map(|a| a.insvj.clone()))?,
+            error: ErrorPoisson::average(features.iter().map(|a| a.error.clone()))?,
+        })
+    }
+}
+
+#[cfg(features = "py_binds")]
 #[pymethods]
 impl Features {
     #[staticmethod]

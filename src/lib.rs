@@ -3,6 +3,7 @@ pub mod shared;
 pub mod vdj;
 pub mod vj;
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 pub use sequence::{AlignmentParameters, AminoAcid, DAlignment, Dna, VJAlignment};
 pub use shared::{
@@ -10,6 +11,7 @@ pub use shared::{
     ErrorPoisson, Gene, GenerationResult, InferenceParameters, MarkovFeature,
 };
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymodule]
 fn ihor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     let vdj_submod = PyModule::new(py, "vdj")?;

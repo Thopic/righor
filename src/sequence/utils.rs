@@ -2,6 +2,7 @@
 use anyhow::{anyhow, Result};
 use bio::alignment::{pairwise, Alignment};
 use phf::phf_map;
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 use std::fmt;
 
@@ -53,7 +54,7 @@ pub fn nucleotides_inv(n: u8) -> usize {
 
     LOOKUP_TABLE[n as usize]
 }
-#[pyclass(get_all, set_all)]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 pub struct AlignmentParameters {
     // Structure containing all the parameters for the alignment
     // of the V and J genes
@@ -62,9 +63,16 @@ pub struct AlignmentParameters {
     pub max_error_d: usize,
 }
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymethods]
 impl AlignmentParameters {
     #[new]
+    pub fn py_new(min_score_v: i32, min_score_j: i32, max_error_d: usize) -> Self {
+        Self::new(min_score_v, min_score_j, max_error_d)
+    }
+}
+
+impl AlignmentParameters {
     pub fn new(min_score_v: i32, min_score_j: i32, max_error_d: usize) -> Self {
         Self {
             min_score_v,
@@ -106,13 +114,13 @@ impl AlignmentParameters {
     }
 }
 
-#[pyclass(get_all, set_all)]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Dna {
     pub seq: Vec<u8>,
 }
 
-#[pyclass(get_all, set_all)]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct AminoAcid {
     pub seq: Vec<u8>,
@@ -130,14 +138,11 @@ impl fmt::Display for AminoAcid {
     }
 }
 
-#[pymethods]
+#[cfg(not(features = "py_binds"))]
 impl Dna {
-    #[new]
     pub fn new() -> Dna {
         Dna { seq: Vec::new() }
     }
-
-    #[staticmethod]
     pub fn from_string(s: &str) -> Result<Dna> {
         for &byte in s.as_bytes() {
             if !NUCLEOTIDES_INV.contains_key(&byte) {
@@ -150,7 +155,10 @@ impl Dna {
             seq: s.as_bytes().to_vec(),
         })
     }
+}
 
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
+impl Dna {
     pub fn get_string(&self) -> String {
         self.to_string()
     }
@@ -269,13 +277,21 @@ impl Dna {
     }
 }
 
-#[pymethods]
 impl AminoAcid {
-    #[staticmethod]
     pub fn from_string(s: &str) -> AminoAcid {
         return AminoAcid {
             seq: s.as_bytes().to_vec(),
         };
+    }
+}
+
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[pymethods]
+impl AminoAcid {
+    #[staticmethod]
+    #[pyo3(name = "from_string")]
+    pub fn py_from_string(s: &str) -> AminoAcid {
+        AminoAcid::from_string(s)
     }
 }
 
@@ -319,5 +335,29 @@ pub fn difference_as_i64(a: usize, b: usize) -> i64 {
         // don't check for underflow either
         // assert!(b - a <= i64::MAX as usize, "Underflow occurred");
         -((b - a) as i64)
+    }
+}
+
+// pyo3 boiler code
+#[cfg(features = "py_binds")]
+#[pymethods]
+impl Dna {
+    #[new]
+    pub fn new() -> Dna {
+        Dna { seq: Vec::new() }
+    }
+
+    #[staticmethod]
+    pub fn from_string(s: &str) -> Result<Dna> {
+        for &byte in s.as_bytes() {
+            if !NUCLEOTIDES_INV.contains_key(&byte) {
+                // Handle the error if the byte is not in the map
+                return Err(anyhow!(format!("Invalid byte: {}", byte)));
+            }
+        }
+
+        Ok(Dna {
+            seq: s.as_bytes().to_vec(),
+        })
     }
 }

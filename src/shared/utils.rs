@@ -1,7 +1,8 @@
 use crate::sequence::utils::{Dna, NUCLEOTIDES};
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3, Axis};
-use ndarray_linalg::Eig;
+// use ndarray_linalg::Eig;
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 use rand::distributions::{Distribution, Uniform};
 use rand::Rng;
@@ -11,7 +12,7 @@ const EPSILON: f64 = 1e-10;
 
 // Define some storage wrapper for the V/D/J genes
 
-#[pyclass(get_all, set_all)]
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct Gene {
     pub name: String,
@@ -125,13 +126,21 @@ impl MarkovDNA {
 }
 
 pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64>> {
-    let (eig, eigv) = transition_matrix.eig()?;
-    for i in 0..4 {
-        if (eig[i].re - 1.).abs() < 1e-6 {
-            let col = eigv.column(i);
-            let sum: f64 = col.mapv(|x| x.re).sum();
-            return Ok(col.mapv(|x| x.re / sum).to_vec());
+    // originally computed the eigenvalues. This is a pain though, because
+    // it means I need to load blas, which takes forever to compile.
+    // And this is not exactly an important part of the program.
+    // so this means I'm going to do it stupidly
+    let n = transition_matrix.nrows();
+    let mut vec = Array1::from_elem(n, 1.0 / n as f64);
+    for _ in 0..10000 {
+        let vec_next = transition_matrix.dot(&vec);
+        let norm = vec_next.sum();
+        let vec_next = vec_next / norm;
+
+        if (&vec_next - &vec).mapv(|a| a.abs()).sum() < EPSILON {
+            return Ok(vec_next.to_vec());
         }
+        vec = vec_next;
     }
     Err(anyhow!("No suitable eigenvector found"))?
 }
@@ -272,16 +281,23 @@ where
     vcloned
 }
 
+#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
-#[pyclass(get_all, set_all)]
 pub struct InferenceParameters {
     pub min_likelihood_error: f64,
     pub min_likelihood: f64,
 }
 
+#[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymethods]
 impl InferenceParameters {
     #[new]
+    pub fn py_new(min_likelihood_error: f64, min_likelihood: f64) -> Self {
+        Self::new(min_likelihood_error, min_likelihood)
+    }
+}
+
+impl InferenceParameters {
     pub fn new(min_likelihood_error: f64, min_likelihood: f64) -> Self {
         Self {
             min_likelihood_error,
