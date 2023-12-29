@@ -5,7 +5,10 @@ use crate::vj::{Event, Model};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::*;
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 #[derive(Default, Clone, Debug)]
 pub struct Sequence {
     pub sequence: Dna,
@@ -16,6 +19,14 @@ pub struct Sequence {
 }
 
 impl Sequence {
+    pub fn best_v_alignment(&self) -> Option<VJAlignment> {
+        self.v_genes.clone().into_iter().max_by_key(|m| m.score)
+    }
+
+    pub fn best_j_alignment(&self) -> Option<VJAlignment> {
+        self.j_genes.clone().into_iter().max_by_key(|m| m.score)
+    }
+
     pub fn get_insertions_vj(&self, e: &Event) -> Dna {
         // seq         :          SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
         // V-gene      : VVVVVVVVVVVVVVVVVVVV
@@ -79,6 +90,7 @@ pub fn align_all_vgenes(
                         .copied(),
                     (model.range_del_v.1 - model.range_del_v.0) as usize,
                 ),
+                score: alignment.score,
             });
         }
     }
@@ -111,8 +123,33 @@ pub fn align_all_jgenes(
                     palj.seq.iter().copied(),
                     (model.range_del_j.1 - model.range_del_j.0) as usize,
                 ),
+                score: alignment.score,
             });
         }
     }
     j_aligns
+}
+
+pub fn display_j_alignment(
+    seq: &Dna,
+    j_al: &VJAlignment,
+    model: &Model,
+    align_params: &AlignmentParameters,
+) -> String {
+    let j = model.seg_js[j_al.index].clone();
+    let palj = j.seq_with_pal.as_ref().unwrap();
+    let alignment = Dna::align_left_right(seq, palj, align_params);
+    alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 100)
+}
+
+pub fn display_v_alignment(
+    seq: &Dna,
+    v_al: &VJAlignment,
+    model: &Model,
+    align_params: &AlignmentParameters,
+) -> String {
+    let v = model.seg_vs[v_al.index].clone();
+    let palv = v.seq_with_pal.as_ref().unwrap();
+    let alignment = Dna::align_left_right(palv, seq, align_params);
+    alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 100)
 }

@@ -1,11 +1,17 @@
-use crate::sequence::utils::{difference_as_i64, differences_remaining, AlignmentParameters};
+use crate::sequence::utils::{
+    count_differences, difference_as_i64, differences_remaining, AlignmentParameters,
+};
 use crate::sequence::{DAlignment, Dna, VJAlignment};
 use crate::vdj::{Event, Model};
+use std::cmp;
 
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::pyclass;
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 #[derive(Default, Clone, Debug)]
 pub struct Sequence {
     pub sequence: Dna,
@@ -16,6 +22,14 @@ pub struct Sequence {
 }
 
 impl Sequence {
+    pub fn best_v_alignment(&self) -> Option<VJAlignment> {
+        self.v_genes.clone().into_iter().max_by_key(|m| m.score)
+    }
+
+    pub fn best_j_alignment(&self) -> Option<VJAlignment> {
+        self.j_genes.clone().into_iter().max_by_key(|m| m.score)
+    }
+
     pub fn get_insertions_vd_dj(&self, e: &Event) -> (Dna, Dna) {
         // seq         :          SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
         // V-gene      : VVVVVVVVVVVVVVVVVVVV
@@ -54,6 +68,30 @@ impl Sequence {
     }
 }
 
+pub fn display_j_alignment(
+    seq: &Dna,
+    j_al: &VJAlignment,
+    model: &Model,
+    align_params: &AlignmentParameters,
+) -> String {
+    let j = model.seg_js[j_al.index].clone();
+    let palj = j.seq_with_pal.as_ref().unwrap();
+    let alignment = Dna::align_left_right(seq, palj, align_params);
+    alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 100)
+}
+
+pub fn display_v_alignment(
+    seq: &Dna,
+    v_al: &VJAlignment,
+    model: &Model,
+    align_params: &AlignmentParameters,
+) -> String {
+    let v = model.seg_vs[v_al.index].clone();
+    let palv = v.seq_with_pal.as_ref().unwrap();
+    let alignment = Dna::align_left_right(palv, seq, align_params);
+    alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 100)
+}
+
 pub fn align_all_vgenes(
     seq: &Dna,
     model: &Model,
@@ -87,6 +125,7 @@ pub fn align_all_vgenes(
                         .copied(),
                     (model.range_del_v.1 - model.range_del_v.0) as usize,
                 ),
+                score: alignment.score,
             });
         }
     }
@@ -120,6 +159,7 @@ pub fn align_all_jgenes(
                     palj.seq.iter().copied(),
                     (model.range_del_j.1 - model.range_del_j.0) as usize,
                 ),
+                score: alignment.score,
             });
         }
     }
@@ -143,19 +183,23 @@ pub fn align_all_dgenes(
     let mut daligns: Vec<DAlignment> = Vec::new();
     for (indexd, d) in model.seg_ds.iter().enumerate() {
         let dpal = d.seq_with_pal.as_ref().unwrap();
+        let max_del_d5 = cmp::max(model.p_del_d3_del_d5.dim().1, dpal.len());
+        let max_del_d3 = cmp::max(model.p_del_d3_del_d5.dim().0, dpal.len());
         for pos in limit_5side..=limit_3side - dpal.len() {
-            let errors_left = differences_remaining(
-                seq.seq[pos..pos + dpal.len()].iter().rev().copied(),
-                dpal.seq.iter().rev().copied(),
-                dpal.len(),
-            );
-            let errors_right = differences_remaining(
-                seq.seq[pos..pos + dpal.len()].iter().copied(),
-                dpal.seq.iter().copied(),
-                dpal.len(),
-            );
-
-            if (!errors_left.is_empty()) & (errors_left[0] > align_params.max_error_d) {
+            let mut errors = vec![vec![0; max_del_d3]; max_del_d5];
+            for del_d5 in 0..max_del_d5 {
+                for del_d3 in 0..max_del_d3 {
+                    if del_d5 + del_d3 >= dpal.len() {
+                        errors[del_d5][del_d3] = 0;
+                    } else {
+                        errors[del_d5][del_d3] = count_differences(
+                            &seq.seq[pos + del_d5..pos + dpal.len() - del_d3],
+                            &dpal.seq[del_d5..dpal.len() - del_d3],
+                        );
+                    }
+                }
+            }
+            if (!errors.is_empty()) & (errors[0][0] > align_params.max_error_d) {
                 continue;
             }
 
@@ -163,8 +207,7 @@ pub fn align_all_dgenes(
                 index: indexd,
                 pos,
                 len_d: dpal.len(),
-                errors_left,
-                errors_right,
+                errors,
             });
         }
     }

@@ -36,7 +36,7 @@ pub trait Feature<T> {
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct CategoricalFeature1 {
     pub probas: Array1<f64>,
-    probas_dirty: Array1<f64>,
+    pub probas_dirty: Array1<f64>,
 }
 
 impl Feature<usize> for CategoricalFeature1 {
@@ -87,7 +87,7 @@ impl CategoricalFeature1 {
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct CategoricalFeature1g1 {
     pub probas: Array2<f64>,
-    probas_dirty: Array2<f64>,
+    pub probas_dirty: Array2<f64>,
 }
 
 impl Feature<(usize, usize)> for CategoricalFeature1g1 {
@@ -134,7 +134,7 @@ impl CategoricalFeature1g1 {
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct CategoricalFeature2 {
     pub probas: Array2<f64>,
-    probas_dirty: Array2<f64>,
+    pub probas_dirty: Array2<f64>,
 }
 
 impl Feature<(usize, usize)> for CategoricalFeature2 {
@@ -182,7 +182,7 @@ impl CategoricalFeature2 {
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct CategoricalFeature2g1 {
     pub probas: Array3<f64>,
-    probas_dirty: Array3<f64>,
+    pub probas_dirty: Array3<f64>,
 }
 
 impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
@@ -334,7 +334,10 @@ impl MarkovFeature {
 
 // Most basic error model
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 pub struct ErrorPoisson {
     pub error_rate: f64,
     lookup_table: Vec<f64>,
@@ -545,9 +548,12 @@ impl InsertionFeature {
     /// length distribution.
     /// Caveat is that it makes min_likelihood a bit inexact, oh well.
     fn define_internal(&mut self) {
+        // yeah that's just 0.25 if the transition matrix is normalized. Welp.
         let mean_markov = self.transition_matrix.mean().unwrap();
+
         for ii in 0..self.length_distribution.dim() {
-            self.length_distribution_internal[ii] = self.length_distribution[ii] * mean_markov;
+            self.length_distribution_internal[ii] =
+                self.length_distribution[ii] * mean_markov.powi(ii as i32);
         }
 
         for ii in 0..4 {

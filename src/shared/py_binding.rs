@@ -1,14 +1,12 @@
-use crate::shared::feature::{
-    CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
-    MarkovFeature,
-};
-
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 #[derive(Debug, Clone)]
 pub struct GenerationResult {
     pub cdr3_nt: String,

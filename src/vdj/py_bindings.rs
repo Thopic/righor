@@ -9,7 +9,6 @@ use pyo3::prelude::*;
 
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
-use std::path::Path;
 
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
 pub struct Generator {
@@ -17,22 +16,8 @@ pub struct Generator {
     rng: SmallRng,
 }
 
-#[cfg(not(features = "py_binds"))]
 impl Generator {
-    pub fn new(
-        path_params: &str,
-        path_marginals: &str,
-        path_v_anchors: &str,
-        path_j_anchors: &str,
-        seed: Option<u64>,
-    ) -> Generator {
-        let model = Model::load_model(
-            Path::new(path_params),
-            Path::new(path_marginals),
-            Path::new(path_v_anchors),
-            Path::new(path_j_anchors),
-        )
-        .unwrap();
+    pub fn new(model: Model, seed: Option<u64>) -> Generator {
         let rng = match seed {
             Some(s) => SmallRng::seed_from_u64(s),
             None => SmallRng::from_entropy(),
@@ -46,26 +31,20 @@ impl Generator {
 #[pymethods]
 impl Generator {
     #[new]
-    pub fn new(
+    pub fn py_new(
         path_params: &str,
         path_marginals: &str,
         path_v_anchors: &str,
         path_j_anchors: &str,
         seed: Option<u64>,
     ) -> Generator {
-        let model = Model::load_model(
-            Path::new(path_params),
-            Path::new(path_marginals),
-            Path::new(path_v_anchors),
-            Path::new(path_j_anchors),
+        Generator::new(
+            path_params,
+            path_marginals,
+            path_v_anchors,
+            path_j_anchors,
+            seed,
         )
-        .unwrap();
-        let rng = match seed {
-            Some(s) => SmallRng::seed_from_u64(s),
-            None => SmallRng::from_entropy(),
-        };
-
-        Generator { model, rng }
     }
 }
 

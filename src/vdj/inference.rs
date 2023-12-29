@@ -88,6 +88,21 @@ impl Features {
         if (v_end > (d_start as i64)) | (d_start > d_end) | (d_end > j_start) {
             return 0.;
         }
+        // println!("{} {} {} {} {}", e.d.pos, v_end, d_start, d_end, j_start);
+        // println!("{}", self.deld.likelihood((e.deld3, e.deld5, e.d.index)));
+        // println!("insdj{}", self.insdj.likelihood_length(j_start - d_end));
+        // println!(
+        //     "derr {} {}  {}",
+        //     e.deld5,
+        //     e.deld3,
+        //     e.d.nb_errors(e.deld5, e.deld3)
+        // );
+        // println!(
+        //     "insvd {}",
+        //     self.insvd
+        //         .likelihood_length((d_start as i64 - v_end) as usize)
+        // );
+        // println!();
 
         // Then compute the likelihood of each part (including insertion length)
         // We ignore the V/delV part (already computed)e.j.index) *
@@ -98,7 +113,7 @@ impl Features {
                 .insvd
                 .likelihood_length((d_start as i64 - v_end) as usize)
             * self.insdj.likelihood_length(j_start - d_end)
-            * self.error.likelihood(e.d.nb_errors(e.deld3, e.deld5))
+            * self.error.likelihood(e.d.nb_errors(e.deld5, e.deld3))
             * self.error.likelihood(e.j.nb_errors(e.delj))
     }
 
@@ -110,7 +125,6 @@ impl Features {
     ) -> (f64, Vec<(f64, StaticEvent)>) {
         let mut probability_generation: f64 = 0.;
         let mut best_events = Vec::<(f64, StaticEvent)>::new();
-
         // Update all the marginals
         for (v, delv) in self.range_v(sequence) {
             let lhood_v = self.likelihood_v(v, delv);
@@ -118,6 +132,7 @@ impl Features {
             if lhood_v < inference_params.min_likelihood {
                 continue;
             }
+
             for (j, delj, d, deld5, deld3) in self.range_dj(sequence) {
                 let e = Event {
                     v,
@@ -130,7 +145,9 @@ impl Features {
                 };
 
                 let lhood_dj = self.likelihood_dj(&e);
+
                 let mut l_total = lhood_v * lhood_dj;
+                // println!("AG {}", l_total);
                 // drop that specific recombination event if the likelihood is too low
                 if l_total < inference_params.min_likelihood {
                     continue;
@@ -146,7 +163,6 @@ impl Features {
                 if l_total < inference_params.min_likelihood {
                     continue;
                 }
-
                 if nb_best_events > 0 {
                     if (best_events.len() < nb_best_events)
                         || (best_events.last().unwrap().0 < l_total)
@@ -160,18 +176,18 @@ impl Features {
                 }
                 probability_generation += l_total;
 
-                // Update everything with the new likelihood
-                self.v.dirty_update(v.index, l_total);
-                self.dj.dirty_update((d.index, j.index), l_total);
-                self.delv.dirty_update((delv, v.index), l_total);
-                self.delj.dirty_update((delj, j.index), l_total);
-                self.deld.dirty_update((deld3, deld5, d.index), l_total);
+                self.v.dirty_update(e.v.index, l_total);
+                self.dj.dirty_update((e.d.index, e.j.index), l_total);
+                self.delv.dirty_update((e.delv, e.v.index), l_total);
+                self.delj.dirty_update((e.delj, e.j.index), l_total);
+                self.deld
+                    .dirty_update((e.deld3, e.deld5, e.d.index), l_total);
                 // self.nb_insvd.dirty_update(insvd.len(), l_total);
                 // self.nb_insdj.dirty_update(insdj.len(), l_total);
                 self.insvd.dirty_update(&insvd, l_total);
                 self.insdj.dirty_update(&insdj, l_total);
                 self.error.dirty_update(
-                    j.nb_errors(delj) + v.nb_errors(delv) + d.nb_errors(deld3, deld5),
+                    e.j.nb_errors(delj) + e.v.nb_errors(delv) + e.d.nb_errors(deld5, deld3),
                     l_total,
                 );
             }

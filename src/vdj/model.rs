@@ -1,6 +1,6 @@
 use crate::sequence::{AlignmentParameters, AminoAcid, Dna};
 use crate::shared::model::{sanitize_j, sanitize_v};
-use crate::shared::parser::{ParserMarginals, ParserParams};
+use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
 use crate::shared::utils::{
     add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
     DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
@@ -14,8 +14,8 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 use rand::Rng;
-use std::cmp;
 use std::path::Path;
+use std::{cmp, fs::File};
 
 #[derive(Default, Clone, Debug)]
 pub struct Generative {
@@ -66,17 +66,44 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn load_model(
+    pub fn load_from_files(
         path_params: &Path,
         path_marginals: &Path,
         path_anchor_vgene: &Path,
         path_anchor_jgene: &Path,
     ) -> Result<Model> {
+        let pm: ParserMarginals = ParserMarginals::parse(parse_file(path_marginals)?)?;
+        let mut pp: ParserParams = ParserParams::parse(parse_file(path_params)?)?;
+
+        let rdr_v =
+            File::open(path_anchor_vgene).map_err(|_e| anyhow!("Error opening the anchor file"))?;
+        let rdr_j =
+            File::open(path_anchor_jgene).map_err(|_e| anyhow!("Error opening the anchor file"))?;
+
+        pp.add_anchors_gene(rdr_v, "v_choice")?;
+        pp.add_anchors_gene(rdr_j, "j_choice")?;
+        Self::load_model(&pp, &pm)
+    }
+
+    pub fn load_from_str(
+        params: &str,
+        marginals: &str,
+        anchor_vgene: &str,
+        anchor_jgene: &str,
+    ) -> Result<Model> {
+        let pm: ParserMarginals = ParserMarginals::parse(parse_str(marginals)?)?;
+        let mut pp: ParserParams = ParserParams::parse(parse_str(params)?)?;
+
+        let rdr_v = anchor_vgene.as_bytes();
+        let rdr_j = anchor_jgene.as_bytes();
+
+        pp.add_anchors_gene(rdr_v, "v_choice")?;
+        pp.add_anchors_gene(rdr_j, "j_choice")?;
+        Self::load_model(&pp, &pm)
+    }
+
+    pub fn load_model(pp: &ParserParams, pm: &ParserMarginals) -> Result<Model> {
         let mut model: Model = Default::default();
-        let pm: ParserMarginals = ParserMarginals::parse(path_marginals)?;
-        let mut pp: ParserParams = ParserParams::parse(path_params)?;
-        pp.add_anchors_gene(path_anchor_vgene, "v_choice")?;
-        pp.add_anchors_gene(path_anchor_jgene, "j_choice")?;
 
         model.seg_vs = pp
             .params
@@ -423,13 +450,45 @@ impl Model {
 
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
 impl Model {
+    pub fn uniform(&self) -> Result<Model> {
+        let mut m = Model {
+            seg_vs: self.seg_vs.clone(),
+            seg_js: self.seg_js.clone(),
+            seg_ds: self.seg_ds.clone(),
+            range_del_d3: self.range_del_d3,
+            range_del_v: self.range_del_v,
+            range_del_j: self.range_del_j,
+            range_del_d5: self.range_del_d5,
+            p_v: Array1::<f64>::zeros(self.p_v.dim()),
+            p_dj: Array2::<f64>::zeros(self.p_dj.dim()),
+            p_ins_vd: Array1::<f64>::zeros(self.p_ins_vd.dim()),
+            p_ins_dj: Array1::<f64>::zeros(self.p_ins_dj.dim()),
+            p_del_v_given_v: Array2::<f64>::zeros(self.p_del_v_given_v.dim()),
+            p_del_j_given_j: Array2::<f64>::zeros(self.p_del_j_given_j.dim()),
+            p_del_d3_del_d5: Array3::<f64>::zeros(self.p_del_d3_del_d5.dim()),
+            markov_coefficients_vd: Array2::<f64>::zeros(self.markov_coefficients_vd.dim()),
+            markov_coefficients_dj: Array2::<f64>::zeros(self.markov_coefficients_dj.dim()),
+            first_nt_bias_ins_vd: Array1::<f64>::zeros(self.first_nt_bias_ins_vd.dim()),
+            first_nt_bias_ins_dj: Array1::<f64>::zeros(self.first_nt_bias_ins_dj.dim()),
+            error_rate: 0.1,
+            ..Default::default()
+        };
+        m.sanitize_genes()?;
+        m.initialize_generative_model()?;
+        Ok(m)
+    }
+
     pub fn infer_features(
         &self,
         sequence: &Sequence,
         inference_params: &InferenceParameters,
     ) -> Result<Features> {
         let mut feature = Features::new(self, inference_params)?;
-        let _ = feature.infer(sequence, inference_params, 0);
+        let (ltotal, _) = feature.infer(sequence, inference_params, 0);
+        if ltotal == 0.0f64 {
+            return Ok(feature); // return 0s
+        }
+        // otherwise normalize
         feature = feature.cleanup()?;
         Ok(feature)
     }
@@ -472,8 +531,8 @@ impl Model {
             .v_genes
             .iter()
             .map(|v| {
-                if v.end_seq > (self.range_del_v.1 as usize) {
-                    v.end_seq - (self.range_del_v.1 as usize)
+                if v.end_seq > self.p_del_v_given_v.dim().0 + self.p_del_d3_del_d5.dim().1 {
+                    v.end_seq - (self.p_del_v_given_v.dim().0 + self.p_del_d3_del_d5.dim().1)
                 } else {
                     0
                 }
@@ -483,10 +542,17 @@ impl Model {
         let right_bound = seq
             .j_genes
             .iter()
-            .map(|j| cmp::min(j.start_seq + (self.range_del_j.1 as usize), dna_seq.len()))
+            .map(|j| {
+                cmp::min(
+                    j.start_seq + (self.p_del_j_given_j.dim().0 + self.p_del_d3_del_d5.dim().0),
+                    dna_seq.len(),
+                )
+            })
             .max()
             .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
 
+        // println!("pdeld3deld5 {:?}", self.p_del_d3_del_d5.dim());
+        // println!("{} {}", left_bound, right_bound);
         // initialize all the d genes positions
         seq.d_genes = align_all_dgenes(&dna_seq, self, left_bound, right_bound, align_params);
         Ok(seq)

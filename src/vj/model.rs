@@ -1,6 +1,6 @@
 use crate::sequence::{AlignmentParameters, AminoAcid, Dna};
 use crate::shared::model::{sanitize_j, sanitize_v};
-use crate::shared::parser::{ParserMarginals, ParserParams};
+use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
 use crate::shared::utils::{
     add_errors, sorted_and_complete, sorted_and_complete_0start, DiscreteDistribution, Gene,
     MarkovDNA,
@@ -15,11 +15,11 @@ use numpy::{IntoPyArray, PyArray1, PyArray2};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 use rand::Rng;
-use std::path::Path;
+use std::{fs::File, path::Path};
 
 #[cfg_attr(features = "py_binds", pyclass)]
 #[derive(Default, Clone, Debug)]
-struct Generative {
+pub struct Generative {
     // Contains the distribution needed to generate the model
     d_v: DiscreteDistribution,
     d_j_given_v: Vec<DiscreteDistribution>,
@@ -47,7 +47,7 @@ pub struct Model {
     pub p_ins_vj: Array1<f64>,
     pub p_del_v_given_v: Array2<f64>,
     pub p_del_j_given_j: Array2<f64>,
-    gen: Generative,
+    pub gen: Generative,
     pub markov_coefficients_vj: Array2<f64>,
     pub first_nt_bias_ins_vj: Array1<f64>,
     pub range_del_v: (i64, i64),
@@ -57,17 +57,44 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn load_model(
+    pub fn load_from_files(
         path_params: &Path,
         path_marginals: &Path,
         path_anchor_vgene: &Path,
         path_anchor_jgene: &Path,
     ) -> Result<Model> {
+        let pm: ParserMarginals = ParserMarginals::parse(parse_file(path_marginals)?)?;
+        let mut pp: ParserParams = ParserParams::parse(parse_file(path_params)?)?;
+
+        let rdr_v =
+            File::open(path_anchor_vgene).map_err(|_e| anyhow!("Error opening the anchor file"))?;
+        let rdr_j =
+            File::open(path_anchor_jgene).map_err(|_e| anyhow!("Error opening the anchor file"))?;
+
+        pp.add_anchors_gene(rdr_v, "v_choice")?;
+        pp.add_anchors_gene(rdr_j, "j_choice")?;
+        Self::load_model(&pp, &pm)
+    }
+
+    pub fn load_from_str(
+        params: &str,
+        marginals: &str,
+        anchor_vgene: &str,
+        anchor_jgene: &str,
+    ) -> Result<Model> {
+        let pm: ParserMarginals = ParserMarginals::parse(parse_str(marginals)?)?;
+        let mut pp: ParserParams = ParserParams::parse(parse_str(params)?)?;
+
+        let rdr_v = anchor_vgene.as_bytes();
+        let rdr_j = anchor_jgene.as_bytes();
+
+        pp.add_anchors_gene(rdr_v, "v_choice")?;
+        pp.add_anchors_gene(rdr_j, "j_choice")?;
+        Self::load_model(&pp, &pm)
+    }
+
+    pub fn load_model(pp: &ParserParams, pm: &ParserMarginals) -> Result<Model> {
         let mut model: Model = Default::default();
-        let pm: ParserMarginals = ParserMarginals::parse(path_marginals)?;
-        let mut pp: ParserParams = ParserParams::parse(path_params)?;
-        pp.add_anchors_gene(path_anchor_vgene, "v_choice")?;
-        pp.add_anchors_gene(path_anchor_jgene, "j_choice")?;
 
         model.seg_vs = pp
             .params
@@ -197,7 +224,7 @@ impl Model {
         Ok(model)
     }
 
-    fn sanitize_genes(&mut self) -> Result<()> {
+    pub fn sanitize_genes(&mut self) -> Result<()> {
         // Trim the V/J nucleotides sequences at the CDR3 region (include F/W/C residues)
         // and append the maximum number of reverse palindromic insertions appended.
         // Add the palindromic insertions
@@ -311,7 +338,11 @@ impl Model {
         inference_params: &InferenceParameters,
     ) -> Result<Features> {
         let mut feature = Features::new(self, inference_params)?;
-        let _ = feature.infer(sequence, inference_params, 0);
+        let (ltotal, _) = feature.infer(sequence, inference_params, 0);
+        if ltotal == 0.0f64 {
+            return Ok(feature); // return 0s.
+        }
+        // Otherwise normalize
         feature = feature.cleanup()?;
         Ok(feature)
     }

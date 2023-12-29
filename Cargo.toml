@@ -16,6 +16,14 @@ opt-level = 3
 debug = true
 
 
+# [profile.dev]
+# opt-level = 3               # Use slightly better optimizations.
+# overflow-checks = false     # Disable integer overflow checks.
+# panic = "abort"
+# codegen-units = 1
+
+
+
 [dependencies]
 rand = { version = "0.8.5", features = [ "small_rng" ] }
 rand_distr = "0.4.0"

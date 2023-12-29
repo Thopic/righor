@@ -12,7 +12,10 @@ const EPSILON: f64 = 1e-10;
 
 // Define some storage wrapper for the V/D/J genes
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 #[derive(Default, Clone, Debug)]
 pub struct Gene {
     pub name: String,
@@ -130,10 +133,13 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
     // it means I need to load blas, which takes forever to compile.
     // And this is not exactly an important part of the program.
     // so this means I'm going to do it stupidly
-    let n = transition_matrix.nrows();
+
+    // first normalize the transition matrix
+    let mat = transition_matrix.normalize_distribution(Some(Axis(1)))?;
+    let n = mat.nrows();
     let mut vec = Array1::from_elem(n, 1.0 / n as f64);
     for _ in 0..10000 {
-        let vec_next = transition_matrix.dot(&vec);
+        let vec_next = mat.dot(&vec);
         let norm = vec_next.sum();
         let vec_next = vec_next / norm;
 
@@ -170,7 +176,7 @@ impl Normalize for Array1<f64> {
         }
 
         let sum = self.sum();
-        if sum.abs() < EPSILON {
+        if sum.abs() == 0.0f64 {
             // return a uniform distribution
             return Ok(Array1::ones(self.dim()) / self.dim() as f64);
         }
@@ -190,7 +196,7 @@ impl Normalize for Array2<f64> {
                 let mut normalized = self.clone();
                 let sums = self.sum_axis(ax);
                 for (mut slice, sum) in normalized.axis_iter_mut(ax).zip(sums.iter()) {
-                    if sum.abs() < EPSILON {
+                    if sum.abs() == 0.0f64 {
                         // if the row sums to 0. we return an uniform probability distribution
                         slice.mapv_inplace(|_| 1.0 / self.len_of(ax) as f64)
                     } else {
@@ -215,7 +221,7 @@ impl Normalize for Array3<f64> {
                 let mut normalized = self.clone();
                 let sums = self.sum_axis(ax);
                 for (mut slice, sum) in normalized.axis_iter_mut(ax).zip(sums.iter()) {
-                    if sum.abs() < EPSILON {
+                    if sum.abs() == 0.0f64 {
                         // if the row sums to 0. we return an uniform probability distribution
                         slice.mapv_inplace(|_| 1.0 / self.len_of(ax) as f64)
                     } else {
@@ -281,7 +287,10 @@ where
     vcloned
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 #[derive(Default, Clone, Debug)]
 pub struct InferenceParameters {
     pub min_likelihood_error: f64,

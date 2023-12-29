@@ -8,7 +8,7 @@ use ndarray::{ArrayD, IxDyn};
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Read};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -144,9 +144,8 @@ fn parse_numbers(str_data: &Vec<String>) -> Result<EventType> {
 }
 
 impl ParserParams {
-    pub fn parse(filename: &Path) -> Result<ParserParams> {
+    pub fn parse(sections: Vec<Vec<String>>) -> Result<ParserParams> {
         let mut pp: ParserParams = Default::default();
-        let sections = parse_file(filename)?;
         for s in sections {
             match s.first() {
                 Some(string) => match string.as_str() {
@@ -161,38 +160,20 @@ impl ParserParams {
         Ok(pp)
     }
 
-    pub fn add_anchors_gene(&mut self, filename: &Path, gene_choice: &str) -> Result<()> {
-        let mut rdr = Reader::from_path(filename).map_err(|_e| {
-            anyhow!(format!(
-                "Error reading the anchor file {}",
-                filename.display()
-            ))
-        })?;
+    pub fn add_anchors_gene<R: Read>(&mut self, reader: R, gene_choice: &str) -> Result<()> {
+        let mut rdr = Reader::from_reader(reader);
         let mut anchors = HashMap::<String, usize>::new();
         let mut functions = HashMap::<String, String>::new();
-        rdr.headers().map_err(|_e| {
-            anyhow!(format!(
-                "Error reading the anchor file headers {}",
-                filename.display()
-            ))
-        })?;
+        rdr.headers()
+            .map_err(|_e| anyhow!("Error reading the anchor file headers"))?;
         // TODO: check that the headers are right
         for result in rdr.records() {
-            let record = result.map_err(|_e| {
-                anyhow!(format!(
-                    "Error reading the anchor file headers {}",
-                    filename.display()
-                ))
-            })?;
+            let record = result.map_err(|_e| anyhow!("Error reading the anchor file headers"))?;
             let gene_name = record.get(0).unwrap();
             anchors.insert(
                 gene_name.to_string(),
-                usize::from_str(record.get(1).unwrap()).map_err(|_e| {
-                    anyhow!(format!(
-                        "Error reading the anchor file headers {}",
-                        filename.display()
-                    ))
-                })?,
+                usize::from_str(record.get(1).unwrap())
+                    .map_err(|_e| anyhow!("Error reading the anchor file headers"))?,
             );
             functions.insert(gene_name.to_string(), record.get(2).unwrap().to_string());
         }
@@ -265,9 +246,8 @@ impl ParserParams {
 }
 
 impl ParserMarginals {
-    pub fn parse(filename: &Path) -> Result<ParserMarginals> {
+    pub fn parse(sections: Vec<Vec<String>>) -> Result<ParserMarginals> {
         let mut pm: ParserMarginals = Default::default();
-        let sections = parse_file(filename)?;
         for s in sections {
             match s.first() {
                 Some(_) => {
@@ -287,6 +267,23 @@ pub fn parse_file(filename: &Path) -> Result<Vec<Vec<String>>> {
     let reader = io::BufReader::new(file);
     for line_result in reader.lines() {
         let line = line_result.map_err(|_| anyhow!("Invalid file format: error reading line"))?;
+        match line.chars().next() {
+            Some('@') => {
+                let vec = vec![line.trim().to_string()];
+                sections.push(vec);
+            }
+            _ => match sections.last_mut() {
+                Some(ref mut v) => v.push(line.trim().to_string()),
+                None => return Err(anyhow!("Invalid file format: error with the first line")),
+            },
+        }
+    }
+    Ok(sections)
+}
+
+pub fn parse_str(data: &str) -> Result<Vec<Vec<String>>> {
+    let mut sections: Vec<Vec<String>> = Vec::new();
+    for line in data.lines() {
         match line.chars().next() {
             Some('@') => {
                 let vec = vec![line.trim().to_string()];

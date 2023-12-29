@@ -54,7 +54,10 @@ pub fn nucleotides_inv(n: u8) -> usize {
 
     LOOKUP_TABLE[n as usize]
 }
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 pub struct AlignmentParameters {
     // Structure containing all the parameters for the alignment
     // of the V and J genes
@@ -114,13 +117,19 @@ impl AlignmentParameters {
     }
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Dna {
     pub seq: Vec<u8>,
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct AminoAcid {
     pub seq: Vec<u8>,
@@ -360,4 +369,11 @@ impl Dna {
             seq: s.as_bytes().to_vec(),
         })
     }
+}
+
+pub fn count_differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> usize {
+    vec1.iter()
+        .zip(vec2.iter())
+        .filter(|&(a, b)| a != b)
+        .count()
 }
