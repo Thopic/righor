@@ -24,8 +24,8 @@ fn main() -> Result<()> {
     model.error_rate = 0.;
 
     let align_params = sequence::AlignmentParameters {
-        min_score_v: 80,
-        min_score_j: 10,
+        min_score_v: 20,
+        min_score_j: 20,
         max_error_d: 100,
     };
     let inference_params = shared::InferenceParameters {
@@ -36,7 +36,7 @@ fn main() -> Result<()> {
         evaluate: true,
     };
 
-    let path = Path::new("tests/data/generated_sequences_no_error.txt");
+    let path = Path::new("demo/murugan_naive1_noncoding_demo_seqs.txt");
     let file = File::open(&path)?;
     let lines = io::BufReader::new(file).lines();
 
@@ -48,10 +48,9 @@ fn main() -> Result<()> {
         // println!("{}", l);
         let s = sequence::Dna::from_string(l.trim())?;
         let als = model.align_sequence(s.clone(), &align_params)?;
-
-        let best_al_v = als.best_v_alignment().ok_or(anyhow!("Empty Alignment"))?;
-        let best_al_j = als.best_j_alignment().ok_or(anyhow!("Empty Alignment"))?;
-        seq.push(als);
+        if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
+            seq.push(als);
+        }
     }
 
     println!("{:?}", model.p_ins_vd);

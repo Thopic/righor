@@ -89,7 +89,7 @@ impl AlignmentParameters {
     fn get_scoring(&self) -> pairwise::Scoring<Box<dyn Fn(u8, u8) -> i32>> {
         pairwise::Scoring {
             gap_open: -50,
-            gap_extend: -2,
+            gap_extend: -10,
             // TODO: deal better with possible IUPAC codes
             match_fn: Box::new(|a: u8, b: u8| {
                 if a == b {
@@ -109,11 +109,12 @@ impl AlignmentParameters {
     }
 
     pub fn valid_v_alignment(&self, al: &Alignment) -> bool {
-        al.score > self.min_score_v
+        al.score > self.min_score_v && al.xend - al.xstart == al.yend - al.ystart
     }
 
     pub fn valid_j_alignment(&self, al: &Alignment) -> bool {
-        al.score > self.min_score_j
+        // right now: no insert
+        al.score > self.min_score_j && al.xend - al.xstart == al.yend - al.ystart
     }
 }
 
