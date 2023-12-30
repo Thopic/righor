@@ -21,7 +21,7 @@ fn main() -> Result<()> {
     )?;
 
     //    model = model.uniform()?;
-    model.error_rate = 0.;
+    //     model.error_rate = 0.;
 
     let align_params = sequence::AlignmentParameters {
         min_score_v: 20,
@@ -42,23 +42,29 @@ fn main() -> Result<()> {
 
     let mut seq = Vec::new();
     for line in tqdm!(lines) {
-        let l = line?;
+        //let l = line?;
 
-        // let l = "CTCCCAGACATCTGTGTACTTCTGTGCCAGCAGTTTACTGCAAGAGGGGGGGGCAACTAATGAAAAACTGTTTTTTGGCAGTGGAACCCAGCTCTCTGTCTTGG".to_string();
-        // println!("{}", l);
+        let l = "CTCCCAGACATCTGTGTACTTCTGTGCCAGCAGTTTACTGCAAGAGGGGGGGGCAACTAATGAAAAACTGTTTTTTGGCAGTGGAACCCAGCTCTCTGTCTTGG".to_string();
+        println!("{}", l);
         let s = sequence::Dna::from_string(l.trim())?;
         let als = model.align_sequence(s.clone(), &align_params)?;
         if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
             seq.push(als);
         }
+        break;
     }
 
     println!("{:?}", model.p_ins_vd);
     for _ in 0..100 {
         let mut features = Vec::new();
         for s in tqdm!(seq.clone().iter(), total = seq.len()) {
+            println!(
+                "{:?}",
+                model.most_likely_recombinations(&s, 10, &inference_params)
+            );
             features.push(model.infer_features(&s, &inference_params)?);
         }
+        println!("{:?}", features[0].insvd.length_distribution);
         let new_features = vdj::Features::average(features)?;
         model.update(&new_features)?;
         println!("hip");

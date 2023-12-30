@@ -51,7 +51,7 @@ pub struct Model {
     pub p_ins_dj: Array1<f64>,
     pub p_del_v_given_v: Array2<f64>,
     pub p_del_j_given_j: Array2<f64>,
-    pub p_del_d3_del_d5: Array3<f64>,
+    pub p_del_d3_del_d5: Array3<f64>, // P(del_d3, del_d5 | D)
     pub gen: Generative,
     pub markov_coefficients_vd: Array2<f64>,
     pub markov_coefficients_dj: Array2<f64>,

@@ -134,7 +134,7 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
     // so this means I'm going to do it stupidly
 
     // first normalize the transition matrix
-    let mat = transition_matrix.normalize_distribution(Some(Axis(1)))?;
+    let mat = normalize_transition_matrix(transition_matrix)?;
     let n = mat.nrows();
     let mut vec = Array1::from_elem(n, 1.0 / n as f64);
     for _ in 0..10000 {
@@ -210,13 +210,13 @@ impl Normalize2 for Array3<f64> {
 }
 
 pub trait Normalize {
-    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self>
+    fn normalize_distribution(&self) -> Result<Self>
     where
         Self: Sized;
 }
 
 impl Normalize for Array1<f64> {
-    fn normalize_distribution(&self, _axis: Option<Axis>) -> Result<Self> {
+    fn normalize_distribution(&self) -> Result<Self> {
         if self.iter().any(|&x| x < 0.0) {
             // negative values mean something wrong happened
             return Err(anyhow!("Array contains non-positive values"));
@@ -232,53 +232,55 @@ impl Normalize for Array1<f64> {
     }
 }
 
-impl Normalize for Array2<f64> {
-    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self> {
-        if self.iter().any(|&x| !x.is_finite()) {
-            return Err(anyhow!("Array contains non-positive or non-finite values"));
-        }
-
-        match axis {
-            Some(ax) => {
-                let mut normalized = self.clone();
-                let sums = self.sum_axis(ax);
-                for (mut slice, sum) in normalized.axis_iter_mut(ax).zip(sums.iter()) {
-                    if sum.abs() == 0.0f64 {
-                        // if the row sums to 0. we return an uniform probability distribution
-                        slice.mapv_inplace(|_| 1.0 / self.len_of(ax) as f64)
-                    } else {
-                        slice.mapv_inplace(|x| x / sum);
-                    }
-                }
-                Ok(normalized)
+/// Normalize the elements of the array along the second axis
+/// equivalent of a/a.sum(axis=1)[:, np.newaxis] in numpy
+pub fn normalize_transition_matrix(tm: &Array2<f64>) -> Result<Array2<f64>> {
+    if tm.iter().any(|&x| !x.is_finite()) {
+        return Err(anyhow!("Array contains non-positive or non-finite values"));
+    }
+    let mut normalized = Array2::<f64>::zeros(tm.dim());
+    for kk in 0..tm.dim().0 {
+        let sum = tm.slice(s![kk, ..]).sum();
+        if sum.abs() == 0.0f64 {
+            for ii in 0..tm.dim().1 {
+                normalized[[kk, ii]] = 1. / ((tm.dim().1) as f64);
             }
-            None => Err(anyhow!("Unspecified axis"))?,
+        } else {
+            for ii in 0..tm.dim().1 {
+                normalized[[kk, ii]] = tm[[kk, ii]] / sum;
+            }
         }
     }
+    Ok(normalized)
 }
 
-impl Normalize for Array3<f64> {
-    fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self> {
+impl Normalize for Array2<f64> {
+    /// Normalizes the elements of an array along the first axis.
+    /// ```
+    /// use ndarray::{array, Array2};
+    /// use ihor::shared::utils::Normalize;
+    /// let a : Array2<f64> = array![[0.0, 2.0, 3.0], [2.0, 3.0, 3.0]];
+    /// let result = a.normalize_distribution().unwrap();
+    /// assert!(result == array![[0. , 0.4, 0.5],[1. , 0.6, 0.5]])
+    /// ```
+    fn normalize_distribution(&self) -> Result<Self> {
         if self.iter().any(|&x| !x.is_finite()) {
             return Err(anyhow!("Array contains non-positive or non-finite values"));
         }
-
-        match axis {
-            Some(ax) => {
-                let mut normalized = self.clone();
-                let sums = self.sum_axis(ax);
-                for (mut slice, sum) in normalized.axis_iter_mut(ax).zip(sums.iter()) {
-                    if sum.abs() == 0.0f64 {
-                        // if the row sums to 0. we return an uniform probability distribution
-                        slice.mapv_inplace(|_| 1.0 / self.len_of(ax) as f64)
-                    } else {
-                        slice.mapv_inplace(|x| x / sum);
-                    }
+        let mut normalized = Array2::<f64>::zeros(self.dim());
+        for ii in 0..self.dim().1 {
+            let sum = self.slice(s![.., ii]).sum();
+            if sum.abs() == 0.0f64 {
+                for kk in 0..self.dim().0 {
+                    normalized[[kk, ii]] = 1. / ((self.dim().0) as f64);
                 }
-                Ok(normalized)
+            } else {
+                for kk in 0..self.dim().0 {
+                    normalized[[kk, ii]] = self[[kk, ii]] / sum;
+                }
             }
-            None => Err(anyhow!("Unspecified axis"))?,
         }
+        Ok(normalized)
     }
 }
 

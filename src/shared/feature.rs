@@ -1,7 +1,7 @@
 use crate::sequence::utils::{nucleotides_inv, Dna};
-use crate::shared::utils::{Normalize, Normalize2};
+use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2};
 use anyhow::{anyhow, Result};
-use ndarray::{Array1, Array2, Array3, Axis};
+use ndarray::{Array1, Array2, Array3};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::pyclass;
 
@@ -70,9 +70,7 @@ impl CategoricalFeature1 {
     pub fn new(probabilities: &Array1<f64>) -> Result<CategoricalFeature1> {
         Ok(CategoricalFeature1 {
             probas_dirty: Array1::<f64>::zeros(probabilities.dim()),
-            log_probas: probabilities
-                .normalize_distribution(None)?
-                .mapv(|x| x.log2()),
+            log_probas: probabilities.normalize_distribution()?.mapv(|x| x.log2()),
         })
     }
     pub fn dim(&self) -> usize {
@@ -125,9 +123,7 @@ impl CategoricalFeature1g1 {
     pub fn new(probabilities: &Array2<f64>) -> Result<CategoricalFeature1g1> {
         Ok(CategoricalFeature1g1 {
             probas_dirty: Array2::<f64>::zeros(probabilities.dim()),
-            log_probas: probabilities
-                .normalize_distribution(Some(Axis(0)))?
-                .mapv(|x| x.log2()),
+            log_probas: probabilities.normalize_distribution()?.mapv(|x| x.log2()),
         })
     }
     pub fn dim(&self) -> (usize, usize) {
@@ -452,9 +448,9 @@ impl InsertionFeature {
         transition_matrix: &Array2<f64>,
     ) -> Result<InsertionFeature> {
         let mut m = InsertionFeature {
-            length_distribution: length_distribution.normalize_distribution(None)?,
-            transition_matrix: transition_matrix.normalize_distribution(Some(Axis(1)))?,
-            initial_distribution: initial_distribution.normalize_distribution(None)?,
+            length_distribution: length_distribution.normalize_distribution()?,
+            transition_matrix: normalize_transition_matrix(transition_matrix)?,
+            initial_distribution: initial_distribution.normalize_distribution()?,
             transition_matrix_dirty: Array2::<f64>::zeros(transition_matrix.dim()),
             initial_distribution_dirty: Array1::<f64>::zeros(initial_distribution.dim()),
             length_distribution_dirty: Array1::<f64>::zeros(length_distribution.dim()),

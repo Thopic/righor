@@ -100,3 +100,5 @@ Things to do:
 - lot of stuff don't work
 - deal with potential insertion in VJ alignment, remove the sequence from the inference if the insertion overlap with the delv range.
 - min_likelihood is useless now
+- I think insdj is in the wrong direction ?
+- test to do: generate random sequences and check if they appear in "best scenarios"
