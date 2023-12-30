@@ -304,37 +304,6 @@ impl AminoAcid {
     }
 }
 
-pub fn differences_remaining(
-    iter1: impl Iterator<Item = u8> + Clone,
-    iter2: impl Iterator<Item = u8> + Clone,
-    max_len: usize,
-) -> Vec<usize> {
-    let mut diffs = Vec::new();
-    let mut total_diff = iter1
-        .clone()
-        .zip(iter2.clone())
-        .map(|(a, b)| {
-            if (a == b) | (a == b'N') | (b == b'N') {
-                0
-            } else {
-                1
-            }
-        })
-        .sum();
-
-    for (ii, (a, b)) in iter1.into_iter().zip(iter2).enumerate() {
-        if ii >= max_len {
-            break;
-        }
-        diffs.push(total_diff);
-        if a != b {
-            total_diff -= 1;
-        }
-    }
-    diffs.push(total_diff);
-    diffs
-}
-
 pub fn difference_as_i64(a: usize, b: usize) -> i64 {
     if a >= b {
         // don't check for overflow, trust the system

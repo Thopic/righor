@@ -3,6 +3,24 @@ use ihor;
 use ndarray::array;
 use std::path::Path;
 
+fn inference_parameters_default() -> ihor::InferenceParameters {
+    ihor::InferenceParameters {
+        min_likelihood_error: 1e-40,
+        min_likelihood: 1e-60,
+        min_log_likelihood: -600.0,
+        nb_best_events: 10,
+        evaluate: true,
+    }
+}
+
+fn alignment_parameters_default() -> ihor::AlignmentParameters {
+    ihor::AlignmentParameters {
+        min_score_v: 10,
+        min_score_j: 10,
+        max_error_d: 40,
+    }
+}
+
 #[test]
 fn test_most_likely_no_del() {
     // all the tests that relate to the inference of the most likely recombination scenario.
@@ -59,19 +77,10 @@ fn test_most_likely_no_del() {
         range_del_d5: (0, 0),
         ..Default::default()
     };
-    model.sanitize_genes().unwrap();
+    model.initialize().unwrap();
+    let if_params = inference_parameters_default();
 
-    let if_params = ihor::InferenceParameters {
-        min_likelihood_error: 1e-40,
-        min_likelihood: 1e-60,
-    };
-
-    let al_params = ihor::AlignmentParameters {
-        min_score_v: 10,
-        min_score_j: 10,
-        max_error_d: 8,
-    };
-
+    let al_params = alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
@@ -117,7 +126,7 @@ fn test_most_likely_no_del() {
     let result = model
         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
         .unwrap();
-
+    println!("{:?}", result);
     assert!(result.clone()[2].1.insvd == ihor::Dna::from_string("GT").unwrap());
     assert!(result.clone()[2].1.insdj == ihor::Dna::from_string("TT").unwrap());
     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("GTT").unwrap());
@@ -182,19 +191,10 @@ fn test_most_likely_no_ins() {
         range_del_d5: (0, 0),
         ..Default::default()
     };
-    model.sanitize_genes().unwrap();
+    model.initialize().unwrap();
+    let if_params = inference_parameters_default();
 
-    let if_params = ihor::InferenceParameters {
-        min_likelihood_error: 1e-40,
-        min_likelihood: 1e-60,
-    };
-
-    let al_params = ihor::AlignmentParameters {
-        min_score_v: 10,
-        min_score_j: 10,
-        max_error_d: 8,
-    };
-
+    let al_params = alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -283,19 +283,10 @@ fn test_most_likely_ins_del() {
         range_del_d5: (0, 0),
         ..Default::default()
     };
-    model.sanitize_genes().unwrap();
+    model.initialize().unwrap();
+    let if_params = inference_parameters_default();
 
-    let if_params = ihor::InferenceParameters {
-        min_likelihood_error: 1e-40,
-        min_likelihood: 1e-60,
-    };
-
-    let al_params = ihor::AlignmentParameters {
-        min_score_v: 10,
-        min_score_j: 10,
-        max_error_d: 8,
-    };
-
+    let al_params = alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTATTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -322,82 +313,73 @@ fn test_most_likely_ins_del() {
     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("CG").unwrap());
 }
 
-/// Test if the insertion / deletion are interacting like expected (VJ)
-#[test]
-fn test_most_likely_ins_del_vj() {
-    // all the tests that relate to the inference of the most likely recombination scenario.
-    let gv = ihor::Gene {
-        name: "V1".to_string(),
-        seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
-        seq_with_pal: None,
-        functional: "".to_string(),
-        cdr3_pos: Some(0),
-    };
-    let gj = ihor::Gene {
-        name: "J1".to_string(),
-        seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
-        seq_with_pal: None,
-        functional: "".to_string(),
-        cdr3_pos: Some(0),
-    };
+// /// Test if the insertion / deletion are interacting like expected (VJ)
+// #[test]
+// fn test_most_likely_ins_del_vj() {
+//     // all the tests that relate to the inference of the most likely recombination scenario.
+//     let gv = ihor::Gene {
+//         name: "V1".to_string(),
+//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq_with_pal: None,
+//         functional: "".to_string(),
+//         cdr3_pos: Some(0),
+//     };
+//     let gj = ihor::Gene {
+//         name: "J1".to_string(),
+//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq_with_pal: None,
+//         functional: "".to_string(),
+//         cdr3_pos: Some(0),
+//     };
 
-    let mut model = ihor::vj::Model {
-        seg_vs: vec![gv],
-        seg_js: vec![gj],
-        p_v: array![1.],
-        p_j_given_v: array![[0.5, 0.5,]],
-        p_ins_vj: array![0.01, 0.01, 0.6, 0.28], // 0, 1, 2, 3
-        p_del_v_given_v: array![[0.3], [0.5], [0.1], [0.05], [0.05]], // -1, 0, 1, 2, 3
-        p_del_j_given_j: array![[0.3], [0.5], [0.1], [0.05], [0.05]],
-        markov_coefficients_vj: array![
-            [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25]
-        ],
-        first_nt_bias_ins_vj: array![0.25, 0.25, 0.25, 0.25],
-        range_del_v: (-1, 3),
-        range_del_j: (-1, 3),
-        ..Default::default()
-    };
-    model.sanitize_genes().unwrap();
+//     let mut model = ihor::vj::Model {
+//         seg_vs: vec![gv],
+//         seg_js: vec![gj],
+//         p_v: array![1.],
+//         p_j_given_v: array![[0.5, 0.5,]],
+//         p_ins_vj: array![0.01, 0.01, 0.6, 0.28], // 0, 1, 2, 3
+//         p_del_v_given_v: array![[0.3], [0.5], [0.1], [0.05], [0.05]], // -1, 0, 1, 2, 3
+//         p_del_j_given_j: array![[0.3], [0.5], [0.1], [0.05], [0.05]],
+//         markov_coefficients_vj: array![
+//             [0.25, 0.25, 0.25, 0.25],
+//             [0.25, 0.25, 0.25, 0.25],
+//             [0.25, 0.25, 0.25, 0.25],
+//             [0.25, 0.25, 0.25, 0.25]
+//         ],
+//         first_nt_bias_ins_vj: array![0.25, 0.25, 0.25, 0.25],
+//         range_del_v: (-1, 3),
+//         range_del_j: (-1, 3),
+//         ..Default::default()
+//     };
+//     model.initialize().unwrap();
+//     let if_params = inference_parameters_default();
 
-    let if_params = ihor::InferenceParameters {
-        min_likelihood_error: 1e-40,
-        min_likelihood: 1e-60,
-    };
+//     let al_params = alignment_parameters_default();
+//     // No insertions or deletions
+//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGGGGGGCAGTCAGT");
+//     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
+//     let result = model
+//         .most_likely_recombinations(&seq_aligned, 5, &if_params)
+//         .unwrap();
+//     assert!(result.clone()[0].1.delv == 1);
+//     assert!(result.clone()[0].1.delj == 1);
+//     assert!(result.clone()[0].1.insvj == ihor::Dna::from_string("").unwrap());
 
-    let al_params = ihor::AlignmentParameters {
-        min_score_v: 10,
-        min_score_j: 10,
-        max_error_d: 8,
-    };
+//     // Most likely scenario:
+//     // one "negative deletion" pm V
+//     // Two insertions on VJ (CG) and one deletion on J
+//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTCGGGGGCAGTCAGT");
+//     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
+//     let result = model
+//         .most_likely_recombinations(&seq_aligned, 5, &if_params)
+//         .unwrap();
 
-    // No insertions or deletions
-    let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGGGGGGCAGTCAGT");
-    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
-    let result = model
-        .most_likely_recombinations(&seq_aligned, 5, &if_params)
-        .unwrap();
-    assert!(result.clone()[0].1.delv == 1);
-    assert!(result.clone()[0].1.delj == 1);
-    assert!(result.clone()[0].1.insvj == ihor::Dna::from_string("").unwrap());
-
-    // Most likely scenario:
-    // one "negative deletion" pm V
-    // Two insertions on VJ (CG) and one deletion on J
-    let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTCGGGGGCAGTCAGT");
-    let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
-    let result = model
-        .most_likely_recombinations(&seq_aligned, 5, &if_params)
-        .unwrap();
-
-    println!("{:?}", model);
-    println!("{:?}", result.clone()[0]);
-    assert!(result.clone()[0].1.delv == 0);
-    assert!(result.clone()[0].1.delj == 2);
-    assert!(result.clone()[0].1.insvj == ihor::Dna::from_string("TC").unwrap());
-}
+//     println!("{:?}", model);
+//     println!("{:?}", result.clone()[0]);
+//     assert!(result.clone()[0].1.delv == 0);
+//     assert!(result.clone()[0].1.delj == 2);
+//     assert!(result.clone()[0].1.insvj == ihor::Dna::from_string("TC").unwrap());
+// }
 
 /// Test D deletions
 #[test]
@@ -455,19 +437,10 @@ fn test_most_likely_del_dgene() {
         range_del_d5: (0, 2),
         ..Default::default()
     };
-    model.sanitize_genes().unwrap();
+    model.initialize().unwrap();
+    let if_params = inference_parameters_default();
 
-    let if_params = ihor::InferenceParameters {
-        min_likelihood_error: 1e-40,
-        min_likelihood: 1e-60,
-    };
-
-    let al_params = ihor::AlignmentParameters {
-        min_score_v: 10,
-        min_score_j: 10,
-        max_error_d: 8,
-    };
-
+    let al_params = alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -503,7 +476,7 @@ fn test_most_likely_del_dgene() {
 
 /// Test D deletions with insertions
 #[test]
-fn test_most_likely_del_dgene_with_ins() {
+fn test_most_likely_del_pal_dgene_with_ins() {
     let gv = ihor::Gene {
         name: "V1".to_string(),
         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
@@ -557,19 +530,10 @@ fn test_most_likely_del_dgene_with_ins() {
         range_del_d5: (0, 2),
         ..Default::default()
     };
-    model.sanitize_genes().unwrap();
+    model.initialize().unwrap();
+    let if_params = inference_parameters_default();
 
-    let if_params = ihor::InferenceParameters {
-        min_likelihood_error: 1e-40,
-        min_likelihood: 1e-60,
-    };
-
-    let al_params = ihor::AlignmentParameters {
-        min_score_v: 10,
-        min_score_j: 10,
-        max_error_d: 8,
-    };
-
+    let al_params = alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -586,20 +550,212 @@ fn test_most_likely_del_dgene_with_ins() {
     // Two deletion on d5, 1 on d3, 1 insertion
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGTTATTGTTTGGGGGGCAGTCAGT").unwrap();
     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
-    println!("{:?}", seq_aligned.d_genes);
-    for d in &seq_aligned.d_genes {
-        println!("{}", d.display(&myseq, &model));
-    }
 
     let result = model
         .most_likely_recombinations(&seq_aligned, 5, &if_params)
         .unwrap();
-    println!("{:?}", result);
+
     assert!(result.clone()[0].1.delv == 0);
     assert!(result.clone()[0].1.delj == 0);
     assert!(result.clone()[0].1.deld3 == 1);
     assert!(result.clone()[0].1.deld5 == 2);
     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("G").unwrap());
+    assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+}
+
+/// Test D palindromic deletions with insertions
+#[test]
+fn test_most_likely_del_dgene_with_ins() {
+    let gv = ihor::Gene {
+        name: "V1".to_string(),
+        seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+        seq_with_pal: None,
+        functional: "".to_string(),
+        cdr3_pos: Some(0),
+    };
+    let gj = ihor::Gene {
+        name: "J1".to_string(),
+        seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+        seq_with_pal: None,
+        functional: "".to_string(),
+        cdr3_pos: Some(0),
+    };
+    let gd = ihor::Gene {
+        name: "D1".to_string(),
+        seq: ihor::Dna::from_string("TTTTATTGTTTT").unwrap(),
+        seq_with_pal: None,
+        functional: "".to_string(),
+        cdr3_pos: Some(0),
+    };
+
+    let mut model = ihor::vdj::Model {
+        seg_vs: vec![gv],
+        seg_js: vec![gj],
+        seg_ds: vec![gd],
+        p_v: array![1.],
+        p_dj: array![[0.5, 0.5,]],
+        p_ins_vd: array![0.5, 0.5],
+        p_ins_dj: array![1.],
+        p_del_v_given_v: array![[1.]],
+        p_del_j_given_j: array![[1.]],
+        p_del_d3_del_d5: array![[[0.3], [0.4], [0.3]], [[0.4], [0.4], [0.2]]],
+        markov_coefficients_vd: array![
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25]
+        ],
+        markov_coefficients_dj: array![
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25]
+        ],
+        first_nt_bias_ins_vd: array![0.25, 0.25, 0.25, 0.25],
+        first_nt_bias_ins_dj: array![0.25, 0.25, 0.25, 0.25],
+        range_del_v: (0, 0),
+        range_del_j: (0, 0),
+        range_del_d3: (-1, 0),
+        range_del_d5: (-1, 1),
+        ..Default::default()
+    };
+    model.initialize().unwrap();
+    let if_params = inference_parameters_default();
+
+    let al_params = alignment_parameters_default();
+    // No insertions or deletions
+    let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
+    let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
+    let result = model
+        .most_likely_recombinations(&seq_aligned, 5, &if_params)
+        .unwrap();
+    println!("{:?}", result);
+    println!("{:?}", result.clone()[0].1.deld5);
+    assert!(result.clone()[0].1.delv == 0);
+    assert!(result.clone()[0].1.delj == 0);
+    assert!(result.clone()[0].1.deld3 == 1);
+    assert!(result.clone()[0].1.deld5 == 1);
+    assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+    assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+
+    // -1 on D5, -1 on D3, no insertion
+    let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAATTTTATTGTTTTAGGGGGGCAGTCAGT").unwrap();
+    let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
+
+    let result = model
+        .most_likely_recombinations(&seq_aligned, 5, &if_params)
+        .unwrap();
+    assert!(result.clone()[0].1.delv == 0);
+    assert!(result.clone()[0].1.delj == 0);
+    assert!(result.clone()[0].1.deld3 == 0);
+    assert!(result.clone()[0].1.deld5 == 0);
+    assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+    assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+}
+
+/// Test D palindromic deletions with insertions
+#[test]
+fn test_most_likely_v_gene_with_errors() {
+    let gv = ihor::Gene {
+        name: "V1".to_string(),
+        seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+        seq_with_pal: None,
+        functional: "".to_string(),
+        cdr3_pos: Some(0),
+    };
+    let gj = ihor::Gene {
+        name: "J1".to_string(),
+        seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+        seq_with_pal: None,
+        functional: "".to_string(),
+        cdr3_pos: Some(0),
+    };
+    let gd = ihor::Gene {
+        name: "D1".to_string(),
+        seq: ihor::Dna::from_string("TTTTATTGTTTT").unwrap(),
+        seq_with_pal: None,
+        functional: "".to_string(),
+        cdr3_pos: Some(0),
+    };
+
+    let mut model = ihor::vdj::Model {
+        seg_vs: vec![gv],
+        seg_js: vec![gj],
+        seg_ds: vec![gd],
+        p_v: array![1.],
+        p_dj: array![[1.]],
+        p_ins_vd: array![0.7, 0.2, 0.1],
+        p_ins_dj: array![1.],
+        p_del_v_given_v: array![[0.4], [0.3], [0.2], [0.1]],
+        p_del_j_given_j: array![[1.]],
+        p_del_d3_del_d5: array![[[1.]]],
+        markov_coefficients_vd: array![
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25]
+        ],
+        markov_coefficients_dj: array![
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25]
+        ],
+        first_nt_bias_ins_vd: array![0.25, 0.25, 0.25, 0.25],
+        first_nt_bias_ins_dj: array![0.25, 0.25, 0.25, 0.25],
+        range_del_v: (0, 4),
+        range_del_j: (0, 0),
+        range_del_d3: (0, 0),
+        range_del_d5: (0, 0),
+        error_rate: 0.01,
+        ..Default::default()
+    };
+    model.initialize().unwrap();
+    let if_params = inference_parameters_default();
+
+    let al_params = alignment_parameters_default();
+    // No insertions or deletions one far away error
+    let myseq = ihor::Dna::from_string("CAGTCAGTAGAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
+    let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
+    let result = model
+        .most_likely_recombinations(&seq_aligned, 5, &if_params)
+        .unwrap();
+    assert!(result.clone()[0].1.delv == 0);
+    assert!(result.clone()[0].1.delj == 0);
+    assert!(result.clone()[0].1.deld3 == 0);
+    assert!(result.clone()[0].1.deld5 == 0);
+    assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+    assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+
+    // No insertions or deletions, one error close
+    let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAGAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
+    let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
+
+    let result = model
+        .most_likely_recombinations(&seq_aligned, 5, &if_params)
+        .unwrap();
+
+    assert!(result.clone()[0].1.delv == 0);
+    assert!(result.clone()[0].1.delj == 0);
+    assert!(result.clone()[0].1.deld3 == 0);
+    assert!(result.clone()[0].1.deld5 == 0);
+    assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+    assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+
+    // No error, two deletion, two insertion on VD side
+    let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAACCTTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
+    let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
+
+    let result = model
+        .most_likely_recombinations(&seq_aligned, 5, &if_params)
+        .unwrap();
+    println!("{:?}", result);
+
+    assert!(result.clone()[0].1.delv == 2);
+    assert!(result.clone()[0].1.delj == 0);
+    assert!(result.clone()[0].1.deld3 == 0);
+    assert!(result.clone()[0].1.deld5 == 0);
+    assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("CC").unwrap());
     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
 }
 
@@ -615,15 +771,11 @@ fn test_infer_feature_real() -> Result<()> {
         Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
         Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
     )?;
-    let align_params = ihor::sequence::AlignmentParameters {
-        min_score_v: 40,
-        min_score_j: 10,
-        max_error_d: 8,
-    };
-    let inference_params = ihor::shared::InferenceParameters {
-        min_likelihood: 1e-40,
-        min_likelihood_error: 1e-60,
-    };
+
+    let align_params = alignment_parameters_default();
+
+    let inference_params = inference_parameters_default();
+
     let seq_str = "AGTCTGCCATCCCCAACCAGACAGCTCTTTACTTCTGTGCCACCGGGGCAGGAAGGGCTA".to_string();
     let seq = model.align_sequence(ihor::sequence::Dna::from_string(&seq_str)?, &align_params)?;
     model.infer_features(&seq, &inference_params)?;

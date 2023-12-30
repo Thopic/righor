@@ -91,8 +91,12 @@ Limitations (I think also true for IGoR but not clear):
 Programming stuff:
 - Some unneeded duplicated code, mostly because pyo3 not compatible with templates + need to be removed for wasm compilation
 - open_blas is a pain in the ass, takes forever to compile, all that for one not-very-important diagonalisation -> now it's removed.
+- log always means log2. ln is neperian.
 
 Things to do:
 - add more tests (interaction insertion + deletion, more than one v gene)
 - work on the speed (limit the valid D positions): One reasonable thing would be to modify VDJ to iterate on v/delv, then j/delj, then d. The v <-> j distance would give a reasonable bound on the number of insertion (and help remove a lot of shit). That said maybe it's not needed. Depend on how fast it all ends up being.
 - Error model is wrong as defined rn
+- lot of stuff don't work
+- deal with potential insertion in VJ alignment, remove the sequence from the inference if the insertion overlap with the delv range.
+- min_likelihood is useless now

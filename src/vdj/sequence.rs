@@ -1,6 +1,4 @@
-use crate::sequence::utils::{
-    count_differences, difference_as_i64, differences_remaining, AlignmentParameters,
-};
+use crate::sequence::utils::{count_differences, difference_as_i64, AlignmentParameters};
 use crate::sequence::{DAlignment, Dna, VJAlignment};
 use crate::vdj::{Event, Model};
 use std::cmp;
@@ -54,10 +52,15 @@ impl Sequence {
         // would return for insDJ: SSNNNNN
 
         // this one can potentially be negative
-        let start_insvd = difference_as_i64(e.v.end_seq, e.delv);
-        let end_insvd = e.d.pos + e.deld5;
-        let start_insdj = e.d.pos + e.d.len() - e.deld3;
-        let end_insdj = e.j.start_seq + e.delj;
+
+        let v = e.v.unwrap();
+        let d = e.d.unwrap();
+        let j = e.j.unwrap();
+
+        let start_insvd = difference_as_i64(v.end_seq, e.delv);
+        let end_insvd = d.pos + e.deld5;
+        let start_insdj = d.pos + d.len() - e.deld3;
+        let end_insdj = j.start_seq + e.delj;
         let insvd = self
             .sequence
             .extract_padded_subsequence(start_insvd, end_insvd as i64);
@@ -89,6 +92,8 @@ pub fn display_v_alignment(
     let v = model.seg_vs[v_al.index].clone();
     let palv = v.seq_with_pal.as_ref().unwrap();
     let alignment = Dna::align_left_right(palv, seq, align_params);
+    // Sadly alignment.pretty is bugged exactly for this use case,
+    // I'm waiting for them to correct this
     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 100)
 }
 
@@ -107,6 +112,17 @@ pub fn align_all_vgenes(
             //     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 200)
             // );
             // println!("V: {:?}", alignment.score);
+            let max_del_v = model.p_del_v_given_v.dim().0;
+
+            let mut errors = vec![0; max_del_v];
+            for del_v in 0..max_del_v {
+                if del_v <= palv.len() && del_v <= alignment.yend - alignment.ystart {
+                    errors[del_v] = count_differences(
+                        &seq.seq[alignment.ystart..alignment.yend - del_v],
+                        &palv.seq[alignment.xstart..alignment.xend - del_v],
+                    );
+                }
+            }
 
             v_genes.push(VJAlignment {
                 index: indexv,
@@ -114,17 +130,7 @@ pub fn align_all_vgenes(
                 end_gene: alignment.xend,
                 start_seq: alignment.ystart,
                 end_seq: alignment.yend,
-                errors: differences_remaining(
-                    seq.seq[alignment.ystart..alignment.yend]
-                        .iter()
-                        .rev()
-                        .copied(),
-                    palv.seq[alignment.xstart..alignment.xend]
-                        .iter()
-                        .rev()
-                        .copied(),
-                    (model.range_del_v.1 - model.range_del_v.0) as usize,
-                ),
+                errors: errors,
                 score: alignment.score,
             });
         }
@@ -147,6 +153,16 @@ pub fn align_all_jgenes(
             //     alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 200)
             // );
             // println!("J: {:?}", alignment.score);
+            let max_del_j = model.p_del_j_given_j.dim().0;
+            let mut errors = vec![0; max_del_j];
+            for del_j in 0..max_del_j {
+                if del_j <= palj.len() && del_j <= alignment.yend - alignment.ystart {
+                    errors[del_j] = count_differences(
+                        &seq.seq[del_j + alignment.xstart..alignment.xend],
+                        &palj.seq[del_j + alignment.ystart..alignment.yend],
+                    );
+                }
+            }
 
             j_aligns.push(VJAlignment {
                 index: indexj,
@@ -154,11 +170,7 @@ pub fn align_all_jgenes(
                 end_gene: alignment.yend,
                 start_seq: alignment.xstart,
                 end_seq: alignment.xend,
-                errors: differences_remaining(
-                    seq.seq[alignment.xstart..].iter().copied(),
-                    palj.seq.iter().copied(),
-                    (model.range_del_j.1 - model.range_del_j.0) as usize,
-                ),
+                errors: errors,
                 score: alignment.score,
             });
         }

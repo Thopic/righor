@@ -1,11 +1,12 @@
 use crate::sequence::{DAlignment, Dna, VJAlignment};
+use anyhow::{anyhow, Result};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 
 pub struct Event<'a> {
-    pub v: &'a VJAlignment,
-    pub j: &'a VJAlignment,
-    pub d: &'a DAlignment,
+    pub v: Option<&'a VJAlignment>,
+    pub j: Option<&'a VJAlignment>,
+    pub d: Option<&'a DAlignment>,
     pub delv: usize,
     pub delj: usize,
     pub deld3: usize,
@@ -33,20 +34,50 @@ pub struct StaticEvent {
 }
 
 impl Event<'_> {
-    pub fn to_static(&self, insvd: Dna, insdj: Dna) -> StaticEvent {
-        StaticEvent {
-            v_index: self.v.index,
-            v_start_gene: self.v.start_gene,
+    pub fn to_static(&self, insvd: Dna, insdj: Dna) -> Result<StaticEvent> {
+        Ok(StaticEvent {
+            v_index: self
+                .v
+                .ok_or(anyhow!("Can't move that event to static"))?
+                .index,
+            v_start_gene: self
+                .v
+                .ok_or(anyhow!("Can't move that event to static"))?
+                .start_gene,
             delv: self.delv,
-            j_index: self.j.index,
-            j_start_seq: self.j.start_seq,
+            j_index: self
+                .j
+                .ok_or(anyhow!("Can't move that event to static"))?
+                .index,
+            j_start_seq: self
+                .j
+                .ok_or(anyhow!("Can't move that event to static"))?
+                .start_seq,
             delj: self.delj,
-            d_index: self.d.index,
-            d_start_seq: self.d.pos,
+            d_index: self
+                .d
+                .ok_or(anyhow!("Can't move that event to static"))?
+                .index,
+            d_start_seq: self
+                .d
+                .ok_or(anyhow!("Can't move that event to static"))?
+                .pos,
             deld3: self.deld3,
             deld5: self.deld5,
             insvd,
             insdj,
+        })
+    }
+
+    pub fn default() -> Self {
+        Event {
+            v: None,
+            j: None,
+            d: None,
+            delv: 0,
+            delj: 0,
+            deld3: 0,
+            deld5: 0,
         }
     }
 }

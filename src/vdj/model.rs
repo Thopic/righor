@@ -2,8 +2,8 @@ use crate::sequence::{AlignmentParameters, AminoAcid, Dna};
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
 use crate::shared::utils::{
-    add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
-    DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
+    add_errors, calc_steady_state_dist, max_f64, max_of_array, sorted_and_complete,
+    sorted_and_complete_0start, DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
 };
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
 use crate::vdj::{Features, Sequence, StaticEvent};
@@ -63,6 +63,13 @@ pub struct Model {
     pub range_del_d5: (i64, i64),
     pub error_rate: f64,
     pub thymic_q: f64,
+
+    // pre-computed values to improve speed
+    pub max_log_likelihood_post_v: f64,
+    pub max_log_likelihood_post_delv: f64,
+    pub arr_max_log_likelihood_post_dj: Array2<f64>, // depend on d.index and the max number of insert
+    pub arr_max_log_likelihood_post_delj: Array2<f64>, // depend on d.index and the number of inserts
+    pub arr_max_log_likelihood_post_deld: Array2<f64>, // depend on the number of inserts on both sides of d
 }
 
 impl Model {
@@ -300,9 +307,7 @@ impl Model {
         model.first_nt_bias_ins_dj =
             Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_dj)?);
 
-        // generative model
-        model.initialize_generative_model()?;
-
+        model.initialize()?;
         model.error_rate = pp.error_rate;
         model.thymic_q = 9.41; // TODO: deal with this
         Ok(model)
@@ -473,9 +478,15 @@ impl Model {
             error_rate: 0.1,
             ..Default::default()
         };
-        m.sanitize_genes()?;
-        m.initialize_generative_model()?;
+        m.initialize()?;
         Ok(m)
+    }
+
+    pub fn initialize(&mut self) -> Result<()> {
+        self.sanitize_genes()?;
+        self.initialize_generative_model()?;
+        self.precompute_maximum_log_likelihoods();
+        Ok(())
     }
 
     pub fn infer_features(
@@ -484,7 +495,7 @@ impl Model {
         inference_params: &InferenceParameters,
     ) -> Result<Features> {
         let mut feature = Features::new(self, inference_params)?;
-        let (ltotal, _) = feature.infer(sequence, inference_params, 0);
+        let (ltotal, _) = feature.infer(sequence, self, inference_params);
         if ltotal == 0.0f64 {
             return Ok(feature); // return 0s
         }
@@ -498,13 +509,19 @@ impl Model {
         nb_scenarios: usize,
         inference_params: &InferenceParameters,
     ) -> Result<Vec<(f64, StaticEvent)>> {
-        let mut feature = Features::new(self, inference_params)?;
-        let (_, res) = feature.infer(sequence, inference_params, nb_scenarios);
+        let mut ip = inference_params.clone();
+        ip.nb_best_events = nb_scenarios;
+        ip.evaluate = true;
+        let mut feature = Features::new(self, &ip)?;
+        let (_, res) = feature.infer(sequence, self, &ip);
         Ok(res)
     }
     pub fn pgen(&self, sequence: &Sequence, inference_params: &InferenceParameters) -> Result<f64> {
-        let mut feature = Features::new(self, inference_params)?;
-        let (pg, _) = feature.infer(sequence, inference_params, 0);
+        let mut ip = inference_params.clone();
+        ip.nb_best_events = 0;
+        ip.evaluate = true;
+        let mut feature = Features::new(self, &ip)?;
+        let (pg, _) = feature.infer(sequence, self, &ip);
         Ok(pg)
     }
 
@@ -578,14 +595,12 @@ impl Model {
         (seq, vgene.name, jgene.name)
     }
 
-    pub fn update(&mut self, feature: &Features) {
-        self.p_v = feature.v.probas.clone();
-        self.p_del_v_given_v = feature.delv.probas.clone();
-        self.p_dj = feature.dj.probas.clone();
-        self.p_del_j_given_j = feature.delj.probas.clone();
-        self.p_del_d3_del_d5 = feature.deld.probas.clone();
-        // self.p_ins_vd = feature.nb_insvd.probas.clone();
-        // self.p_ins_dj = feature.nb_insdj.probas.clone();
+    pub fn update(&mut self, feature: &Features) -> Result<()> {
+        self.p_v = feature.v.log_probas.mapv(|x| x.exp2());
+        self.p_del_v_given_v = feature.delv.log_probas.mapv(|x| x.exp2());
+        self.p_dj = feature.dj.log_probas.mapv(|x| x.exp2());
+        self.p_del_j_given_j = feature.delj.log_probas.mapv(|x| x.exp2());
+        self.p_del_d3_del_d5 = feature.deld.log_probas.mapv(|x| x.exp2());
         (
             self.p_ins_vd,
             self.first_nt_bias_ins_vd,
@@ -595,8 +610,16 @@ impl Model {
             self.p_ins_dj,
             self.first_nt_bias_ins_dj,
             self.markov_coefficients_dj,
-        ) = feature.insvd.get_parameters();
+        ) = feature.insdj.get_parameters();
         self.error_rate = feature.error.error_rate;
+
+        for a in self.p_del_d3_del_d5.iter() {
+            if !a.is_finite() {
+                println!("{}", a);
+            }
+        }
+        self.initialize()?;
+        Ok(())
     }
 
     #[cfg(all(feature = "py_binds", feature = "py_o3"))]
@@ -748,5 +771,111 @@ impl Model {
     fn set_first_nt_bias_ins_dj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
         self.first_nt_bias_ins_dj = value.as_ref(py).to_owned_array();
         Ok(())
+    }
+}
+
+/// These functions compute max_log_likelihood values that are used
+/// to get rid of dead branches during the inference.
+impl Model {
+    pub fn max_log_likelihood_post_dj(&self, d_idx: usize, nb_ins: i64) -> f64 {
+        if nb_ins >= self.arr_max_log_likelihood_post_dj.dim().1 as i64 {
+            return f64::NEG_INFINITY;
+        } else if nb_ins < 0 {
+            return self.arr_max_log_likelihood_post_dj[[d_idx, 0]];
+        }
+        self.arr_max_log_likelihood_post_dj[[d_idx, nb_ins as usize]]
+    }
+
+    pub fn max_log_likelihood_post_delj(&self, d_idx: usize, nb_ins: usize) -> f64 {
+        if nb_ins >= self.arr_max_log_likelihood_post_delj.dim().1 {
+            return f64::NEG_INFINITY;
+        }
+        self.arr_max_log_likelihood_post_delj[[d_idx, nb_ins]]
+    }
+
+    pub fn max_log_likelihood_post_deld(&self, nb_ins_vd: usize, nb_ins_dj: usize) -> f64 {
+        if nb_ins_vd >= self.arr_max_log_likelihood_post_deld.dim().0
+            || nb_ins_dj >= self.arr_max_log_likelihood_post_deld.dim().1
+        {
+            return f64::NEG_INFINITY;
+        }
+        self.arr_max_log_likelihood_post_deld[[nb_ins_vd, nb_ins_dj]]
+    }
+
+    pub fn precompute_maximum_log_likelihoods(&mut self) {
+        let max_delv = max_of_array(&self.p_del_v_given_v).log2();
+        let max_dj = max_of_array(&self.p_dj).log2();
+        let max_delj = max_of_array(&self.p_del_j_given_j).log2();
+
+        let max_lins = max_of_array(&self.p_ins_vd).log2() + max_of_array(&self.p_ins_dj).log2();
+        let max_deld = max_of_array(&self.p_del_d3_del_d5).log2();
+
+        let max_transition_vd = max_f64(
+            max_of_array(&self.markov_coefficients_vd).log2(),
+            max_of_array(&self.first_nt_bias_ins_vd).log2(),
+        );
+        let max_transition_dj = max_f64(
+            max_of_array(&self.markov_coefficients_dj).log2(),
+            max_of_array(&self.first_nt_bias_ins_dj).log2(),
+        );
+
+        let maxlend = self
+            .seg_ds
+            .iter()
+            .map(|x| x.seq_with_pal.clone().unwrap().len())
+            .max()
+            .unwrap_or_else(|| 0);
+
+        self.max_log_likelihood_post_v = max_delv + max_delj + max_dj + max_lins + max_deld;
+        self.max_log_likelihood_post_delv = max_dj + max_delj + max_lins + max_deld;
+
+        self.arr_max_log_likelihood_post_deld =
+            Array2::zeros((self.p_ins_vd.dim(), self.p_ins_dj.dim()));
+        self.arr_max_log_likelihood_post_dj = Array2::zeros((
+            self.p_dj.dim().0,
+            self.p_ins_dj.dim() + self.p_ins_vd.dim() + maxlend,
+        ));
+        self.arr_max_log_likelihood_post_delj = Array2::zeros((
+            self.p_dj.dim().0,
+            self.p_ins_dj.dim() + self.p_ins_vd.dim() + maxlend,
+        ));
+
+        let mut max_ins = Array1::zeros(self.p_ins_vd.dim() + self.p_ins_dj.dim() - 1);
+        max_ins = max_ins + f64::NEG_INFINITY;
+
+        for nb_ins_vd in 0..self.p_ins_vd.dim() {
+            for nb_ins_dj in 0..self.p_ins_dj.dim() {
+                let t = max_transition_vd * (nb_ins_vd as f64)
+                    + self.p_ins_vd[nb_ins_vd].log2()
+                    + max_transition_dj * (nb_ins_dj as f64)
+                    + self.p_ins_dj[nb_ins_dj].log2();
+                //                println!("{:?} {} {}", t, nb_ins_vd, nb_ins_dj);
+                self.arr_max_log_likelihood_post_deld[[nb_ins_vd, nb_ins_dj]] = t;
+                for a in 0..(nb_ins_vd + nb_ins_dj) + 1 {
+                    if max_ins[a] < t {
+                        max_ins[a] = t;
+                    }
+                }
+            }
+        }
+
+        for d_idx in 0..self.p_dj.dim().0 {
+            let lend = self.seg_ds[d_idx].seq_with_pal.clone().unwrap().len();
+            for nb_ins in 0..self.p_ins_dj.dim() + self.p_ins_vd.dim() - 1 {
+                self.arr_max_log_likelihood_post_dj[[d_idx, nb_ins + lend]] =
+                    max_ins[nb_ins] + max_delj;
+                self.arr_max_log_likelihood_post_delj[[d_idx, nb_ins + lend]] = max_ins[nb_ins];
+            }
+            for leftover in 0..maxlend - lend + 1 {
+                self.arr_max_log_likelihood_post_delj[[
+                    d_idx,
+                    self.p_ins_dj.dim() + self.p_ins_vd.dim() + maxlend - 1 - leftover,
+                ]] = f64::NEG_INFINITY;
+                self.arr_max_log_likelihood_post_dj[[
+                    d_idx,
+                    self.p_ins_dj.dim() + self.p_ins_vd.dim() + maxlend - 1 - leftover,
+                ]] = f64::NEG_INFINITY;
+            }
+        }
     }
 }

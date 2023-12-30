@@ -17,7 +17,7 @@ pub struct Features {
     pub j: CategoricalFeature1g1,
     pub delj: CategoricalFeature1g1,
     pub nb_insvj: CategoricalFeature1,
-    pub insvj: MarkovFeature,
+    pub insvj: InsertionFeature,
     pub error: ErrorPoisson,
 }
 
@@ -29,7 +29,11 @@ impl Features {
             j: CategoricalFeature1g1::new(&model.p_j_given_v)?,
             delj: CategoricalFeature1g1::new(&model.p_del_j_given_j)?,
             nb_insvj: CategoricalFeature1::new(&model.p_ins_vj)?,
-            insvj: MarkovFeature::new(&model.first_nt_bias_ins_vj, &model.markov_coefficients_vj)?,
+            insvj: InsertionFeature::new(
+                &model.p_ins_vj,
+                &model.first_nt_bias_ins_vj,
+                &model.markov_coefficients_vj,
+            )?,
             error: ErrorPoisson::new(model.error_rate, inference_params.min_likelihood_error)?,
         })
     }
@@ -61,13 +65,15 @@ impl Features {
 
         // Then compute the likelihood of each part (including insertion length)
         // We ignore the V/delV part (already computed)
-        self.v.likelihood(e.v.index)
-            * self.delv.likelihood((e.delv, e.v.index))
-            * self.j.likelihood((e.j.index, e.v.index))
-            * self.delj.likelihood((e.delj, e.j.index))
-            * self.nb_insvj.likelihood((j_start as i64 - v_end) as usize)
-            * self.error.likelihood(e.v.nb_errors(e.delv))
-            * self.error.likelihood(e.j.nb_errors(e.delj))
+        self.v.log_likelihood(e.v.index)
+            + self.delv.log_likelihood((e.delv, e.v.index))
+            + self.j.log_likelihood((e.j.index, e.v.index))
+            + self.delj.log_likelihood((e.delj, e.j.index))
+            + self
+                .nb_insvj
+                .log_likelihood((j_start as i64 - v_end) as usize)
+            + self.error.log_likelihood(e.v.nb_errors(e.delv))
+            + self.error.log_likelihood(e.j.nb_errors(e.delj))
     }
 
     /// Infer the likelihood of a specific events by looping over
@@ -102,7 +108,7 @@ impl Features {
             // extract both inserted sequences
             let insvj = sequence.get_insertions_vj(&e);
 
-            let l_total = lhood_vj * self.insvj.likelihood(&insvj);
+            let l_total = lhood_vj + self.insvj.log_likelihood(&insvj);
 
             // drop that specific recombination event if the likelihood is too low
             if l_total < inference_params.min_likelihood {
@@ -156,7 +162,7 @@ impl Features {
             j: CategoricalFeature1g1::average(features.iter().map(|a| a.j.clone()))?,
             delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
             nb_insvj: CategoricalFeature1::average(features.iter().map(|a| a.nb_insvj.clone()))?,
-            insvj: MarkovFeature::average(features.iter().map(|a| a.insvj.clone()))?,
+            insvj: InsertionFeature::average(features.iter().map(|a| a.insvj.clone()))?,
             error: ErrorPoisson::average(features.iter().map(|a| a.error.clone()))?,
         })
     }

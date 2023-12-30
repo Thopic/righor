@@ -1,7 +1,6 @@
 use crate::sequence::utils::{Dna, NUCLEOTIDES};
 use anyhow::{anyhow, Result};
-use ndarray::{Array1, Array2, Array3, Axis};
-// use ndarray_linalg::Eig;
+use ndarray::{s, Array, Array1, Array2, Array3, Axis, Dimension};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 use rand::distributions::{Distribution, Uniform};
@@ -162,6 +161,54 @@ pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
     }
 }
 
+/// Normalize the distribution on the two first axis
+pub trait Normalize2 {
+    fn normalize_distribution_double(&self) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+impl Normalize2 for Array2<f64> {
+    fn normalize_distribution_double(&self) -> Result<Self> {
+        if self.iter().any(|&x| x < 0.0) {
+            // negative values mean something wrong happened
+            return Err(anyhow!("Array contains non-positive values"));
+        }
+
+        let sum = self.sum();
+        if sum.abs() == 0.0f64 {
+            // return a uniform distribution
+            return Ok(Array2::ones(self.dim()) / ((self.dim().0 * self.dim().1) as f64));
+        }
+
+        Ok(self / sum)
+    }
+}
+
+impl Normalize2 for Array3<f64> {
+    fn normalize_distribution_double(&self) -> Result<Self> {
+        let mut normalized = Array3::<f64>::zeros(self.dim());
+        for ii in 0..self.dim().2 {
+            let sum = self.slice(s![.., .., ii]).sum();
+
+            if sum.abs() == 0.0f64 {
+                for jj in 0..self.dim().0 {
+                    for kk in 0..self.dim().1 {
+                        normalized[[jj, kk, ii]] = 1. / ((self.dim().0 * self.dim().1) as f64);
+                    }
+                }
+            } else {
+                for jj in 0..self.dim().0 {
+                    for kk in 0..self.dim().1 {
+                        normalized[[jj, kk, ii]] = self[[jj, kk, ii]] / sum;
+                    }
+                }
+            }
+        }
+        Ok(normalized)
+    }
+}
+
 pub trait Normalize {
     fn normalize_distribution(&self, axis: Option<Axis>) -> Result<Self>
     where
@@ -295,6 +342,9 @@ where
 pub struct InferenceParameters {
     pub min_likelihood_error: f64,
     pub min_likelihood: f64,
+    pub min_log_likelihood: f64,
+    pub evaluate: bool,
+    pub nb_best_events: usize,
 }
 
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
@@ -311,6 +361,40 @@ impl InferenceParameters {
         Self {
             min_likelihood_error,
             min_likelihood,
+            min_log_likelihood: min_likelihood.log2(),
+            evaluate: true,
+            nb_best_events: 1,
         }
+    }
+}
+
+pub fn max_of_array<D>(arr: &Array<f64, D>) -> f64
+where
+    D: Dimension,
+{
+    if arr.is_empty() {
+        return f64::NEG_INFINITY;
+    }
+    arr.into_iter()
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .cloned()
+        .unwrap()
+}
+
+pub fn max_f64(a: f64, b: f64) -> f64 {
+    match (a, b) {
+        // If either is NaN, return NaN
+        (a, b) if a.is_nan() || b.is_nan() => f64::NAN,
+
+        // If either is positive infinity, return positive infinity
+        (a, b)
+            if a.is_infinite() && a.is_sign_positive()
+                || b.is_infinite() && b.is_sign_positive() =>
+        {
+            f64::INFINITY
+        }
+
+        // Normal max calculation otherwise
+        _ => a.max(b),
     }
 }

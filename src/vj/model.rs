@@ -397,12 +397,16 @@ impl Model {
     }
 
     pub fn update(&mut self, feature: &Features) {
-        self.p_v = feature.v.probas.clone();
-        self.p_del_v_given_v = feature.delv.probas.clone();
-        self.p_j_given_v = feature.j.probas.clone();
-        self.p_del_j_given_j = feature.delj.probas.clone();
-        self.p_ins_vj = feature.nb_insvj.probas.clone();
-        (self.first_nt_bias_ins_vj, self.markov_coefficients_vj) = feature.insvj.get_parameters();
+        self.p_v = feature.v.log_probas.map(|x| x.exp2());
+        self.p_del_v_given_v = feature.delv.log_probas.map(|x| x.exp2());
+        self.p_j_given_v = feature.j.log_probas.map(|x| x.exp2());
+        self.p_del_j_given_j = feature.delj.log_probas.map(|x| x.exp2());
+        self.p_ins_vj = feature.nb_insvj.log_probas.map(|x| x.exp2());
+        (
+            self.p_ins_vj,
+            self.first_nt_bias_ins_vj,
+            self.markov_coefficients_vj,
+        ) = feature.insvj.get_parameters();
         self.error_rate = feature.error.error_rate;
     }
 
