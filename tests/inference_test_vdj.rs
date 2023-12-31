@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ihor;
+use ihor::{self, AlignmentParameters};
 use ndarray::array;
 use std::path::Path;
 
@@ -18,6 +18,37 @@ fn alignment_parameters_default() -> ihor::AlignmentParameters {
         min_score_v: 10,
         min_score_j: 10,
         max_error_d: 40,
+    }
+}
+
+fn generate_and_infer(
+    model: &ihor::vdj::Model,
+    al_params: &ihor::AlignmentParameters,
+    if_params: &ihor::InferenceParameters,
+    nb_generations: usize,
+) -> () {
+    let mut gen = ihor::vdj::Generator::new(model.clone(), Some(42));
+    for _ in 0..100 {
+        let gr = gen.generate(false);
+        let myseq = ihor::Dna::from_string(&gr.full_seq).unwrap();
+        let seq_aligned = model.align_sequence(myseq, al_params);
+        let result: Vec<ihor::vdj::StaticEvent> = model
+            .most_likely_recombinations(&seq_aligned.unwrap(), 20, if_params)
+            .unwrap()
+            .iter()
+            .map(|x| x.1.clone())
+            .collect();
+        println!();
+        println!();
+        println!("Inference:");
+        for a in &result {
+            println!("{:?}", a);
+        }
+        println!();
+        println!("Original Event:");
+        println!("{:?}", gr.recombination_event);
+
+        assert!(result.contains(&gr.recombination_event));
     }
 }
 
@@ -922,6 +953,9 @@ fn test_complete_model() {
     assert!(result.clone()[0].1.delj == 2);
     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("GC").unwrap());
     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+
+    // generate and test the evaluate the resulting sequences.
+    generate_and_infer(&model, &al_params, &if_params, 100);
 }
 
 #[test]

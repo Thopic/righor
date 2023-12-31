@@ -3,19 +3,6 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
-#[derive(Debug, Clone)]
-pub struct GenerationResult {
-    pub cdr3_nt: String,
-    pub cdr3_aa: Option<String>,
-    pub full_seq: String,
-    pub v_gene: String,
-    pub j_gene: String,
-}
-
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 #[pymethods]
 impl CategoricalFeature1 {

@@ -380,33 +380,41 @@ impl Model {
         &mut self,
         functional: bool,
         rng: &mut R,
-    ) -> (Dna, Option<AminoAcid>, usize, usize) {
+    ) -> (Dna, Option<AminoAcid>, StaticEvent) {
         // loop until we find a valid sequence (if generating functional alone)
         loop {
-            let v_index: usize = self.gen.d_v.generate(rng);
+            let mut event = StaticEvent {
+                ..Default::default()
+            };
+            event.v_index = self.gen.d_v.generate(rng);
             let dj_index: usize = self.gen.d_dj.generate(rng);
-            let d_index: usize = dj_index / self.p_dj.dim().1;
-            let j_index: usize = dj_index % self.p_dj.dim().1;
+            event.d_index = dj_index / self.p_dj.dim().1;
+            event.j_index = dj_index % self.p_dj.dim().1;
 
-            let seq_v: &Dna = &self.seg_vs_sanitized[v_index];
-            let seq_d: &Dna = self.seg_ds[d_index].seq_with_pal.as_ref().unwrap();
-            let seq_j: &Dna = &self.seg_js_sanitized[j_index];
+            let seq_v_cdr3: &Dna = &self.seg_vs_sanitized[event.v_index];
+            let seq_j_cdr3: &Dna = &self.seg_js_sanitized[event.j_index];
 
-            let del_v: usize = self.gen.d_del_v_given_v[v_index].generate(rng);
-            let del_d: usize = self.gen.d_del_d3_del_d5[d_index].generate(rng);
-            let del_d5: usize = del_d / self.p_del_d3_del_d5.dim().0;
-            let del_d3: usize = del_d % self.p_del_d3_del_d5.dim().0;
-            let del_j: usize = self.gen.d_del_j_given_j[j_index].generate(rng);
+            let seq_d: &Dna = &self.seg_ds[event.d_index].seq_with_pal.as_ref().unwrap();
+            let seq_v: &Dna = &self.seg_vs[event.v_index].seq_with_pal.as_ref().unwrap();
+            let seq_j: &Dna = &self.seg_js[event.j_index].seq_with_pal.as_ref().unwrap();
+
+            event.delv = self.gen.d_del_v_given_v[event.v_index].generate(rng);
+            let del_d: usize = self.gen.d_del_d3_del_d5[event.d_index].generate(rng);
+            event.deld5 = del_d / self.p_del_d3_del_d5.dim().0;
+            event.deld3 = del_d % self.p_del_d3_del_d5.dim().0;
+            event.delj = self.gen.d_del_j_given_j[event.j_index].generate(rng);
 
             let ins_vd: usize = self.gen.d_ins_vd.generate(rng);
             let ins_dj: usize = self.gen.d_ins_dj.generate(rng);
 
-            let out_of_frame = (seq_v.len() - del_v + seq_d.len() - del_d5 - del_d3 + seq_j.len()
-                - del_j
-                + ins_vd
-                + ins_dj)
-                % 3
-                != 0;
+            let out_of_frame =
+                (seq_v_cdr3.len() - event.delv + seq_d.len() - event.deld5 - event.deld3
+                    + seq_j_cdr3.len()
+                    - event.delj
+                    + ins_vd
+                    + ins_dj)
+                    % 3
+                    != 0;
             if functional & out_of_frame {
                 continue;
             }
@@ -415,13 +423,17 @@ impl Model {
             let mut ins_seq_dj: Dna = self.gen.markov_dj.generate(ins_dj, rng);
             ins_seq_dj.reverse(); // reverse for integration
 
-            // create the complete sequence
-            let mut seq: Dna = Dna::new();
-            seq.extend(&seq_v.extract_subsequence(0, seq_v.len() - del_v));
-            seq.extend(&ins_seq_vd);
-            seq.extend(&seq_d.extract_subsequence(del_d5, seq_d.len() - del_d3));
-            seq.extend(&ins_seq_dj);
-            seq.extend(&seq_j.extract_subsequence(del_j, seq_j.len()));
+            event.insdj = ins_seq_dj.clone();
+            event.insvd = ins_seq_vd.clone();
+            event.v_start_gene = 0;
+            event.d_start_seq = seq_v.len() - event.delv - event.deld5 + ins_vd;
+            event.j_start_seq = seq_v.len() - event.delv + ins_vd + ins_dj + seq_d.len()
+                - event.deld5
+                - event.deld3
+                - event.delj;
+
+            // create the complete CDR3 sequence
+            let mut seq = event.to_cdr3(self);
 
             // add potential sequencing error
             add_errors(&mut seq, self.error_rate, rng);
@@ -440,13 +452,13 @@ impl Model {
                     if functional & (saa.seq[0] != b'C') {
                         continue;
                     }
-                    return (seq, Some(saa), v_index, j_index);
+                    return (seq, Some(saa), event);
                 }
                 None => {
                     if functional {
                         continue;
                     }
-                    return (seq, None, v_index, j_index);
+                    return (seq, None, event);
                 }
             }
         }

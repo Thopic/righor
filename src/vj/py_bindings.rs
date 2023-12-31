@@ -1,7 +1,6 @@
 //! Contains some of the python binding that would otherwise pollute the other files.
 
-use crate::shared::GenerationResult;
-use crate::vj::Model;
+use crate::vj::{Model, StaticEvent};
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::*;
 use rand::rngs::SmallRng;
@@ -11,6 +10,20 @@ use rand::SeedableRng;
 pub struct Generator {
     pub model: Model,
     pub rng: SmallRng,
+}
+
+#[cfg_attr(
+    all(feature = "py_binds", feature = "py_o3"),
+    pyclass(get_all, set_all)
+)]
+#[derive(Debug, Clone)]
+pub struct GenerationResult {
+    pub cdr3_nt: String,
+    pub cdr3_aa: Option<String>,
+    pub full_seq: String,
+    pub v_gene: String,
+    pub j_gene: String,
+    pub recombination_event: StaticEvent,
 }
 
 impl Generator {
@@ -36,6 +49,12 @@ impl Generator {
             cdr3_aa: cdr3_aa.map(|x| x.to_string()),
             v_gene: v_name,
             j_gene: j_name,
+            recombination_event: {
+                panic!("Not implemented");
+                StaticEvent {
+                    ..Default::default()
+                }
+            },
         }
     }
 }
