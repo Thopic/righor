@@ -207,7 +207,6 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
     }
     fn cleanup(&self) -> Result<CategoricalFeature2g1> {
         let m = CategoricalFeature2g1::new(&self.probas_dirty)?;
-        m.check();
         Ok(m)
     }
     fn average(
@@ -220,7 +219,7 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
             .log_probas
             .mapv(|x| x.exp2());
         for feat in iter {
-            average_proba += &feat.log_probas.mapv(|x| x.exp2());
+            average_proba = average_proba + feat.log_probas.mapv(|x| x.exp2());
             len += 1;
         }
         CategoricalFeature2g1::new(&(average_proba / (len as f64)))
@@ -361,6 +360,7 @@ pub struct InsertionFeature {
 impl Feature<&Dna> for InsertionFeature {
     fn dirty_update(&mut self, observation: &Dna, likelihood: f64) {
         if observation.is_empty() {
+            self.length_distribution_dirty[0] += likelihood;
             return;
         }
         self.length_distribution_dirty[observation.len()] += likelihood;
@@ -369,11 +369,11 @@ impl Feature<&Dna> for InsertionFeature {
             self.initial_distribution_dirty[nucleotides_inv(observation.seq[0])] += likelihood;
         }
         for ii in 1..observation.len() {
-            if (observation.seq[ii - 1] != b'N') & (observation.seq[ii] != b'N') {
+            if (observation.seq[ii - 1] != b'N') && (observation.seq[ii] != b'N') {
                 self.transition_matrix_dirty[[
                     nucleotides_inv(observation.seq[ii - 1]),
                     nucleotides_inv(observation.seq[ii]),
-                ]] += likelihood;
+                ]] += likelihood / (observation.len() as f64 - 1.);
             }
         }
     }

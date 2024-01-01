@@ -386,6 +386,7 @@ impl Model {
             let mut event = StaticEvent {
                 ..Default::default()
             };
+
             event.v_index = self.gen.d_v.generate(rng);
             let dj_index: usize = self.gen.d_dj.generate(rng);
             event.d_index = dj_index / self.p_dj.dim().1;
@@ -415,7 +416,7 @@ impl Model {
                     + ins_dj)
                     % 3
                     != 0;
-            if functional & out_of_frame {
+            if functional && out_of_frame {
                 continue;
             }
 
@@ -444,12 +445,12 @@ impl Model {
             match seq_aa {
                 Some(saa) => {
                     // check for stop codon
-                    if functional & saa.seq.contains(&b'*') {
+                    if functional && saa.seq.contains(&b'*') {
                         continue;
                     }
 
                     // check for conserved extremities (cysteine)
-                    if functional & (saa.seq[0] != b'C') {
+                    if functional && (saa.seq[0] != b'C') {
                         continue;
                     }
                     return (seq, Some(saa), event);
@@ -476,18 +477,18 @@ impl Model {
             range_del_v: self.range_del_v,
             range_del_j: self.range_del_j,
             range_del_d5: self.range_del_d5,
-            p_v: Array1::<f64>::zeros(self.p_v.dim()),
-            p_dj: Array2::<f64>::zeros(self.p_dj.dim()),
-            p_ins_vd: Array1::<f64>::zeros(self.p_ins_vd.dim()),
-            p_ins_dj: Array1::<f64>::zeros(self.p_ins_dj.dim()),
-            p_del_v_given_v: Array2::<f64>::zeros(self.p_del_v_given_v.dim()),
-            p_del_j_given_j: Array2::<f64>::zeros(self.p_del_j_given_j.dim()),
-            p_del_d3_del_d5: Array3::<f64>::zeros(self.p_del_d3_del_d5.dim()),
-            markov_coefficients_vd: Array2::<f64>::zeros(self.markov_coefficients_vd.dim()),
-            markov_coefficients_dj: Array2::<f64>::zeros(self.markov_coefficients_dj.dim()),
-            first_nt_bias_ins_vd: Array1::<f64>::zeros(self.first_nt_bias_ins_vd.dim()),
-            first_nt_bias_ins_dj: Array1::<f64>::zeros(self.first_nt_bias_ins_dj.dim()),
-            error_rate: 0.1,
+            p_v: Array1::<f64>::ones(self.p_v.dim()),
+            p_dj: Array2::<f64>::ones(self.p_dj.dim()),
+            p_ins_vd: Array1::<f64>::ones(self.p_ins_vd.dim()),
+            p_ins_dj: Array1::<f64>::ones(self.p_ins_dj.dim()),
+            p_del_v_given_v: Array2::<f64>::ones(self.p_del_v_given_v.dim()),
+            p_del_j_given_j: Array2::<f64>::ones(self.p_del_j_given_j.dim()),
+            p_del_d3_del_d5: Array3::<f64>::ones(self.p_del_d3_del_d5.dim()),
+            markov_coefficients_vd: Array2::<f64>::ones(self.markov_coefficients_vd.dim()),
+            markov_coefficients_dj: Array2::<f64>::ones(self.markov_coefficients_dj.dim()),
+            first_nt_bias_ins_vd: Array1::<f64>::ones(self.first_nt_bias_ins_vd.dim()),
+            first_nt_bias_ins_dj: Array1::<f64>::ones(self.first_nt_bias_ins_dj.dim()),
+            error_rate: 0.1, // TODO: too ad-hoc
             ..Default::default()
         };
         m.initialize()?;
@@ -624,12 +625,6 @@ impl Model {
             self.markov_coefficients_dj,
         ) = feature.insdj.get_parameters();
         self.error_rate = feature.error.error_rate;
-
-        for a in self.p_del_d3_del_d5.iter() {
-            if !a.is_finite() {
-                println!("{}", a);
-            }
-        }
         self.initialize()?;
         Ok(())
     }

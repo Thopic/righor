@@ -3,23 +3,7 @@ use ihor::{self, AlignmentParameters};
 use ndarray::array;
 use std::path::Path;
 
-fn inference_parameters_default() -> ihor::InferenceParameters {
-    ihor::InferenceParameters {
-        min_likelihood_error: 1e-40,
-        min_likelihood: 1e-60,
-        min_log_likelihood: -600.0,
-        nb_best_events: 10,
-        evaluate: true,
-    }
-}
-
-fn alignment_parameters_default() -> ihor::AlignmentParameters {
-    ihor::AlignmentParameters {
-        min_score_v: 10,
-        min_score_j: 10,
-        max_error_d: 40,
-    }
-}
+mod common;
 
 fn generate_and_infer(
     model: &ihor::vdj::Model,
@@ -49,6 +33,48 @@ fn generate_and_infer(
         println!("{:?}", gr.recombination_event);
 
         assert!(result.contains(&gr.recombination_event));
+    }
+}
+
+#[test]
+fn infer_simple_model_vdj() -> () {
+    let mut model = common::simple_model_vdj_no_ins();
+    let ifp = common::inference_parameters_default();
+    let alp = common::alignment_parameters_default();
+    let mut gen = ihor::vdj::Generator::new(model.clone(), Some(0));
+    let mut sequences = Vec::new();
+    for _ in 0..10000 {
+        sequences.push(gen.generate(false).full_seq);
+    }
+
+    model = model.uniform().unwrap();
+
+    println!(
+        "{}",
+        sequences
+            .clone()
+            .iter()
+            .map(|x| (52 - x.len()) as f64)
+            .sum::<f64>()
+            / (10000 as f64)
+    );
+
+    for _ in 0..100 {
+        let mut features = Vec::new();
+        for s in sequences.clone().iter() {
+            let seq_aligned = model
+                .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
+                .unwrap();
+            let feat = model.infer_features(&seq_aligned, &ifp).unwrap();
+            //            println!("{:?}", feat.clone().deld.log_probas.mapv(|x| x.exp2()));
+            features.push(feat);
+        }
+
+        let new_features = ihor::vdj::Features::average(features).unwrap();
+        model.update(&new_features).unwrap();
+        println!("hip");
+        println!("{:?}", model.p_del_v_given_v);
+        println!("");
     }
 }
 
@@ -109,9 +135,9 @@ fn test_most_likely_no_del() {
         ..Default::default()
     };
     model.initialize().unwrap();
-    let if_params = inference_parameters_default();
+    let if_params = common::inference_parameters_default();
 
-    let al_params = alignment_parameters_default();
+    let al_params = common::alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
@@ -223,9 +249,9 @@ fn test_most_likely_no_ins() {
         ..Default::default()
     };
     model.initialize().unwrap();
-    let if_params = inference_parameters_default();
+    let if_params = common::inference_parameters_default();
 
-    let al_params = alignment_parameters_default();
+    let al_params = common::alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -315,9 +341,9 @@ fn test_most_likely_ins_del() {
         ..Default::default()
     };
     model.initialize().unwrap();
-    let if_params = inference_parameters_default();
+    let if_params = common::inference_parameters_default();
 
-    let al_params = alignment_parameters_default();
+    let al_params = common::alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTATTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -383,9 +409,9 @@ fn test_most_likely_ins_del() {
 //         ..Default::default()
 //     };
 //     model.initialize().unwrap();
-//     let if_params = inference_parameters_default();
+//     let if_params = common::inference_parameters_default();
 
-//     let al_params = alignment_parameters_default();
+//     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions
 //     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -469,9 +495,9 @@ fn test_most_likely_del_dgene() {
         ..Default::default()
     };
     model.initialize().unwrap();
-    let if_params = inference_parameters_default();
+    let if_params = common::inference_parameters_default();
 
-    let al_params = alignment_parameters_default();
+    let al_params = common::alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -562,9 +588,9 @@ fn test_most_likely_del_pal_dgene_with_ins() {
         ..Default::default()
     };
     model.initialize().unwrap();
-    let if_params = inference_parameters_default();
+    let if_params = common::inference_parameters_default();
 
-    let al_params = alignment_parameters_default();
+    let al_params = common::alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
@@ -651,9 +677,9 @@ fn test_most_likely_del_dgene_with_ins() {
         ..Default::default()
     };
     model.initialize().unwrap();
-    let if_params = inference_parameters_default();
+    let if_params = common::inference_parameters_default();
 
-    let al_params = alignment_parameters_default();
+    let al_params = common::alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
@@ -742,9 +768,9 @@ fn test_most_likely_v_gene_with_errors() {
         ..Default::default()
     };
     model.initialize().unwrap();
-    let if_params = inference_parameters_default();
+    let if_params = common::inference_parameters_default();
 
-    let al_params = alignment_parameters_default();
+    let al_params = common::alignment_parameters_default();
     // No insertions or deletions one far away error
     let myseq = ihor::Dna::from_string("CAGTCAGTAGAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
@@ -911,9 +937,9 @@ fn test_complete_model() {
         ..Default::default()
     };
     model.initialize().unwrap();
-    let if_params = inference_parameters_default();
+    let if_params = common::inference_parameters_default();
 
-    let al_params = alignment_parameters_default();
+    let al_params = common::alignment_parameters_default();
     // No insertions or deletions
     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
@@ -971,9 +997,9 @@ fn test_infer_feature_real() -> Result<()> {
     //     Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
     // )?;
 
-    // let align_params = alignment_parameters_default();
+    // let align_params = common::alignment_parameters_default();
 
-    // let inference_params = inference_parameters_default();
+    // let inference_params = common::inference_parameters_default();
 
     // let seq_str = "AGTCTGCCATCCCCAACCAGACAGCTCTTTACTTCTGTGCCACCGGGGCAGGAAGGGCTA".to_string();
     // let seq = model.align_sequence(ihor::sequence::Dna::from_string(&seq_str)?, &align_params)?;

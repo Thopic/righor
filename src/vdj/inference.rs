@@ -126,7 +126,7 @@ impl Features {
         let d = e.d.unwrap();
         let j = e.j.unwrap();
 
-        return self.v.log_likelihood(v.index)
+        let l = self.v.log_likelihood(v.index)
             + self.delv.log_likelihood((e.delv, v.index))
             + self.dj.log_likelihood((d.index, j.index))
             + self.error.log_likelihood(v.nb_errors(e.delv))
@@ -136,6 +136,8 @@ impl Features {
             + self.error.log_likelihood(d.nb_errors(e.deld5, e.deld3))
             + self.insvd.log_likelihood(ins_vd)
             + self.insdj.log_likelihood(ins_dj);
+
+        return l;
     }
 
     // fn log_likelihood_no_error(&self, e: &Event, ins_vd: &Dna, ins_dj: &Dna) -> f64 {
@@ -179,11 +181,11 @@ impl Features {
         let mut best_events = Vec::<(f64, StaticEvent)>::new();
 
         for v in sequence.v_genes.iter() {
-            let e = Event {
+            let ev = Event {
                 v: Some(v),
                 ..Event::default()
             };
-            if self.log_likelihood_estimate_post_v(&e, m) < ip.min_log_likelihood {
+            if self.log_likelihood_estimate_post_v(&ev, m) < ip.min_log_likelihood {
                 continue;
             }
             for delv in 0..self.delv.dim().0 {
@@ -222,6 +224,8 @@ impl Features {
                         }
                         for (deld5, deld3) in iproduct!(0..self.deld.dim().1, 0..self.deld.dim().0)
                         {
+                            // println!("deld5 {}, deld3 {}", self.deld.dim().1, self.deld.dim().0);
+
                             let efinal = Event {
                                 v: Some(v),
                                 delv,
@@ -238,16 +242,24 @@ impl Features {
                             }
                             // otherwise compute the real likelihood
                             let (insvd, insdj) = sequence.get_insertions_vd_dj(&efinal);
-                            let log_likelihood = self.log_likelihood(&efinal, &insvd, &insdj);
+                            // println!("{}", sequence.sequence.get_string());
+                            // println!("{}", efinal.v.unwrap().end_seq);
+                            // println!("{}", efinal.delv);
+                            //println!("{}", insvd.get_string());
+
+                            let mut insdj_reversed = insdj.clone();
+                            // careful insdj must be reversed (supposed to start on the J side)
+                            insdj_reversed.reverse();
+                            let log_likelihood =
+                                self.log_likelihood(&efinal, &insvd, &insdj_reversed);
                             if log_likelihood < ip.min_log_likelihood {
                                 continue;
                             }
                             let likelihood = log_likelihood.exp2();
-                            if likelihood > 1. {
-                                println!("{}", log_likelihood);
-                            }
+
                             probability_generation += likelihood;
-                            self.dirty_update(&efinal, likelihood, &insvd, &insdj);
+                            self.dirty_update(&efinal, likelihood, &insvd, &insdj_reversed);
+                            // println!("{}", insvd.get_string());
 
                             if ip.evaluate && ip.nb_best_events > 0 {
                                 // probability_generation_no_error +=
@@ -288,7 +300,6 @@ impl Features {
     }
 }
 
-#[cfg(not(all(feature = "py_binds", feature = "py_o3")))]
 impl Features {
     pub fn average(features: Vec<Features>) -> Result<Features> {
         Ok(Features {
@@ -308,16 +319,8 @@ impl Features {
 #[pymethods]
 impl Features {
     #[staticmethod]
-    pub fn average(features: Vec<Features>) -> Result<Features> {
-        Ok(Features {
-            v: CategoricalFeature1::average(features.iter().map(|a| a.v.clone()))?,
-            delv: CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?,
-            dj: CategoricalFeature2::average(features.iter().map(|a| a.dj.clone()))?,
-            delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
-            deld: CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?,
-            insvd: InsertionFeature::average(features.iter().map(|a| a.insvd.clone()))?,
-            insdj: InsertionFeature::average(features.iter().map(|a| a.insdj.clone()))?,
-            error: ErrorPoisson::average(features.iter().map(|a| a.error.clone()))?,
-        })
+    #[pyo3(name = "average")]
+    pub fn py_average(features: Vec<Features>) -> Result<Features> {
+        average(features)
     }
 }

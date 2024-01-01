@@ -21,7 +21,7 @@ pub struct Event<'a> {
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct StaticEvent {
     pub v_index: usize,
-    pub v_start_gene: usize, // start of the sequence in the gene
+    pub v_start_gene: usize, // start of the sequence in the V gene
     pub delv: usize,
     pub j_index: usize,
     pub j_start_seq: usize, // start of the palindromic J gene (with all dels) in the sequence
@@ -52,6 +52,7 @@ impl StaticEvent {
         let seq_j_cdr3: &Dna = &m.seg_js_sanitized[self.j_index];
         let seq_d: &Dna = m.seg_ds[self.d_index].seq_with_pal.as_ref().unwrap();
         let mut seq: Dna = Dna::new();
+
         seq.extend(&seq_v_cdr3.extract_subsequence(0, seq_v_cdr3.len() - self.delv));
         seq.extend(&self.insvd);
         seq.extend(&seq_d.extract_subsequence(self.deld5, seq_d.len() - self.deld3));

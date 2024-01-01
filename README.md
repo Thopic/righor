@@ -86,12 +86,14 @@ for _ in range(nb_rounds):
 Limitations (I think also true for IGoR but not clear):
 - Need to get rid of any primers/ends on the V gene side.
 - The reads need to be long enough to fully cover the CDR3 (even when it's particularly long)
+- still not sure if I should use initial_distribution for the insertion model
 
 
 Programming stuff:
 - Some unneeded duplicated code, mostly because pyo3 not compatible with templates + need to be removed for wasm compilation
 - open_blas is a pain in the ass, takes forever to compile, all that for one not-very-important diagonalisation -> now it's removed.
 - log always means log2. ln is neperian.
+
 
 Things to do:
 - add more tests (interaction insertion + deletion, more than one v gene)
@@ -102,3 +104,4 @@ Things to do:
 - min_likelihood is useless now
 - I think insdj is in the wrong direction ?
 - test to do: generate random sequences and check if they appear in "best scenarios"
+- if range_j / range_v / range_d doesn't match p_deld/p_delv/ p_delj in length, should complain

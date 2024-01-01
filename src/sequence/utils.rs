@@ -21,7 +21,7 @@ static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
 };
 
 // The standard ACGT nucleotides
-pub const NUCLEOTIDES: [u8; 4] = [b'A', b'C', b'G', b'T'];
+pub const NUCLEOTIDES: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
 pub static NUCLEOTIDES_INV: phf::Map<u8, usize> = phf_map! {
     b'A' => 0, b'T' => 3, b'G' => 2, b'C' => 1, b'N' => 4,
 };
@@ -227,8 +227,16 @@ impl Dna {
         }
     }
 
+    /// Return dna[start:end] but padded with N if start < 0 or end >= dna.len()
+    ///```
+    /// use ihor;
+    ///let a = ihor::Dna::from_string("ACCAAATGC").unwrap();
+    ///assert!(a.extract_padded_subsequence(2, 5).get_string() == "CAA".to_string());
+    ///assert!(a.extract_padded_subsequence(-1, 5).get_string() == "NACCAA".to_string());
+    ///assert!(a.extract_padded_subsequence(5, 10).get_string() == "ATGCN".to_string());
+    ///assert!(a.extract_padded_subsequence(-2, 11).get_string() == "NNACCAAATGCNN".to_string());
+    ///```
     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> Dna {
-        // Return dna[start:end] but padded with N if start < 0 or end >= dna.len()
         let mut result = Vec::new();
         // Handle negative start index
         if start < 0 {

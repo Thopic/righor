@@ -128,6 +128,7 @@ impl MarkovDNA {
 }
 
 pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64>> {
+    // this should be profondly modified TODO
     // originally computed the eigenvalues. This is a pain though, because
     // it means I need to load blas, which takes forever to compile.
     // And this is not exactly an important part of the program.
@@ -135,6 +136,11 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
 
     // first normalize the transition matrix
     let mat = normalize_transition_matrix(transition_matrix)?;
+
+    if mat.sum() == 0.0 {
+        return Ok(vec![0.; mat.dim().0]);
+    }
+
     let n = mat.nrows();
     let mut vec = Array1::from_elem(n, 1.0 / n as f64);
     for _ in 0..10000 {
@@ -186,6 +192,19 @@ impl Normalize2 for Array2<f64> {
 }
 
 impl Normalize2 for Array3<f64> {
+    ///```
+    /// use ndarray::{array, Array3};
+    /// use ihor::shared::utils::Normalize2;
+    /// let a: Array3<f64> = array![[[1., 2., 3.], [1., 2., 3.], [3., 4., 5.]]];
+    /// let b = a.normalize_distribution_double().unwrap();
+    /// println!("{:?}", b);
+    /// let truth =  array![[        [0.2, 0.25, 0.27272727],        [0.2, 0.25, 0.27272727],        [0.6, 0.5, 0.4545454]    ]];
+    /// assert!( ((b.clone() - truth.clone())*(b-truth)).sum()< 1e-8);
+    /// let a2: Array3<f64> = array![[[0., 0.], [2., 0.], [0., 0.], [0., 0.]]];
+    /// let b2 = a2.normalize_distribution_double().unwrap();
+    /// let truth2 = array![[[0., 0.], [1., 0.], [0., 0.], [0., 0.]]];
+    /// println!("{:?}", b2);
+    /// assert!( ((b2.clone() - truth2.clone())*(b2-truth2)).sum()< 1e-8);
     fn normalize_distribution_double(&self) -> Result<Self> {
         let mut normalized = Array3::<f64>::zeros(self.dim());
         for ii in 0..self.dim().2 {
@@ -194,7 +213,7 @@ impl Normalize2 for Array3<f64> {
             if sum.abs() == 0.0f64 {
                 for jj in 0..self.dim().0 {
                     for kk in 0..self.dim().1 {
-                        normalized[[jj, kk, ii]] = 1. / ((self.dim().0 * self.dim().1) as f64);
+                        normalized[[jj, kk, ii]] = 0.;
                     }
                 }
             } else {
@@ -243,7 +262,7 @@ pub fn normalize_transition_matrix(tm: &Array2<f64>) -> Result<Array2<f64>> {
         let sum = tm.slice(s![kk, ..]).sum();
         if sum.abs() == 0.0f64 {
             for ii in 0..tm.dim().1 {
-                normalized[[kk, ii]] = 1. / ((tm.dim().1) as f64);
+                normalized[[kk, ii]] = 0.; //1. / ((tm.dim().1) as f64);
             }
         } else {
             for ii in 0..tm.dim().1 {
