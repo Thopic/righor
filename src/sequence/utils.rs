@@ -148,7 +148,6 @@ impl fmt::Display for AminoAcid {
     }
 }
 
-#[cfg(not(features = "py_binds"))]
 impl Dna {
     pub fn new() -> Dna {
         Dna { seq: Vec::new() }
@@ -326,26 +325,18 @@ pub fn difference_as_i64(a: usize, b: usize) -> i64 {
 }
 
 // pyo3 boiler code
-#[cfg(features = "py_binds")]
+#[cfg(feature = "py_binds")]
 #[pymethods]
 impl Dna {
     #[new]
-    pub fn new() -> Dna {
-        Dna { seq: Vec::new() }
+    pub fn py_new() -> Dna {
+        Dna::new()
     }
 
     #[staticmethod]
-    pub fn from_string(s: &str) -> Result<Dna> {
-        for &byte in s.as_bytes() {
-            if !NUCLEOTIDES_INV.contains_key(&byte) {
-                // Handle the error if the byte is not in the map
-                return Err(anyhow!(format!("Invalid byte: {}", byte)));
-            }
-        }
-
-        Ok(Dna {
-            seq: s.as_bytes().to_vec(),
-        })
+    #[pyo3(name = "from_string")]
+    pub fn py_from_string(s: &str) -> Result<Dna> {
+        from_string(s)
     }
 }
 

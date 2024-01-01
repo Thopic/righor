@@ -40,7 +40,7 @@ impl Generator {
     }
 }
 
-#[cfg(features = "py_binds")]
+#[cfg(feature = "py_binds")]
 #[pymethods]
 impl Generator {
     #[new]

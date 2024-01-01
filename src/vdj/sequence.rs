@@ -130,7 +130,7 @@ pub fn align_all_vgenes(
                 end_gene: alignment.xend,
                 start_seq: alignment.ystart,
                 end_seq: alignment.yend,
-                errors: errors,
+                errors,
                 score: alignment.score,
             });
         }
@@ -170,7 +170,7 @@ pub fn align_all_jgenes(
                 end_gene: alignment.yend,
                 start_seq: alignment.xstart,
                 end_seq: alignment.xend,
-                errors: errors,
+                errors,
                 score: alignment.score,
             });
         }

@@ -97,8 +97,9 @@ impl Event<'_> {
             insdj,
         })
     }
-
-    pub fn default() -> Self {
+}
+impl Default for Event<'_> {
+    fn default() -> Self {
         Event {
             v: None,
             j: None,

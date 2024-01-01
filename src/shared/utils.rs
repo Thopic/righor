@@ -306,7 +306,7 @@ impl Normalize for Array2<f64> {
 pub fn sorted_and_complete(arr: Vec<i64>) -> bool {
     // check that the array is sorted and equal to
     // arr[0]..arr.last()
-    if arr.len() == 0 {
+    if arr.is_empty() {
         return true;
     }
     let mut b = arr[0];
@@ -316,13 +316,13 @@ pub fn sorted_and_complete(arr: Vec<i64>) -> bool {
         }
         b = *a;
     }
-    return true;
+    true
 }
 
 pub fn sorted_and_complete_0start(arr: Vec<i64>) -> bool {
     // check that the array is sorted and equal to
     // 0..arr.last()
-    if arr.len() == 0 {
+    if arr.is_empty() {
         return true;
     }
     for (ii, a) in arr.iter().enumerate() {
@@ -330,7 +330,7 @@ pub fn sorted_and_complete_0start(arr: Vec<i64>) -> bool {
             return false;
         }
     }
-    return true;
+    true
 }
 
 /// Return a vector with a tuple (f64, T) inserted, so that the vector stays sorted
@@ -350,7 +350,7 @@ where
     let index = match pos {
         Ok(i) | Err(i) => i,
     };
-    let mut vcloned: Vec<(f64, T)> = v.iter().cloned().collect();
+    let mut vcloned: Vec<(f64, T)> = v.to_vec();
     vcloned.insert(index, elem);
     vcloned
 }

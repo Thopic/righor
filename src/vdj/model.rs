@@ -110,26 +110,27 @@ impl Model {
     }
 
     pub fn load_model(pp: &ParserParams, pm: &ParserMarginals) -> Result<Model> {
-        let mut model: Model = Default::default();
-
-        model.seg_vs = pp
-            .params
-            .get("v_choice")
-            .ok_or(anyhow!("Error with unwrapping the Params data"))?
-            .clone()
-            .to_genes()?;
-        model.seg_js = pp
-            .params
-            .get("j_choice")
-            .ok_or(anyhow!("Error with unwrapping the Params data"))?
-            .clone()
-            .to_genes()?;
-        model.seg_ds = pp
-            .params
-            .get("d_gene")
-            .ok_or(anyhow!("Error with unwrapping the Params data"))?
-            .clone()
-            .to_genes()?;
+        let mut model = Model {
+            seg_vs: pp
+                .params
+                .get("v_choice")
+                .ok_or(anyhow!("Error with unwrapping the Params data"))?
+                .clone()
+                .to_genes()?,
+            seg_js: pp
+                .params
+                .get("j_choice")
+                .ok_or(anyhow!("Error with unwrapping the Params data"))?
+                .clone()
+                .to_genes()?,
+            seg_ds: pp
+                .params
+                .get("d_gene")
+                .ok_or(anyhow!("Error with unwrapping the Params data"))?
+                .clone()
+                .to_genes()?,
+            ..Default::default()
+        };
 
         let arrdelv = pp
             .params
@@ -395,9 +396,8 @@ impl Model {
             let seq_v_cdr3: &Dna = &self.seg_vs_sanitized[event.v_index];
             let seq_j_cdr3: &Dna = &self.seg_js_sanitized[event.j_index];
 
-            let seq_d: &Dna = &self.seg_ds[event.d_index].seq_with_pal.as_ref().unwrap();
-            let seq_v: &Dna = &self.seg_vs[event.v_index].seq_with_pal.as_ref().unwrap();
-            let seq_j: &Dna = &self.seg_js[event.j_index].seq_with_pal.as_ref().unwrap();
+            let seq_d: &Dna = self.seg_ds[event.d_index].seq_with_pal.as_ref().unwrap();
+            let seq_v: &Dna = self.seg_vs[event.v_index].seq_with_pal.as_ref().unwrap();
 
             event.delv = self.gen.d_del_v_given_v[event.v_index].generate(rng);
             let del_d: usize = self.gen.d_del_d3_del_d5[event.d_index].generate(rng);
@@ -831,7 +831,7 @@ impl Model {
             .iter()
             .map(|x| x.seq_with_pal.clone().unwrap().len())
             .max()
-            .unwrap_or_else(|| 0);
+            .unwrap_or(0);
 
         self.max_log_likelihood_post_v = max_delv + max_delj + max_dj + max_lins + max_deld;
         self.max_log_likelihood_post_delv = max_dj + max_delj + max_lins + max_deld;
@@ -848,7 +848,7 @@ impl Model {
         ));
 
         let mut max_ins = Array1::zeros(self.p_ins_vd.dim() + self.p_ins_dj.dim() - 1);
-        max_ins = max_ins + f64::NEG_INFINITY;
+        max_ins += f64::NEG_INFINITY;
 
         for nb_ins_vd in 0..self.p_ins_vd.dim() {
             for nb_ins_dj in 0..self.p_ins_dj.dim() {

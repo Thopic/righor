@@ -47,14 +47,14 @@ impl Features {
     }
 
     fn log_likelihood_estimate_post_v(&self, e: &Event, m: &Model) -> f64 {
-        return self.v.log_likelihood(e.v.unwrap().index) + m.max_log_likelihood_post_v;
+        self.v.log_likelihood(e.v.unwrap().index) + m.max_log_likelihood_post_v
     }
 
     fn log_likelihood_estimate_post_delv(&self, e: &Event, m: &Model) -> f64 {
-        return self.v.log_likelihood(e.v.unwrap().index)
+        self.v.log_likelihood(e.v.unwrap().index)
             + self.delv.log_likelihood((e.delv, e.v.unwrap().index))
             + self.error.log_likelihood(e.v.unwrap().nb_errors(e.delv))
-            + m.max_log_likelihood_post_delv;
+            + m.max_log_likelihood_post_delv
     }
 
     fn log_likelihood_estimate_post_dj(&self, e: &Event, m: &Model) -> f64 {
@@ -63,13 +63,13 @@ impl Features {
         let j = e.j.unwrap();
         let v_end = difference_as_i64(v.end_seq, e.delv);
 
-        return self.v.log_likelihood(v.index)
+        self.v.log_likelihood(v.index)
             + self.dj.log_likelihood((d.index, j.index))
             + self.delv.log_likelihood((e.delv, v.index))
             + self.error.log_likelihood(v.nb_errors(e.delv))
         // We can already compute a fairly precise estimate of the maximum by looking at
         // the expected number of insertions
-	    + m.max_log_likelihood_post_dj(d.index, (j.start_seq as i64) - v_end);
+	    + m.max_log_likelihood_post_dj(d.index, (j.start_seq as i64) - v_end)
     }
 
     fn log_likelihood_estimate_post_delj(&self, e: &Event, m: &Model) -> f64 {
@@ -84,13 +84,13 @@ impl Features {
             return f64::NEG_INFINITY;
         }
 
-        return self.v.log_likelihood(v.index)
+        self.v.log_likelihood(v.index)
             + self.delv.log_likelihood((e.delv, v.index))
             + self.dj.log_likelihood((d.index, j.index))
             + self.error.log_likelihood(v.nb_errors(e.delv))
             + self.delj.log_likelihood((e.delj, j.index))
             + self.error.log_likelihood(j.nb_errors(e.delj))
-            + m.max_log_likelihood_post_delj(d.index, (j_start - v_end) as usize);
+            + m.max_log_likelihood_post_delj(d.index, (j_start - v_end) as usize)
     }
 
     fn log_likelihood_estimate_post_deld(&self, e: &Event, m: &Model) -> f64 {
@@ -107,7 +107,7 @@ impl Features {
             return f64::NEG_INFINITY;
         }
 
-        return self.v.log_likelihood(v.index)
+        self.v.log_likelihood(v.index)
             + self.delv.log_likelihood((e.delv, v.index))
             + self.dj.log_likelihood((d.index, j.index))
             + self.error.log_likelihood(v.nb_errors(e.delv))
@@ -115,10 +115,7 @@ impl Features {
             + self.error.log_likelihood(j.nb_errors(e.delj))
             + self.deld.log_likelihood((e.deld3, e.deld5, d.index))
             + self.error.log_likelihood(d.nb_errors(e.deld5, e.deld3))
-            + m.max_log_likelihood_post_deld(
-                (d_start - v_end) as usize,
-                (j_start - d_end) as usize,
-            );
+            + m.max_log_likelihood_post_deld((d_start - v_end) as usize, (j_start - d_end) as usize)
     }
 
     fn log_likelihood(&self, e: &Event, ins_vd: &Dna, ins_dj: &Dna) -> f64 {
@@ -126,7 +123,7 @@ impl Features {
         let d = e.d.unwrap();
         let j = e.j.unwrap();
 
-        let l = self.v.log_likelihood(v.index)
+        self.v.log_likelihood(v.index)
             + self.delv.log_likelihood((e.delv, v.index))
             + self.dj.log_likelihood((d.index, j.index))
             + self.error.log_likelihood(v.nb_errors(e.delv))
@@ -135,9 +132,7 @@ impl Features {
             + self.deld.log_likelihood((e.deld3, e.deld5, d.index))
             + self.error.log_likelihood(d.nb_errors(e.deld5, e.deld3))
             + self.insvd.log_likelihood(ins_vd)
-            + self.insdj.log_likelihood(ins_dj);
-
-        return l;
+            + self.insdj.log_likelihood(ins_dj)
     }
 
     // fn log_likelihood_no_error(&self, e: &Event, ins_vd: &Dna, ins_dj: &Dna) -> f64 {

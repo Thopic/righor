@@ -115,13 +115,12 @@ impl Features {
                 continue;
             }
 
-            if nb_best_events > 0 {
-                if (best_events.len() < nb_best_events) || (best_events.last().unwrap().0 < l_total)
-                {
-                    best_events =
-                        insert_in_order(best_events, (l_total, e.to_static(insvj.clone())));
-                    best_events.truncate(nb_best_events);
-                }
+            if nb_best_events > 0
+                && ((best_events.len() < nb_best_events)
+                    || (best_events.last().unwrap().0 < l_total))
+            {
+                best_events = insert_in_order(best_events, (l_total, e.to_static(insvj.clone())));
+                best_events.truncate(nb_best_events);
             }
 
             probability_generation += l_total;
@@ -153,7 +152,7 @@ impl Features {
     }
 }
 
-#[cfg(not(features = "py_binds"))]
+#[cfg(not(feature = "py_binds"))]
 impl Features {
     pub fn average(features: Vec<Features>) -> Result<Features> {
         Ok(Features {
@@ -168,7 +167,7 @@ impl Features {
     }
 }
 
-#[cfg(features = "py_binds")]
+#[cfg(feature = "py_binds")]
 #[pymethods]
 impl Features {
     #[staticmethod]
