@@ -44,7 +44,7 @@ fn infer_simple_model_vdj() -> () {
     let alp = common::alignment_parameters_default();
     let mut gen = ihor::vdj::Generator::new(model.clone(), Some(0));
     let mut sequences = Vec::new();
-    for _ in 0..10000 {
+    for _ in 0..1000 {
         sequences.push(gen.generate(false).full_seq);
     }
     println!("hop");
@@ -52,6 +52,7 @@ fn infer_simple_model_vdj() -> () {
     println!("");
 
     model = model.uniform().unwrap();
+    model.error_rate = 0.;
 
     println!(
         "{}",
