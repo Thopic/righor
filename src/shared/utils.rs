@@ -184,7 +184,7 @@ impl Normalize2 for Array2<f64> {
         let sum = self.sum();
         if sum.abs() == 0.0f64 {
             // return a uniform distribution
-            return Ok(Array2::ones(self.dim()) / ((self.dim().0 * self.dim().1) as f64));
+            return Ok(Array2::zeros(self.dim()) / ((self.dim().0 * self.dim().1) as f64));
         }
 
         Ok(self / sum)
@@ -244,7 +244,7 @@ impl Normalize for Array1<f64> {
         let sum = self.sum();
         if sum.abs() == 0.0f64 {
             // return a uniform distribution
-            return Ok(Array1::ones(self.dim()) / self.dim() as f64);
+            return Ok(Array1::zeros(self.dim()) / self.dim() as f64);
         }
 
         Ok(self / sum)
@@ -291,7 +291,7 @@ impl Normalize for Array2<f64> {
             let sum = self.slice(s![.., ii]).sum();
             if sum.abs() == 0.0f64 {
                 for kk in 0..self.dim().0 {
-                    normalized[[kk, ii]] = 1. / ((self.dim().0) as f64);
+                    normalized[[kk, ii]] = 0.;
                 }
             } else {
                 for kk in 0..self.dim().0 {

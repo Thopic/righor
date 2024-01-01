@@ -1,4 +1,5 @@
 use anyhow::Result;
+use ihor::shared::utils::Normalize;
 use ihor::{self, AlignmentParameters};
 use ndarray::array;
 use std::path::Path;
@@ -38,7 +39,7 @@ fn generate_and_infer(
 
 #[test]
 fn infer_simple_model_vdj() -> () {
-    let mut model = common::simple_model_vdj_no_ins();
+    let mut model = common::simple_model_vdj();
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
     let mut gen = ihor::vdj::Generator::new(model.clone(), Some(0));
@@ -46,6 +47,9 @@ fn infer_simple_model_vdj() -> () {
     for _ in 0..10000 {
         sequences.push(gen.generate(false).full_seq);
     }
+    println!("hop");
+    println!("{:?}", model.p_del_v_given_v.normalize_distribution());
+    println!("");
 
     model = model.uniform().unwrap();
 
@@ -59,13 +63,18 @@ fn infer_simple_model_vdj() -> () {
             / (10000 as f64)
     );
 
+    let mut sequences_aligned = Vec::new();
+    for s in sequences.clone().iter() {
+        let seq_aligned = model
+            .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
+            .unwrap();
+        sequences_aligned.push(seq_aligned);
+    }
+
     for _ in 0..100 {
         let mut features = Vec::new();
-        for s in sequences.clone().iter() {
-            let seq_aligned = model
-                .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
-                .unwrap();
-            let feat = model.infer_features(&seq_aligned, &ifp).unwrap();
+        for sal in &sequences_aligned {
+            let feat = model.infer_features(&sal, &ifp).unwrap();
             //            println!("{:?}", feat.clone().deld.log_probas.mapv(|x| x.exp2()));
             features.push(feat);
         }
