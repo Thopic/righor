@@ -18,7 +18,7 @@ pub struct Features {
     pub delj: CategoricalFeature1g1,
     pub nb_insvj: CategoricalFeature1,
     pub insvj: InsertionFeature,
-    pub error: ErrorPoisson,
+    pub error: ErrorSingleNucleotide,
 }
 
 impl Features {
@@ -34,7 +34,7 @@ impl Features {
                 &model.first_nt_bias_ins_vj,
                 &model.markov_coefficients_vj,
             )?,
-            error: ErrorPoisson::new(model.error_rate, inference_params.min_likelihood_error)?,
+            error: ErrorSingleNucleotide::new(model.error_rate)?,
         })
     }
 
@@ -72,8 +72,12 @@ impl Features {
             + self
                 .nb_insvj
                 .log_likelihood((j_start as i64 - v_end) as usize)
-            + self.error.log_likelihood(e.v.nb_errors(e.delv))
-            + self.error.log_likelihood(e.j.nb_errors(e.delj))
+            + self
+                .error
+                .log_likelihood((e.v.nb_errors(e.delv), e.v.length_with_deletion(e.delv)))
+            + self
+                .error
+                .log_likelihood((e.j.nb_errors(e.delj), e.j.length_with_deletion(e.delj)))
     }
 
     /// Infer the likelihood of a specific events by looping over
@@ -132,8 +136,13 @@ impl Features {
             self.delj.dirty_update((delj, j.index), l_total);
             self.nb_insvj.dirty_update(insvj.len(), l_total);
             self.insvj.dirty_update(&insvj, l_total);
-            self.error
-                .dirty_update(j.nb_errors(delj) + v.nb_errors(delv), l_total);
+            self.error.dirty_update(
+                (
+                    j.nb_errors(delj) + v.nb_errors(delv),
+                    j.length_with_deletion(delj) + v.length_with_deletion(delv),
+                ),
+                l_total,
+            );
         }
         return (probability_generation, best_events);
     }
@@ -162,7 +171,7 @@ impl Features {
             delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
             nb_insvj: CategoricalFeature1::average(features.iter().map(|a| a.nb_insvj.clone()))?,
             insvj: InsertionFeature::average(features.iter().map(|a| a.insvj.clone()))?,
-            error: ErrorPoisson::average(features.iter().map(|a| a.error.clone()))?,
+            error: ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?,
         })
     }
 }
@@ -179,7 +188,7 @@ impl Features {
             delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
             nb_insvj: CategoricalFeature1::average(features.iter().map(|a| a.nb_insvj.clone()))?,
             insvj: MarkovFeature::average(features.iter().map(|a| a.insvj.clone()))?,
-            error: ErrorPoisson::average(features.iter().map(|a| a.error.clone()))?,
+            error: ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?,
         })
     }
 }

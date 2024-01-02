@@ -251,90 +251,79 @@ impl CategoricalFeature2g1 {
     all(feature = "py_binds", feature = "py_o3"),
     pyclass(get_all, set_all)
 )]
-pub struct ErrorPoisson {
+pub struct ErrorSingleNucleotide {
     pub error_rate: f64,
-    lookup_table: Vec<f64>,
-    total_probas_dirty: f64, // useful for dirty updating
-    total_errors_dirty: f64, // same
-    min_likelihood: f64,     // event with a lower likelihood are ignored
+    logrs3: f64,
+    log1mr: f64,
+    // useful for dirty updating
+    total_lengths_dirty: f64, // For each sequence, this saves Σ P(E) N_{err}(S(E))
+    total_errors_dirty: f64,  // For each sequence, this saves Σ P(E) L(S(E))
 }
 
-/// Lookup table for the log likelihood of a poisson process
-fn make_lookup_table(error_rate: f64, min_likelihood: f64) -> Vec<f64> {
-    let mut lookup_table = Vec::<f64>::new();
-    let mut prob = (-error_rate).exp();
-    let mut nb = 0;
-    loop {
-        lookup_table.push(prob.log2());
-        nb += 1;
-        prob *= error_rate / (nb as f64);
-        if prob < min_likelihood {
-            break;
-        }
-    }
-    lookup_table
-}
-
-impl ErrorPoisson {
-    pub fn new(error_rate: f64, min_likelihood: f64) -> Result<ErrorPoisson> {
-        if (error_rate < 0.) | (error_rate.is_nan()) | (error_rate.is_infinite()) {
+impl ErrorSingleNucleotide {
+    pub fn new(error_rate: f64) -> Result<ErrorSingleNucleotide> {
+        if (error_rate < 0.)
+            || (error_rate >= 1.)
+            || (error_rate.is_nan())
+            || (error_rate.is_infinite())
+        {
             return Err(anyhow!(
-                "Error in ErrorPoisson Feature creation. Negative/NaN/infinite error rate."
+                "Error in ErrorSingleNucleotide Feature creation. Negative/NaN/infinite error rate."
             ));
         }
-        if min_likelihood < 0. {
-            return Err(anyhow!(
-                "Error in ErrorPoisson Feature creation. Negative min likelihood."
-            ));
-        }
-
-        Ok(ErrorPoisson {
+        Ok(ErrorSingleNucleotide {
             error_rate,
-            min_likelihood,
-            total_probas_dirty: 0.,
+            logrs3: (error_rate / 3.).log2(),
+            log1mr: (1. - error_rate).log2(),
+            total_lengths_dirty: 0.,
             total_errors_dirty: 0.,
-            lookup_table: make_lookup_table(error_rate, min_likelihood),
         })
     }
 }
 
-impl Feature<usize> for ErrorPoisson {
-    fn dirty_update(&mut self, observation: usize, likelihood: f64) {
-        self.total_probas_dirty += likelihood;
-        self.total_errors_dirty += likelihood * (observation as f64);
+impl Feature<(usize, usize)> for ErrorSingleNucleotide {
+    /// Arguments
+    /// - observation: "(nb of error, length of the sequence without insertion)"
+    /// - likelihood: measured likelihood of the event
+    fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
+        self.total_lengths_dirty += likelihood * (observation.1 as f64);
+        self.total_errors_dirty += likelihood * (observation.0 as f64);
     }
-    fn log_likelihood(&self, observation: usize) -> f64 {
-        if observation >= self.lookup_table.len() {
-            f64::NEG_INFINITY
-        } else {
-            self.lookup_table[observation]
-        }
-    }
-    fn cleanup(&self) -> Result<ErrorPoisson> {
-        // estimate the error_rate from the dirty estimates
-        // The new mean is sum(nb * proba)/sum(proba)
-        // which is the MLE of the Poisson distribution
 
-        if self.total_errors_dirty < self.min_likelihood {
-            return ErrorPoisson::new(0., self.min_likelihood);
-        }
-        ErrorPoisson::new(
-            self.total_errors_dirty / self.total_probas_dirty,
-            self.min_likelihood,
-        )
+    /// Arguments
+    /// - observation: "(nb of error, length of the sequence without insertion)"
+    fn log_likelihood(&self, observation: (usize, usize)) -> f64 {
+        (observation.0 as f64) * (self.logrs3)
+            + ((observation.1 - observation.0) as f64) * self.log1mr
+    }
+    fn cleanup(&self) -> Result<ErrorSingleNucleotide> {
+        // estimate the error_rate of the sequence from the dirty
+        // estimate.
+        let error_rate = if self.total_lengths_dirty == 0. {
+            return ErrorSingleNucleotide::new(0.);
+        } else {
+            self.total_errors_dirty / self.total_lengths_dirty
+        };
+
+        Ok(ErrorSingleNucleotide {
+            error_rate,
+            logrs3: (error_rate / 3.).log2(),
+            log1mr: (1. - error_rate).log2(),
+            total_lengths_dirty: self.total_lengths_dirty,
+            total_errors_dirty: self.total_errors_dirty,
+        })
     }
     fn average(
-        mut iter: impl Iterator<Item = ErrorPoisson> + ExactSizeIterator,
-    ) -> Result<ErrorPoisson> {
-        let mut len = 1;
+        mut iter: impl Iterator<Item = ErrorSingleNucleotide> + ExactSizeIterator,
+    ) -> Result<ErrorSingleNucleotide> {
         let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut average_err = first_feat.error_rate;
-        let min_likelihood = first_feat.min_likelihood;
+        let mut sum_err = first_feat.total_errors_dirty;
+        let mut sum_length = first_feat.total_lengths_dirty;
         for feat in iter {
-            average_err += feat.error_rate;
-            len += 1;
+            sum_err += feat.total_errors_dirty;
+            sum_length += feat.total_lengths_dirty;
         }
-        ErrorPoisson::new(average_err / (len as f64), min_likelihood)
+        ErrorSingleNucleotide::new(sum_err / sum_length)
     }
 }
 

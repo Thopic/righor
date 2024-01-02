@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 pub use sequence::{AlignmentParameters, AminoAcid, DAlignment, Dna, VJAlignment};
 pub use shared::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
-    ErrorPoisson, Gene, InferenceParameters,
+    ErrorSingleNucleotide, Gene, InferenceParameters,
 };
 
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
@@ -37,7 +37,7 @@ fn ihor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<CategoricalFeature2>()?;
     m.add_class::<CategoricalFeature2g1>()?;
     m.add_class::<MarkovFeature>()?;
-    m.add_class::<ErrorPoisson>()?;
+    m.add_class::<ErrorSingleNucleotide>()?;
     m.add_class::<GenerationResult>()?;
 
     m.add_submodule(vdj_submod)?;

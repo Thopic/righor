@@ -19,7 +19,7 @@ pub struct Features {
     // pub nb_insdj: CategoricalFeature1,
     pub insvd: InsertionFeature,
     pub insdj: InsertionFeature,
-    pub error: ErrorPoisson,
+    pub error: ErrorSingleNucleotide,
 }
 
 impl Features {
@@ -42,7 +42,7 @@ impl Features {
                 &model.first_nt_bias_ins_dj,
                 &model.markov_coefficients_dj,
             )?,
-            error: ErrorPoisson::new(model.error_rate, inference_params.min_likelihood_error)?,
+            error: ErrorSingleNucleotide::new(model.error_rate)?,
         })
     }
 
@@ -53,7 +53,10 @@ impl Features {
     fn log_likelihood_estimate_post_delv(&self, e: &Event, m: &Model) -> f64 {
         self.v.log_likelihood(e.v.unwrap().index)
             + self.delv.log_likelihood((e.delv, e.v.unwrap().index))
-            + self.error.log_likelihood(e.v.unwrap().nb_errors(e.delv))
+            + self.error.log_likelihood((
+                e.v.unwrap().nb_errors(e.delv),
+                e.v.unwrap().length_with_deletion(e.delv),
+            ))
             + m.max_log_likelihood_post_delv
     }
 
@@ -66,7 +69,7 @@ impl Features {
         self.v.log_likelihood(v.index)
             + self.dj.log_likelihood((d.index, j.index))
             + self.delv.log_likelihood((e.delv, v.index))
-            + self.error.log_likelihood(v.nb_errors(e.delv))
+            + self.error.log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
         // We can already compute a fairly precise estimate of the maximum by looking at
         // the expected number of insertions
 	    + m.max_log_likelihood_post_dj(d.index, (j.start_seq as i64) - v_end)
@@ -87,9 +90,13 @@ impl Features {
         self.v.log_likelihood(v.index)
             + self.delv.log_likelihood((e.delv, v.index))
             + self.dj.log_likelihood((d.index, j.index))
-            + self.error.log_likelihood(v.nb_errors(e.delv))
+            + self
+                .error
+                .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
             + self.delj.log_likelihood((e.delj, j.index))
-            + self.error.log_likelihood(j.nb_errors(e.delj))
+            + self
+                .error
+                .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
             + m.max_log_likelihood_post_delj(d.index, (j_start - v_end) as usize)
     }
 
@@ -110,11 +117,18 @@ impl Features {
         self.v.log_likelihood(v.index)
             + self.delv.log_likelihood((e.delv, v.index))
             + self.dj.log_likelihood((d.index, j.index))
-            + self.error.log_likelihood(v.nb_errors(e.delv))
+            + self
+                .error
+                .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
             + self.delj.log_likelihood((e.delj, j.index))
-            + self.error.log_likelihood(j.nb_errors(e.delj))
+            + self
+                .error
+                .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
             + self.deld.log_likelihood((e.deld3, e.deld5, d.index))
-            + self.error.log_likelihood(d.nb_errors(e.deld5, e.deld3))
+            + self.error.log_likelihood((
+                d.nb_errors(e.deld5, e.deld3),
+                d.length_with_deletion(e.deld5, e.deld3),
+            ))
             + m.max_log_likelihood_post_deld((d_start - v_end) as usize, (j_start - d_end) as usize)
     }
 
@@ -126,11 +140,18 @@ impl Features {
         self.v.log_likelihood(v.index)
             + self.delv.log_likelihood((e.delv, v.index))
             + self.dj.log_likelihood((d.index, j.index))
-            + self.error.log_likelihood(v.nb_errors(e.delv))
+            + self
+                .error
+                .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
             + self.delj.log_likelihood((e.delj, j.index))
-            + self.error.log_likelihood(j.nb_errors(e.delj))
+            + self
+                .error
+                .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
             + self.deld.log_likelihood((e.deld3, e.deld5, d.index))
-            + self.error.log_likelihood(d.nb_errors(e.deld5, e.deld3))
+            + self.error.log_likelihood((
+                d.nb_errors(e.deld5, e.deld3),
+                d.length_with_deletion(e.deld5, e.deld3),
+            ))
             + self.insvd.log_likelihood(ins_vd)
             + self.insdj.log_likelihood(ins_dj)
     }
@@ -160,7 +181,12 @@ impl Features {
         self.insvd.dirty_update(insvd, likelihood);
         self.insdj.dirty_update(insdj, likelihood);
         self.error.dirty_update(
-            j.nb_errors(e.delj) + v.nb_errors(e.delv) + d.nb_errors(e.deld5, e.deld3),
+            (
+                j.nb_errors(e.delj) + v.nb_errors(e.delv) + d.nb_errors(e.deld5, e.deld3),
+                j.length_with_deletion(e.delj)
+                    + v.length_with_deletion(e.delv)
+                    + d.length_with_deletion(e.deld5, e.deld3),
+            ),
             likelihood,
         );
     }
@@ -305,7 +331,7 @@ impl Features {
             deld: CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?,
             insvd: InsertionFeature::average(features.iter().map(|a| a.insvd.clone()))?,
             insdj: InsertionFeature::average(features.iter().map(|a| a.insdj.clone()))?,
-            error: ErrorPoisson::average(features.iter().map(|a| a.error.clone()))?,
+            error: ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?,
         })
     }
 }

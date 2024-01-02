@@ -33,6 +33,7 @@ pub struct VJAlignment {
     pub end_gene: usize,
     pub errors: Vec<usize>,
     pub score: i32,
+    pub length: usize, // include palindromic insertion
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
@@ -45,6 +46,10 @@ impl VJAlignment {
             };
         }
         self.errors[del]
+    }
+
+    pub fn length_with_deletion(&self, del: usize) -> usize {
+        self.length - del
     }
 }
 
@@ -78,6 +83,10 @@ impl DAlignment {
     pub fn nb_errors(&self, deld5: usize, deld3: usize) -> usize {
         self.errors[deld5][deld3]
     }
+    pub fn length_with_deletion(&self, deld5: usize, deld3: usize) -> usize {
+        self.len() - deld5 - deld3
+    }
+
     pub fn len(&self) -> usize {
         self.len_d
     }
