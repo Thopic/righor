@@ -23,15 +23,13 @@ pub struct Features {
 }
 
 impl Features {
-    pub fn new(model: &Model, inference_params: &InferenceParameters) -> Result<Features> {
+    pub fn new(model: &Model) -> Result<Features> {
         Ok(Features {
             v: CategoricalFeature1::new(&model.p_v)?,
             delv: CategoricalFeature1g1::new(&model.p_del_v_given_v)?,
             dj: CategoricalFeature2::new(&model.p_dj)?,
             delj: CategoricalFeature1g1::new(&model.p_del_j_given_j)?,
             deld: CategoricalFeature2g1::new(&model.p_del_d3_del_d5)?, // dim: (d3, d5, d)
-            // nb_insvd: CategoricalFeature1::new(&model.p_ins_vd)?,
-            // nb_insdj: CategoricalFeature1::new(&model.p_ins_dj)?,
             insvd: InsertionFeature::new(
                 &model.p_ins_vd,
                 &model.first_nt_bias_ins_vd,

@@ -346,7 +346,7 @@ pub fn simple_model_vdj_no_ins() -> vdj::Model {
         range_del_j: (-2, 4),
         range_del_d3: (-2, 4),
         range_del_d5: (-2, 4),
-        error_rate: 0.,
+        error_rate: 0.1,
         ..Default::default()
     };
     model.initialize().unwrap();
@@ -414,8 +414,6 @@ pub fn simple_model_vdj_no_deletions() -> vdj::Model {
 
 pub fn inference_parameters_default() -> ihor::InferenceParameters {
     ihor::InferenceParameters {
-        min_likelihood_error: 1e-40,
-        min_likelihood: 1e-60,
         min_log_likelihood: -600.0,
         nb_best_events: 10,
         evaluate: true,

@@ -507,7 +507,7 @@ impl Model {
         sequence: &Sequence,
         inference_params: &InferenceParameters,
     ) -> Result<Features> {
-        let mut feature = Features::new(self, inference_params)?;
+        let mut feature = Features::new(self)?;
         let (ltotal, _) = feature.infer(sequence, self, inference_params);
         if ltotal == 0.0f64 {
             return Ok(feature); // return 0s
@@ -525,7 +525,7 @@ impl Model {
         let mut ip = inference_params.clone();
         ip.nb_best_events = nb_scenarios;
         ip.evaluate = true;
-        let mut feature = Features::new(self, &ip)?;
+        let mut feature = Features::new(self)?;
         let (_, res) = feature.infer(sequence, self, &ip);
         Ok(res)
     }
@@ -533,7 +533,7 @@ impl Model {
         let mut ip = inference_params.clone();
         ip.nb_best_events = 0;
         ip.evaluate = true;
-        let mut feature = Features::new(self, &ip)?;
+        let mut feature = Features::new(self)?;
         let (pg, _) = feature.infer(sequence, self, &ip);
         Ok(pg)
     }

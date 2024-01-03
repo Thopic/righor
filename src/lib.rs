@@ -1,7 +1,7 @@
 pub mod sequence;
 pub mod shared;
 pub mod vdj;
-pub mod vj;
+//pub mod vj;
 
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::prelude::*;
@@ -15,16 +15,16 @@ pub use shared::{
 #[pymodule]
 fn ihor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     let vdj_submod = PyModule::new(py, "vdj")?;
-    let vj_submod = PyModule::new(py, "vj")?;
+    //    let vj_submod = PyModule::new(py, "vj")?;
 
     vdj_submod.add_class::<vdj::Generator>()?;
-    vj_submod.add_class::<vj::Generator>()?;
+    //    vj_submod.add_class::<vj::Generator>()?;
     vdj_submod.add_class::<vdj::Sequence>()?;
-    vj_submod.add_class::<vj::Sequence>()?;
+    //    vj_submod.add_class::<vj::Sequence>()?;
     vdj_submod.add_class::<vdj::Features>()?;
-    vj_submod.add_class::<vj::Features>()?;
+    //    vj_submod.add_class::<vj::Features>()?;
     vdj_submod.add_class::<vdj::Model>()?;
-    vj_submod.add_class::<vj::Model>()?;
+    //    vj_submod.add_class::<vj::Model>()?;
     m.add_class::<Gene>()?;
     m.add_class::<Dna>()?;
     m.add_class::<AminoAcid>()?;

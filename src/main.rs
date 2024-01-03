@@ -3,7 +3,7 @@
 mod sequence;
 mod shared;
 pub mod vdj;
-pub mod vj;
+//pub mod vj;
 
 use anyhow::{anyhow, Result};
 use kdam::tqdm;
@@ -21,7 +21,7 @@ fn main() -> Result<()> {
     )?;
 
     model = model.uniform()?;
-    model.error_rate = 0.;
+    //    model.error_rate = 0.;
 
     let align_params = sequence::AlignmentParameters {
         min_score_v: 20,
@@ -29,9 +29,7 @@ fn main() -> Result<()> {
         max_error_d: 100,
     };
     let inference_params = shared::InferenceParameters {
-        min_likelihood: 1e-60,
-        min_likelihood_error: 1e-60,
-        min_log_likelihood: -100.0,
+        min_log_likelihood: -80.0,
         nb_best_events: 10,
         evaluate: true,
     };

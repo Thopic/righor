@@ -157,11 +157,12 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
 }
 
 pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
+    let effective_error_rate = error_rate * 4. / 3.;
     let uniform = Uniform::new(0.0, 1.0);
     let random_nucleotide = Uniform::new_inclusive(0, 3);
 
     for nucleotide in dna.seq.iter_mut() {
-        if uniform.sample(rng) < error_rate {
+        if uniform.sample(rng) < effective_error_rate {
             *nucleotide = NUCLEOTIDES[random_nucleotide.sample(rng)];
         }
     }
@@ -361,8 +362,6 @@ where
 )]
 #[derive(Default, Clone, Debug)]
 pub struct InferenceParameters {
-    pub min_likelihood_error: f64,
-    pub min_likelihood: f64,
     pub min_log_likelihood: f64,
     pub evaluate: bool,
     pub nb_best_events: usize,
@@ -378,10 +377,8 @@ impl InferenceParameters {
 }
 
 impl InferenceParameters {
-    pub fn new(min_likelihood_error: f64, min_likelihood: f64) -> Self {
+    pub fn new(min_likelihood: f64) -> Self {
         Self {
-            min_likelihood_error,
-            min_likelihood,
             min_log_likelihood: min_likelihood.log2(),
             evaluate: true,
             nb_best_events: 1,

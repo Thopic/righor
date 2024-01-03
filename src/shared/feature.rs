@@ -323,6 +323,7 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
             sum_err += feat.total_errors_dirty;
             sum_length += feat.total_lengths_dirty;
         }
+        println!("{} {}", sum_err, sum_length);
         ErrorSingleNucleotide::new(sum_err / sum_length)
     }
 }

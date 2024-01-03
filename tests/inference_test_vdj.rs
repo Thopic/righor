@@ -40,29 +40,21 @@ fn generate_and_infer(
 #[test]
 fn infer_simple_model_vdj() -> () {
     let mut model = common::simple_model_vdj();
+    model.error_rate = 0.1;
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
     let mut gen = ihor::vdj::Generator::new(model.clone(), Some(0));
     let mut sequences = Vec::new();
     for _ in 0..1000 {
+        println!("ah");
         sequences.push(gen.generate(false).full_seq);
     }
-    println!("hop");
-    println!("{:?}", model.p_del_v_given_v.normalize_distribution());
-    println!("");
+    // println!("hop");
+    // println!("{:?}", model.p_del_v_given_v.normalize_distribution());
+    // println!("");
 
     model = model.uniform().unwrap();
-    model.error_rate = 0.;
-
-    println!(
-        "{}",
-        sequences
-            .clone()
-            .iter()
-            .map(|x| (52 - x.len()) as f64)
-            .sum::<f64>()
-            / (10000 as f64)
-    );
+    model.error_rate = 0.1;
 
     let mut sequences_aligned = Vec::new();
     for s in sequences.clone().iter() {
@@ -77,14 +69,13 @@ fn infer_simple_model_vdj() -> () {
         for sal in &sequences_aligned {
             let feat = model.infer_features(&sal, &ifp).unwrap();
             //            println!("{:?}", feat.clone().deld.log_probas.mapv(|x| x.exp2()));
-            features.push(feat);
+            features.push(feat.clone());
+            //println!("{:?}", feat.error.clone())
         }
 
         let new_features = ihor::vdj::Features::average(features).unwrap();
         model.update(&new_features).unwrap();
-        println!("hip");
-        println!("{:?}", model.p_del_v_given_v);
-        println!("");
+        println!("{:?}", new_features.error);
     }
 }
 
