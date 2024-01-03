@@ -39,13 +39,16 @@ pub struct VJAlignment {
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
 impl VJAlignment {
     pub fn nb_errors(&self, del: usize) -> usize {
-        if del >= self.errors.len() {
-            return match self.errors.last() {
-                None => 0,
-                Some(l) => *l,
-            };
+        let len = self.errors.len();
+        if len == 0 {
+            return 0;
         }
-        self.errors[del]
+        unsafe {
+            if del >= len {
+                return *self.errors.get_unchecked(len - 1);
+            }
+            *self.errors.get_unchecked(del)
+        }
     }
 
     pub fn length_with_deletion(&self, del: usize) -> usize {
@@ -81,7 +84,7 @@ pub struct DAlignment {
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
 impl DAlignment {
     pub fn nb_errors(&self, deld5: usize, deld3: usize) -> usize {
-        self.errors[deld5][deld3]
+        unsafe { *self.errors.get_unchecked(deld5).get_unchecked(deld3) }
     }
     pub fn length_with_deletion(&self, deld5: usize, deld3: usize) -> usize {
         self.len() - deld5 - deld3

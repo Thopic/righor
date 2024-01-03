@@ -12,8 +12,10 @@ crate-type = ["cdylib", "lib"]
 [profile.release]
 # debug = true
 opt-level = 3
-panic = "abort"
-overflow-checks = false
+debug = true
+strip = false
+# panic = "abort"
+# overflow-checks = false
 # [profile.bench]
 # debug = true
 

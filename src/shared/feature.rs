@@ -41,10 +41,12 @@ pub struct CategoricalFeature1 {
 
 impl Feature<usize> for CategoricalFeature1 {
     fn dirty_update(&mut self, observation: usize, likelihood: f64) {
-        self.probas_dirty[[observation]] += likelihood;
+        unsafe {
+            *self.probas_dirty.uget_mut(observation) += likelihood;
+        }
     }
     fn log_likelihood(&self, observation: usize) -> f64 {
-        self.log_probas[[observation]]
+        unsafe { *self.log_probas.uget(observation) }
     }
     fn cleanup(&self) -> Result<CategoricalFeature1> {
         CategoricalFeature1::new(&self.probas_dirty)
@@ -93,10 +95,12 @@ pub struct CategoricalFeature1g1 {
 
 impl Feature<(usize, usize)> for CategoricalFeature1g1 {
     fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
-        self.probas_dirty[[observation.0, observation.1]] += likelihood;
+        unsafe {
+            *self.probas_dirty.uget_mut((observation.0, observation.1)) += likelihood;
+        }
     }
     fn log_likelihood(&self, observation: (usize, usize)) -> f64 {
-        self.log_probas[[observation.0, observation.1]]
+        unsafe { *self.log_probas.uget((observation.0, observation.1)) }
     }
     fn cleanup(&self) -> Result<CategoricalFeature1g1> {
         CategoricalFeature1g1::new(&self.probas_dirty)
@@ -146,10 +150,12 @@ pub struct CategoricalFeature2 {
 
 impl Feature<(usize, usize)> for CategoricalFeature2 {
     fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
-        self.probas_dirty[[observation.0, observation.1]] += likelihood;
+        unsafe {
+            *self.probas_dirty.uget_mut((observation.0, observation.1)) += likelihood;
+        }
     }
     fn log_likelihood(&self, observation: (usize, usize)) -> f64 {
-        self.log_probas[[observation.0, observation.1]]
+        unsafe { *self.log_probas.uget((observation.0, observation.1)) }
     }
     fn cleanup(&self) -> Result<CategoricalFeature2> {
         CategoricalFeature2::new(&self.probas_dirty)
@@ -200,10 +206,18 @@ pub struct CategoricalFeature2g1 {
 
 impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
     fn dirty_update(&mut self, observation: (usize, usize, usize), likelihood: f64) {
-        self.probas_dirty[[observation.0, observation.1, observation.2]] += likelihood;
+        unsafe {
+            *self
+                .probas_dirty
+                .uget_mut((observation.0, observation.1, observation.2)) += likelihood;
+        }
     }
     fn log_likelihood(&self, observation: (usize, usize, usize)) -> f64 {
-        self.log_probas[[observation.0, observation.1, observation.2]]
+        unsafe {
+            *self
+                .log_probas
+                .uget((observation.0, observation.1, observation.2))
+        }
     }
     fn cleanup(&self) -> Result<CategoricalFeature2g1> {
         let m = CategoricalFeature2g1::new(&self.probas_dirty)?;
@@ -253,7 +267,7 @@ impl CategoricalFeature2g1 {
 )]
 pub struct ErrorSingleNucleotide {
     pub error_rate: f64,
-    logrs3: f64,
+    logrs3mlog1mr: f64,
     log1mr: f64,
     // useful for dirty updating
     total_lengths_dirty: f64, // For each sequence, this saves Σ P(E) N_{err}(S(E))
@@ -273,7 +287,7 @@ impl ErrorSingleNucleotide {
         }
         Ok(ErrorSingleNucleotide {
             error_rate,
-            logrs3: (error_rate / 3.).log2(),
+            logrs3mlog1mr: (error_rate / 3.).log2() - (1. - error_rate).log2(),
             log1mr: (1. - error_rate).log2(),
             total_lengths_dirty: 0.,
             total_errors_dirty: 0.,
@@ -293,8 +307,10 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
     /// Arguments
     /// - observation: "(nb of error, length of the sequence without insertion)"
     fn log_likelihood(&self, observation: (usize, usize)) -> f64 {
-        (observation.0 as f64) * (self.logrs3)
-            + ((observation.1 - observation.0) as f64) * self.log1mr
+        if observation.0 == 0 {
+            return (observation.1 as f64) * self.log1mr;
+        }
+        (observation.0 as f64) * (self.logrs3mlog1mr) + (observation.1 as f64) * self.log1mr
     }
     fn cleanup(&self) -> Result<ErrorSingleNucleotide> {
         // estimate the error_rate of the sequence from the dirty
@@ -307,7 +323,7 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
 
         Ok(ErrorSingleNucleotide {
             error_rate,
-            logrs3: (error_rate / 3.).log2(),
+            logrs3mlog1mr: (error_rate / 3.).log2() - (1. - error_rate).log2(),
             log1mr: (1. - error_rate).log2(),
             total_lengths_dirty: self.total_lengths_dirty,
             total_errors_dirty: self.total_errors_dirty,
@@ -323,7 +339,7 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
             sum_err += feat.total_errors_dirty;
             sum_length += feat.total_lengths_dirty;
         }
-        println!("{} {}", sum_err, sum_length);
+        //        println!("{} {}", sum_err, sum_length);
         ErrorSingleNucleotide::new(sum_err / sum_length)
     }
 }
@@ -349,21 +365,26 @@ pub struct InsertionFeature {
 
 impl Feature<&Dna> for InsertionFeature {
     fn dirty_update(&mut self, observation: &Dna, likelihood: f64) {
-        if observation.is_empty() {
-            self.length_distribution_dirty[0] += likelihood;
-            return;
-        }
-        self.length_distribution_dirty[observation.len()] += likelihood;
-        // N doesn't bring any information, so we ignore it in the update
-        if observation.seq[0] != b'N' {
-            self.initial_distribution_dirty[nucleotides_inv(observation.seq[0])] += likelihood;
-        }
-        for ii in 1..observation.len() {
-            if (observation.seq[ii - 1] != b'N') && (observation.seq[ii] != b'N') {
-                self.transition_matrix_dirty[[
-                    nucleotides_inv(observation.seq[ii - 1]),
-                    nucleotides_inv(observation.seq[ii]),
-                ]] += likelihood / (observation.len() as f64 - 1.);
+        unsafe {
+            if observation.is_empty() {
+                *self.length_distribution_dirty.uget_mut(0) += likelihood;
+                return;
+            }
+
+            *self.length_distribution_dirty.uget_mut(observation.len()) += likelihood;
+            // N doesn't bring any information, so we ignore it in the update
+            if observation.seq[0] != b'N' {
+                *self
+                    .initial_distribution_dirty
+                    .uget_mut(nucleotides_inv(observation.seq[0])) += likelihood;
+            }
+            for ii in 1..observation.len() {
+                if (observation.seq[ii - 1] != b'N') && (observation.seq[ii] != b'N') {
+                    *self.transition_matrix_dirty.uget_mut((
+                        nucleotides_inv(observation.seq[ii - 1]),
+                        nucleotides_inv(observation.seq[ii]),
+                    )) += likelihood / (observation.len() as f64 - 1.);
+                }
             }
         }
     }
@@ -371,16 +392,22 @@ impl Feature<&Dna> for InsertionFeature {
         if observation.is_empty() {
             return self.log_length_distribution_internal[0];
         }
-        let len = observation.len();
-        let mut log_proba =
-            self.log_initial_distribution_internal[nucleotides_inv(observation.seq[0])];
-        for ii in 1..len {
-            log_proba += self.log_transition_matrix_internal[[
-                nucleotides_inv(observation.seq[ii - 1]),
-                nucleotides_inv(observation.seq[ii]),
-            ]];
+        if observation.len() >= self.log_length_distribution_internal.len() {
+            return f64::NEG_INFINITY;
         }
-        log_proba + self.log_length_distribution_internal[len]
+        let len = observation.len();
+        unsafe {
+            let mut log_proba = *self
+                .log_initial_distribution_internal
+                .uget(nucleotides_inv(observation.seq[0]));
+            for ii in 1..len {
+                log_proba += *self.log_transition_matrix_internal.uget((
+                    nucleotides_inv(observation.seq[ii - 1]),
+                    nucleotides_inv(observation.seq[ii]),
+                ));
+            }
+            log_proba + self.log_length_distribution_internal.uget(len)
+        }
     }
     fn cleanup(&self) -> Result<InsertionFeature> {
         InsertionFeature::new(

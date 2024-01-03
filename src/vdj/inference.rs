@@ -243,8 +243,7 @@ impl Features {
                         }
                         for (deld5, deld3) in iproduct!(0..self.deld.dim().1, 0..self.deld.dim().0)
                         {
-                            // println!("deld5 {}, deld3 {}", self.deld.dim().1, self.deld.dim().0);
-
+                            // println!("deld5 {}, deld3 {}", self.deld.dim().1, self.deld.dim().0)
                             let efinal = Event {
                                 v: Some(v),
                                 delv,

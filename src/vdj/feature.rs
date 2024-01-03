@@ -28,8 +28,14 @@
 //     + P(V < 7)*P(D5>=7, D3 <=7) * P(J == 7) + P(V < 7)*P(D5>=7, D3 == 8) * P(J == 8) + ...
 // which obviously strongly cut off the number of sums and loop. But needs to be *very* careful to not count things twice...
 
+// The sum will be transformed in the following way:
+
+// \sum_{d_v} \sum_{d_j \in rj(d_v)} \sum_{d_{d5} \in r5(d_v, d_j)} \ sum_{d_{d3} \in r3(d_v, d_j)} p(d_v) * p(d_j) * p(d_{d3, d5}) * ins(v->d) * ins(d->j)
+// \sum_{max_d_v}  \sum_{d_v =0}^{max_d_v} p(d_v = max_d_v)
+
 // So if we don't have access to the D alignment yet, we can still pre-compute
 // P(delV < delVmax) and P(delV = x) <- this one is trivial
+// Basically everything can be pre-computed (given the features & the sequence)
 
 // This works for evaluation, but what do we do for inference ?
 // Each time we get one likelihood we feed one of the probability bins, (P(V < 6), P(V=6), P(V=7) dans l'exemple précédent)
@@ -50,11 +56,13 @@
 // Create a struct with two states del_v and <= del_v and make a function to iterate over these
 // For D, four states [deld5, deld3], [>= deld5, deld3], [deld5, <= deld3], [>= deld5, <= deld3]
 
+// Doesn't work, because of insertion length linking everything together anyhow...
+
 // Example
 fn infer() {
     for val in V_Alignments {
         for dal in DAlignments {
-            for jal in J_Alignments {
+            for jal in VJ_Alignments {
                 let likelihood_estimation = likelihood_estimate(val, dal, jal);
                 if likelihood_estimation > min_likelihood {
                     infer_fixed_alignment(&val, &dal, &jal)
@@ -64,77 +72,79 @@ fn infer() {
     }
 }
 
-fn infer_fixed_alignment(val: &VJAlignment, jal: &VJAlignment, dal: &DAlignment) {
-    let range_del_v = if val.end > cmp::min(jal.start, dal.start) {
-        (cmp::min(jal.start, dal.start), val.end)
-    } else {
-        (val.end, val.end)
-    };
+fn infer_given_alignment(val: &VJAlignment, jal: &VJAlignment, dal: &DAlignment) {
+    // end is always n+1, so
+    //          endV
+    //           v
+    // V: ------]
 
-    let range_del_j = ();
-    let range_del_d = ();
-
-    for del_d in range_del_v {
-        let ld = agg_feat_d.likelihood(ld, range_del_d);
-        for del_j in range_del_j {
-            let lj = agg_feat_j.likelihood(lj, range_del_j);
-            for del_d in range_del_d {
-                let ld = agg_feat_j.likelihood(lj, range_del_j);
-                // dirty update
-            }
-        }
-    }
-    // clean up
+    let aggreg_vs = Vec::new();
 }
 
 struct FeatureV {
-    pub v: &CategoricalFeature1,
-    pub delv: &CategoricalFeature1g1,
-    pub ins: InsertionFeature,
-    pub v_alignment: VJAlignment,
-
-    probas_deletions_lower_than_dirty: Vec<f64>,
-    log_likelihood_deletions_lower_than: Vec<f64>,
+    ll_deletions_lower_than_dirty: Vec<f64>,
+    ll_deletions_lower_than: Vec<f64>,
 }
 
 impl AggregatedFeatureV {
     // Create the object and precompute the values
-    fn new() -> FeatureV {
-        for min_del_v in enumerate(probas_deletions_lower_than_dirty) {
-            for del_v in min_del_v..max_del_v {
-                let ins_v = seq[..del_v];
-                probability += feat.delv.likelihood(del_v)
-                    * feat.ins.likelihood(&ins_v)
-                    * feat.error.likelihood(v.nb_errors(del_v))
-            }
+    fn new(
+        val: &VJAlignment,
+        dal: &DAlignment,
+        jal: &VJAlignment,
+        seq: &Dna,
+        features: &Features,
+    ) -> AggregatedFeatureV {
+        let end_v = val.end_gene;
+        let start_d = dal.pos;
+        let end_d = dal.pos + dal.len_d;
+        let start_j = jal.start_gene;
+        let ll_deletions_lower_than = Vec::new();
+        for min_del_v in 0..end_v - cmp::min(start_d, start_j) {
+            ll_deletions_lower_than.push(pre_compute_ll_lower_than(min_del_v, val, seq, features));
+        }
+        AggregatedFeatureV {
+            ll_more_deletions_than,
+            dirty_ll_more_deletions_than: vec![0., ll_deletions_lower_than.dim()],
         }
     }
 
-    /// Return log(P(delV > del_v | v alignment))
-    fn log_likelihood_lower_than(&self, del_v: usize) {}
-
-    /// Return log(P(delV == del_v | v alignment))
-    fn log_likelihood_equal(&self, del_v: usize) {}
-
-    /// Update both the direct probabilities (P(delV == del_V)
-    /// and the more complicated ones (P(delV < del_V))
-    fn dirty_update(&mut self, event: &e, likelihood: f64) {
-        if condition_one {
-        } else {
-            dirty_probas_deletions_lower_than[e.righthing] += likelihood;
+    /// Pre-compute P(delV > min_del_v | alignment, sequence)
+    fn pre_compute_ll_lower_than(
+        &self,
+        min_del_v: usize,
+        val: &VJAlignment,
+        seq: &Dna,
+        features: &Features,
+    ) -> proba {
+        let proba = 0;
+        for del_v in min_del_v..features.deletion.dim() {
+            proba += features.deletion.likelihood(del_v)
+                * features
+                    .insertion
+                    .likelihood(seq[val.end_seq - del_v..val.end_seq - min_del_v])
+                * features
+                    .error
+                    .likelihood(val.nb_errors(del_v), val.length_with_deletion(del_V))
         }
+        proba
+    }
+
+    /// Return log(P(delV > del_v | alignment))
+    fn log_likelihood_more_than(&self, del_v: usize) {
+        self.ll_more_deletions_lower_than[del_v]
+    }
+
+    /// Update the probabilities P(delV > del_V | alignment)
+    fn dirty_update(&mut self, event: &e, likelihood: f64) {
+        self.dirty_ll_more_deletions_than[e.delv] += likelihood;
     }
 
     /// Transform the non direct distribution into the original
     /// distribution
-    fn cleanup(
-        &self,
-        &mut ins: InsertionFeature,
-        &mut del: DeletionFeature,
-        &mut error: ErrorFeature,
-    ) {
+    fn cleanup(&self, &mut features: Features) {
         for min_del_v in enumerate(probas_deletions_lower_than_dirty) {
-            for del_v in min_del_v..max_del_v {
+            for del_v in min_del_v..features.deletion.dim() {
                 let ins_v = seq[..del_v];
                 let probability = feat.delv.likelihood(del_v)
                     * feat.ins.likelihood(&ins_v)

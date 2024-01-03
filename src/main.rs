@@ -19,13 +19,12 @@ fn main() -> Result<()> {
         Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
         Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
     )?;
-
     model = model.uniform()?;
-    //    model.error_rate = 0.;
+    model.error_rate = 0.;
 
     let align_params = sequence::AlignmentParameters {
-        min_score_v: 20,
-        min_score_j: 20,
+        min_score_v: 0,
+        min_score_j: 0,
         max_error_d: 100,
     };
     let inference_params = shared::InferenceParameters {
@@ -34,7 +33,7 @@ fn main() -> Result<()> {
         evaluate: true,
     };
 
-    let path = Path::new("demo/murugan_naive1_noncoding_demo_seqs.txt");
+    let path = Path::new("demo/short.txt");
     let file = File::open(&path)?;
     let lines = io::BufReader::new(file).lines();
 
