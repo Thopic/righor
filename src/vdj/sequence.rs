@@ -17,9 +17,14 @@ pub struct Sequence {
     pub v_genes: Vec<VJAlignment>,
     pub j_genes: Vec<VJAlignment>,
     pub d_genes: Vec<DAlignment>,
+    pub valid_alignment: bool,
 }
 
 impl Sequence {
+    pub fn get_subsequence(&self, start: i64, end: i64) -> Dna {
+        self.sequence.extract_padded_subsequence(start, end)
+    }
+
     pub fn best_v_alignment(&self) -> Option<VJAlignment> {
         self.v_genes.clone().into_iter().max_by_key(|m| m.score)
     }
@@ -131,7 +136,6 @@ pub fn align_all_vgenes(
                 start_seq: alignment.ystart,
                 end_seq: alignment.yend,
                 errors,
-                length: palv.len(),
                 score: alignment.score,
             });
         }
@@ -172,7 +176,6 @@ pub fn align_all_jgenes(
                 start_seq: alignment.xstart,
                 end_seq: alignment.xend,
                 errors,
-                length: palj.len(),
                 score: alignment.score,
             });
         }

@@ -255,9 +255,12 @@ pub struct ErrorSingleNucleotide {
     pub error_rate: f64,
     logrs3: f64,
     log1mr: f64,
+    total_lengths: f64, // For each sequence, this saves Σ P(E) L(S(E))
+    total_errors: f64,  // For each sequence, this saves Σ P(E) N_{err}(S(E))
     // useful for dirty updating
-    total_lengths_dirty: f64, // For each sequence, this saves Σ P(E) N_{err}(S(E))
-    total_errors_dirty: f64,  // For each sequence, this saves Σ P(E) L(S(E))
+    total_lengths_dirty: f64,
+    total_errors_dirty: f64,
+    total_probas_dirty: f64, // For each sequence, this saves Σ P(E)
 }
 
 impl ErrorSingleNucleotide {
@@ -277,6 +280,8 @@ impl ErrorSingleNucleotide {
             log1mr: (1. - error_rate).log2(),
             total_lengths_dirty: 0.,
             total_errors_dirty: 0.,
+            total_probas_dirty: 0.,
+            ..Default::default()
         })
     }
 }
@@ -288,6 +293,7 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
     fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
         self.total_lengths_dirty += likelihood * (observation.1 as f64);
         self.total_errors_dirty += likelihood * (observation.0 as f64);
+        self.total_probas_dirty += likelihood;
     }
 
     /// Arguments
@@ -309,21 +315,23 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
             error_rate,
             logrs3: (error_rate / 3.).log2(),
             log1mr: (1. - error_rate).log2(),
-            total_lengths_dirty: self.total_lengths_dirty,
-            total_errors_dirty: self.total_errors_dirty,
+            total_lengths: self.total_lengths_dirty / self.total_probas_dirty,
+            total_errors: self.total_errors_dirty / self.total_probas_dirty,
+            total_probas_dirty: 0.,
+            total_lengths_dirty: 0.,
+            total_errors_dirty: 0.,
         })
     }
     fn average(
         mut iter: impl Iterator<Item = ErrorSingleNucleotide> + ExactSizeIterator,
     ) -> Result<ErrorSingleNucleotide> {
         let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut sum_err = first_feat.total_errors_dirty;
-        let mut sum_length = first_feat.total_lengths_dirty;
+        let mut sum_err = first_feat.total_errors;
+        let mut sum_length = first_feat.total_lengths;
         for feat in iter {
-            sum_err += feat.total_errors_dirty;
-            sum_length += feat.total_lengths_dirty;
+            sum_err += feat.total_errors;
+            sum_length += feat.total_lengths;
         }
-        println!("{} {}", sum_err, sum_length);
         ErrorSingleNucleotide::new(sum_err / sum_length)
     }
 }
@@ -368,6 +376,9 @@ impl Feature<&Dna> for InsertionFeature {
         }
     }
     fn log_likelihood(&self, observation: &Dna) -> f64 {
+        if observation.len() >= self.log_length_distribution_internal.len() {
+            return f64::NEG_INFINITY;
+        }
         if observation.is_empty() {
             return self.log_length_distribution_internal[0];
         }

@@ -33,7 +33,6 @@ pub struct VJAlignment {
     pub end_gene: usize,
     pub errors: Vec<usize>,
     pub score: i32,
-    pub length: usize, // include palindromic insertion
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
@@ -49,7 +48,11 @@ impl VJAlignment {
     }
 
     pub fn length_with_deletion(&self, del: usize) -> usize {
-        self.length - del
+        // just return the aligned part length (that matches the seq)
+        if self.end_seq <= self.start_seq + del {
+            return 0;
+        }
+        self.end_seq - self.start_seq - del
     }
 }
 

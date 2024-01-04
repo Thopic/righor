@@ -424,6 +424,6 @@ pub fn alignment_parameters_default() -> ihor::AlignmentParameters {
     ihor::AlignmentParameters {
         min_score_v: 10,
         min_score_j: 10,
-        max_error_d: 40,
+        max_error_d: 100,
     }
 }

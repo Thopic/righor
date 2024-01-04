@@ -2,7 +2,7 @@ use crate::sequence::{AlignmentParameters, AminoAcid, Dna};
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
 use crate::shared::utils::{
-    add_errors, calc_steady_state_dist, max_f64, max_of_array, sorted_and_complete,
+    add_errors, calc_steady_state_dist, max_of_array, sorted_and_complete,
     sorted_and_complete_0start, DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
 };
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
@@ -377,7 +377,7 @@ impl Model {
         Ok(())
     }
 
-    pub fn generate<R: Rng>(
+    pub fn generate_cdr3_no_error<R: Rng>(
         &mut self,
         functional: bool,
         rng: &mut R,
@@ -434,10 +434,7 @@ impl Model {
                 - event.delj;
 
             // create the complete CDR3 sequence
-            let mut seq = event.to_cdr3(self);
-
-            // add potential sequencing error
-            add_errors(&mut seq, self.error_rate, rng);
+            let seq = event.to_cdr3(self);
 
             // translate
             let seq_aa: Option<AminoAcid> = seq.translate().ok();
@@ -463,6 +460,22 @@ impl Model {
                 }
             }
         }
+    }
+
+    /// Return (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname)
+    pub fn generate<R: Rng>(
+        &mut self,
+        functional: bool,
+        rng: &mut R,
+    ) -> (Dna, Option<AminoAcid>, Dna, StaticEvent, String, String) {
+        let (cdr3_nt, _, event) = self.generate_cdr3_no_error(functional, rng);
+        let (mut full_seq, vname, jname, start_cdr3) =
+            self.recreate_full_sequence(&cdr3_nt, event.v_index, event.j_index);
+        // add potential sequencing error
+        add_errors(&mut full_seq, self.error_rate, rng);
+        let cdr3_err = full_seq.extract_subsequence(start_cdr3, start_cdr3 + cdr3_nt.len());
+        let seq_aa: Option<AminoAcid> = cdr3_err.translate().ok();
+        (cdr3_err, seq_aa, full_seq, event, vname, jname)
     }
 }
 
@@ -508,34 +521,29 @@ impl Model {
         inference_params: &InferenceParameters,
     ) -> Result<Features> {
         let mut feature = Features::new(self)?;
-        let (ltotal, _) = feature.infer(sequence, self, inference_params);
-        if ltotal == 0.0f64 {
-            return Ok(feature); // return 0s
-        }
-        // otherwise normalize
-        feature = feature.cleanup()?;
+        let _ = feature.infer(sequence, inference_params);
         Ok(feature)
     }
-    pub fn most_likely_recombinations(
-        &self,
-        sequence: &Sequence,
-        nb_scenarios: usize,
-        inference_params: &InferenceParameters,
-    ) -> Result<Vec<(f64, StaticEvent)>> {
-        let mut ip = inference_params.clone();
-        ip.nb_best_events = nb_scenarios;
-        ip.evaluate = true;
-        let mut feature = Features::new(self)?;
-        let (_, res) = feature.infer(sequence, self, &ip);
-        Ok(res)
-    }
+    // pub fn most_likely_recombinations(
+    //     &self,
+    //     sequence: &Sequence,
+    //     nb_scenarios: usize,
+    //     inference_params: &InferenceParameters,
+    // ) -> Result<Vec<(f64, StaticEvent)>> {
+    //     let mut ip = inference_params.clone();
+    //     ip.nb_best_events = nb_scenarios;
+    //     ip.evaluate = true;
+    //     let mut feature = Features::new(self)?;
+    //     let _, res) = feature.infer(sequence, self, &ip);
+    //     Ok(res)
+    // }
     pub fn pgen(&self, sequence: &Sequence, inference_params: &InferenceParameters) -> Result<f64> {
         let mut ip = inference_params.clone();
         ip.nb_best_events = 0;
         ip.evaluate = true;
         let mut feature = Features::new(self)?;
-        let (pg, _) = feature.infer(sequence, self, &ip);
-        Ok(pg)
+        let pg = feature.infer(sequence, &ip);
+        pg
     }
 
     pub fn align_sequence(
@@ -548,10 +556,12 @@ impl Model {
             v_genes: align_all_vgenes(&dna_seq, self, align_params),
             j_genes: align_all_jgenes(&dna_seq, self, align_params),
             d_genes: Vec::new(),
+            valid_alignment: true,
         };
 
-        // if we don't have v genes, don't try inferring the d gene
+        // if we don't have v genes or j genes, don't try inferring the d gene
         if (seq.v_genes.is_empty()) | (seq.j_genes.is_empty()) {
+            seq.valid_alignment = false;
             return Ok(seq);
         }
 
@@ -569,6 +579,7 @@ impl Model {
             })
             .min()
             .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
+
         let right_bound = seq
             .j_genes
             .iter()
@@ -588,24 +599,26 @@ impl Model {
         Ok(seq)
     }
 
+    /// Re-create the full sequence of the variable region (with complete V/J gene, not just the CDR3)
+    /// Return full_seq, v name, j name, cdr3_start
     pub fn recreate_full_sequence(
         &self,
         dna: &Dna,
         v_index: usize,
         j_index: usize,
-    ) -> (Dna, String, String) {
-        // Re-create the full sequence of the variable region (with complete V/J gene, not just the CDR3)
+    ) -> (Dna, String, String, usize) {
         let mut seq: Dna = Dna::new();
         let vgene = self.seg_vs[v_index].clone();
         let jgene = self.seg_js[j_index].clone();
-        seq.extend(&vgene.seq.extract_subsequence(0, vgene.cdr3_pos.unwrap()));
+        let vgene_sans_cdr3 = vgene.seq.extract_subsequence(0, vgene.cdr3_pos.unwrap());
+        seq.extend(&vgene_sans_cdr3);
         seq.extend(dna);
         seq.extend(
             &jgene
                 .seq
                 .extract_subsequence(jgene.cdr3_pos.unwrap() + 3, jgene.seq.len()),
         );
-        (seq, vgene.name, jgene.name)
+        (seq, vgene.name, jgene.name, vgene_sans_cdr3.len())
     }
 
     pub fn update(&mut self, feature: &Features) -> Result<()> {
@@ -817,14 +830,8 @@ impl Model {
         let max_lins = max_of_array(&self.p_ins_vd).log2() + max_of_array(&self.p_ins_dj).log2();
         let max_deld = max_of_array(&self.p_del_d3_del_d5).log2();
 
-        let max_transition_vd = max_f64(
-            max_of_array(&self.markov_coefficients_vd).log2(),
-            max_of_array(&self.first_nt_bias_ins_vd).log2(),
-        );
-        let max_transition_dj = max_f64(
-            max_of_array(&self.markov_coefficients_dj).log2(),
-            max_of_array(&self.first_nt_bias_ins_dj).log2(),
-        );
+        let max_transition_vd = max_of_array(&self.markov_coefficients_vd).log2();
+        let max_transition_dj = max_of_array(&self.markov_coefficients_dj).log2();
 
         let maxlend = self
             .seg_ds

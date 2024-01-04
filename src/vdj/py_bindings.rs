@@ -64,16 +64,14 @@ impl Generator {
 #[cfg_attr(features = "py_bind", pymethods)]
 impl Generator {
     pub fn generate(&mut self, functional: bool) -> GenerationResult {
-        let (cdr3_nt, cdr3_aa, event) = self.model.generate(functional, &mut self.rng);
-        let (full_sequence, v_name, j_name) =
-            self.model
-                .recreate_full_sequence(&cdr3_nt, event.v_index, event.j_index);
+        let (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname) =
+            self.model.generate(functional, &mut self.rng);
         GenerationResult {
             full_seq: full_sequence.to_string(),
             cdr3_nt: cdr3_nt.to_string(),
             cdr3_aa: cdr3_aa.map(|x: AminoAcid| x.to_string()),
-            v_gene: v_name,
-            j_gene: j_name,
+            v_gene: vname,
+            j_gene: jname,
             recombination_event: event,
         }
     }

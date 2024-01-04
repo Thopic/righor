@@ -241,6 +241,12 @@ impl Dna {
         if start < 0 {
             result.extend(vec![b'N'; start.unsigned_abs() as usize]);
         }
+        // Handle too big start index
+        if start >= self.len() as i64 {
+            return Dna {
+                seq: vec![b'N'; (end - start).unsigned_abs() as usize],
+            };
+        }
         // Calculate the valid start and end indices
         let valid_start = std::cmp::max(0, start) as usize;
         let valid_end = std::cmp::min(self.len(), end as usize);

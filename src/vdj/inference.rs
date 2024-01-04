@@ -1,11 +1,10 @@
-use crate::sequence::utils::{difference_as_i64, Dna};
 use crate::shared::feature::*;
-use crate::shared::utils::{insert_in_order, InferenceParameters};
-use crate::vdj::{Event, Model, Sequence, StaticEvent};
+use crate::shared::utils::{InferenceParameters, RangeArray2};
+use crate::vdj::{AggregatedFeatureDJ, AggregatedFeatureEndV, Model, Sequence};
 use anyhow::Result;
-use itertools::iproduct;
 #[cfg(all(feature = "py_binds", feature = "py_o3"))]
 use pyo3::{pyclass, pymethods};
+use std::cmp;
 
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all))]
@@ -44,265 +43,329 @@ impl Features {
         })
     }
 
-    fn log_likelihood_estimate_post_v(&self, e: &Event, m: &Model) -> f64 {
-        self.v.log_likelihood(e.v.unwrap().index) + m.max_log_likelihood_post_v
-    }
+    pub fn infer(&mut self, sequence: &Sequence, ip: &InferenceParameters) -> Result<f64> {
+        // let mut probability_generation: f64 = 0.; // need to deal with that
+        // let mut probability_generation_no_error: f64 = 0.; // TODO return this too
+        // let mut best_events = Vec::<(f64, StaticEvent)>::new();
 
-    fn log_likelihood_estimate_post_delv(&self, e: &Event, m: &Model) -> f64 {
-        self.v.log_likelihood(e.v.unwrap().index)
-            + self.delv.log_likelihood((e.delv, e.v.unwrap().index))
-            + self.error.log_likelihood((
-                e.v.unwrap().nb_errors(e.delv),
-                e.v.unwrap().length_with_deletion(e.delv),
-            ))
-            + m.max_log_likelihood_post_delv
-    }
+        let mut feature_v = AggregatedFeatureEndV::new(sequence, &self, ip);
+        let mut feature_dj = AggregatedFeatureDJ::new(sequence, &self, ip);
 
-    fn log_likelihood_estimate_post_dj(&self, e: &Event, m: &Model) -> f64 {
-        let v = e.v.unwrap();
-        let d = e.d.unwrap();
-        let j = e.j.unwrap();
-        let v_end = difference_as_i64(v.end_seq, e.delv);
+        let mut ll_ins_vd = Vec::new();
+        for ev in feature_v.start_v3..feature_v.end_v3 {
+            for sd in cmp::max(ev, feature_dj.start_d5)..feature_dj.end_d5 {
+                let ins_vd = sequence.get_subsequence(ev, sd);
+                ll_ins_vd.push(((ev, sd), self.insvd.log_likelihood(&ins_vd)));
+            }
+        }
+        let log_likelihood_ins_vd = RangeArray2::new(&ll_ins_vd);
 
-        self.v.log_likelihood(v.index)
-            + self.dj.log_likelihood((d.index, j.index))
-            + self.delv.log_likelihood((e.delv, v.index))
-            + self.error.log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
-        // We can already compute a fairly precise estimate of the maximum by looking at
-        // the expected number of insertions
-	    + m.max_log_likelihood_post_dj(d.index, (j.start_seq as i64) - v_end)
-    }
-
-    fn log_likelihood_estimate_post_delj(&self, e: &Event, m: &Model) -> f64 {
-        let v = e.v.unwrap();
-        let d = e.d.unwrap();
-        let j = e.j.unwrap();
-
-        let v_end = difference_as_i64(v.end_seq, e.delv);
-        let j_start = (j.start_seq + e.delj) as i64;
-
-        if v_end > j_start {
-            return f64::NEG_INFINITY;
+        let mut ll_ins_dj = Vec::new();
+        for sj in feature_dj.start_j5..feature_dj.end_j5 {
+            for ed in feature_dj.start_d3..cmp::min(feature_dj.end_d3, sj + 1) {
+                let ins_dj = sequence.get_subsequence(ed, sj);
+                ll_ins_dj.push(((ed, sj), self.insdj.log_likelihood(&ins_dj)));
+            }
         }
 
-        self.v.log_likelihood(v.index)
-            + self.delv.log_likelihood((e.delv, v.index))
-            + self.dj.log_likelihood((d.index, j.index))
-            + self
-                .error
-                .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
-            + self.delj.log_likelihood((e.delj, j.index))
-            + self
-                .error
-                .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
-            + m.max_log_likelihood_post_delj(d.index, (j_start - v_end) as usize)
-    }
+        let log_likelihood_ins_dj = RangeArray2::new(&ll_ins_dj);
 
-    fn log_likelihood_estimate_post_deld(&self, e: &Event, m: &Model) -> f64 {
-        let v = e.v.unwrap();
-        let d = e.d.unwrap();
-        let j = e.j.unwrap();
+        let mut l_total = 0.;
 
-        let v_end = difference_as_i64(v.end_seq, e.delv);
-        let d_start = (d.pos + e.deld5) as i64;
-        let d_end = (d.pos + d.len() - e.deld3) as i64;
-        let j_start = (j.start_seq + e.delj) as i64;
+        for ev in feature_v.start_v3..feature_v.end_v3 {
+            for sd in cmp::max(ev, feature_dj.start_d5)..feature_dj.end_d5 {
+                let ins_vd = sequence.get_subsequence(ev, sd);
+                if log_likelihood_ins_vd.get((ev, sd)) < ip.min_log_likelihood {
+                    continue;
+                }
+                for ed in cmp::max(sd - 1, feature_dj.start_d3)..feature_dj.end_d3 {
+                    for sj in cmp::max(ed, feature_dj.start_j5)..feature_dj.end_j5 {
+                        let ins_dj = sequence.get_subsequence(ed, sj);
+                        let log_likelihood = feature_v.log_likelihood(ev)
+                            + feature_dj.log_likelihood(sd, ed, sj)
+                            + log_likelihood_ins_vd.get((ev, sd))
+                            + log_likelihood_ins_dj.get((ed, sj));
 
-        if (v_end > d_start) || (d_start > d_end) || (d_end > j_start) {
-            return f64::NEG_INFINITY;
+                        if log_likelihood > ip.min_log_likelihood {
+                            let likelihood = log_likelihood.exp2();
+                            l_total += likelihood;
+                            feature_v.dirty_update(ev, likelihood);
+                            feature_dj.dirty_update(sd, ed, sj, likelihood);
+                            self.insvd.dirty_update(&ins_vd, likelihood);
+                            self.insdj.dirty_update(&ins_dj, likelihood);
+                        }
+                    }
+                }
+            }
         }
 
-        self.v.log_likelihood(v.index)
-            + self.delv.log_likelihood((e.delv, v.index))
-            + self.dj.log_likelihood((d.index, j.index))
-            + self
-                .error
-                .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
-            + self.delj.log_likelihood((e.delj, j.index))
-            + self
-                .error
-                .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
-            + self.deld.log_likelihood((e.deld3, e.deld5, d.index))
-            + self.error.log_likelihood((
-                d.nb_errors(e.deld5, e.deld3),
-                d.length_with_deletion(e.deld5, e.deld3),
-            ))
-            + m.max_log_likelihood_post_deld((d_start - v_end) as usize, (j_start - d_end) as usize)
+        if l_total != 0. {
+            feature_v.cleanup(&sequence, self, ip);
+            feature_dj.cleanup(&sequence, self, ip);
+            *self = self.cleanup()?;
+        }
+
+        Ok(l_total)
     }
 
-    fn log_likelihood(&self, e: &Event, ins_vd: &Dna, ins_dj: &Dna) -> f64 {
-        let v = e.v.unwrap();
-        let d = e.d.unwrap();
-        let j = e.j.unwrap();
+    // fn log_likelihood_estimate_post_v(&self, e: &Event, m: &Model) -> f64 {
+    //     self.v.log_likelihood(e.v.unwrap().index) + m.max_log_likelihood_post_v
+    // }
 
-        self.v.log_likelihood(v.index)
-            + self.delv.log_likelihood((e.delv, v.index))
-            + self.dj.log_likelihood((d.index, j.index))
-            + self
-                .error
-                .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
-            + self.delj.log_likelihood((e.delj, j.index))
-            + self
-                .error
-                .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
-            + self.deld.log_likelihood((e.deld3, e.deld5, d.index))
-            + self.error.log_likelihood((
-                d.nb_errors(e.deld5, e.deld3),
-                d.length_with_deletion(e.deld5, e.deld3),
-            ))
-            + self.insvd.log_likelihood(ins_vd)
-            + self.insdj.log_likelihood(ins_dj)
-    }
+    // fn log_likelihood_estimate_post_delv(&self, e: &Event, m: &Model) -> f64 {
+    //     self.v.log_likelihood(e.v.unwrap().index)
+    //         + self.delv.log_likelihood((e.delv, e.v.unwrap().index))
+    //         + self.error.log_likelihood((
+    //             e.v.unwrap().nb_errors(e.delv),
+    //             e.v.unwrap().length_with_deletion(e.delv),
+    //         ))
+    //         + m.max_log_likelihood_post_delv
+    // }
 
-    // fn log_likelihood_no_error(&self, e: &Event, ins_vd: &Dna, ins_dj: &Dna) -> f64 {
+    // fn log_likelihood_estimate_post_dj(&self, e: &Event, m: &Model) -> f64 {
     //     let v = e.v.unwrap();
     //     let d = e.d.unwrap();
     //     let j = e.j.unwrap();
-    //     return self.v.log_likelihood(v.index)
-    //         + self.delv.log_likelihood((e.delv, v.index))
+    //     let v_end = difference_as_i64(v.end_seq, e.delv);
+
+    //     self.v.log_likelihood(v.index)
     //         + self.dj.log_likelihood((d.index, j.index))
-    //         + self.delj.log_likelihood((e.delj, j.index))
-    //         + self.insvd.log_likelihood(ins_vd)
-    //         + self.insdj.log_likelihood(ins_dj);
+    //         + self.delv.log_likelihood((e.delv, v.index))
+    //         + self.error.log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
+    //     // We can already compute a fairly precise estimate of the maximum by looking at
+    //     // the expected number of insertions
+    // 	    + m.max_log_likelihood_post_dj(d.index, (j.start_seq as i64) - v_end)
     // }
 
-    pub fn dirty_update(&mut self, e: &Event, likelihood: f64, insvd: &Dna, insdj: &Dna) {
-        let v = e.v.unwrap();
-        let d = e.d.unwrap();
-        let j = e.j.unwrap();
-        self.v.dirty_update(v.index, likelihood);
-        self.dj.dirty_update((d.index, j.index), likelihood);
-        self.delv.dirty_update((e.delv, v.index), likelihood);
-        self.delj.dirty_update((e.delj, j.index), likelihood);
-        self.deld
-            .dirty_update((e.deld3, e.deld5, d.index), likelihood);
-        self.insvd.dirty_update(insvd, likelihood);
-        self.insdj.dirty_update(insdj, likelihood);
-        self.error.dirty_update(
-            (
-                j.nb_errors(e.delj) + v.nb_errors(e.delv) + d.nb_errors(e.deld5, e.deld3),
-                j.length_with_deletion(e.delj)
-                    + v.length_with_deletion(e.delv)
-                    + d.length_with_deletion(e.deld5, e.deld3),
-            ),
-            likelihood,
-        );
-    }
+    // fn log_likelihood_estimate_post_delj(&self, e: &Event, m: &Model) -> f64 {
+    //     let v = e.v.unwrap();
+    //     let d = e.d.unwrap();
+    //     let j = e.j.unwrap();
 
-    pub fn infer(
-        &mut self,
-        sequence: &Sequence,
-        m: &Model,
-        ip: &InferenceParameters,
-    ) -> (f64, Vec<(f64, StaticEvent)>) {
-        let mut probability_generation: f64 = 0.;
-        // let mut probability_generation_no_error: f64 = 0.; // TODO return this too
-        let mut best_events = Vec::<(f64, StaticEvent)>::new();
+    //     let v_end = difference_as_i64(v.end_seq, e.delv);
+    //     let j_start = (j.start_seq + e.delj) as i64;
 
-        for v in sequence.v_genes.iter() {
-            let ev = Event {
-                v: Some(v),
-                ..Event::default()
-            };
-            if self.log_likelihood_estimate_post_v(&ev, m) < ip.min_log_likelihood {
-                continue;
-            }
-            for delv in 0..self.delv.dim().0 {
-                let edelv = Event {
-                    v: Some(v),
-                    delv,
-                    ..Event::default()
-                };
-                if self.log_likelihood_estimate_post_delv(&edelv, m) < ip.min_log_likelihood {
-                    continue;
-                }
+    //     if v_end > j_start {
+    //         return f64::NEG_INFINITY;
+    //     }
 
-                for (j, d) in iproduct!(sequence.j_genes.iter(), sequence.d_genes.iter()) {
-                    let edj = Event {
-                        v: Some(v),
-                        delv,
-                        d: Some(d),
-                        j: Some(j),
-                        ..Event::default()
-                    };
-                    if self.log_likelihood_estimate_post_dj(&edj, m) < ip.min_log_likelihood {
-                        continue;
-                    }
-                    for delj in 0..self.delj.dim().0 {
-                        let edelj = Event {
-                            v: Some(v),
-                            delv,
-                            d: Some(d),
-                            j: Some(j),
-                            delj,
-                            ..Event::default()
-                        };
-                        if self.log_likelihood_estimate_post_delj(&edelj, m) < ip.min_log_likelihood
-                        {
-                            continue;
-                        }
-                        for (deld5, deld3) in iproduct!(0..self.deld.dim().1, 0..self.deld.dim().0)
-                        {
-                            // println!("deld5 {}, deld3 {}", self.deld.dim().1, self.deld.dim().0);
+    //     self.v.log_likelihood(v.index)
+    //         + self.delv.log_likelihood((e.delv, v.index))
+    //         + self.dj.log_likelihood((d.index, j.index))
+    //         + self
+    //             .error
+    //             .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
+    //         + self.delj.log_likelihood((e.delj, j.index))
+    //         + self
+    //             .error
+    //             .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
+    //         + m.max_log_likelihood_post_delj(d.index, (j_start - v_end) as usize)
+    // }
 
-                            let efinal = Event {
-                                v: Some(v),
-                                delv,
-                                d: Some(d),
-                                j: Some(j),
-                                delj,
-                                deld5,
-                                deld3,
-                            };
-                            if self.log_likelihood_estimate_post_deld(&efinal, m)
-                                < ip.min_log_likelihood
-                            {
-                                continue;
-                            }
-                            // otherwise compute the real likelihood
-                            let (insvd, insdj) = sequence.get_insertions_vd_dj(&efinal);
-                            // println!("{}", sequence.sequence.get_string());
-                            // println!("{}", efinal.v.unwrap().end_seq);
-                            // println!("{}", efinal.delv);
-                            //println!("{}", insvd.get_string());
+    // fn log_likelihood_estimate_post_deld(&self, e: &Event, m: &Model) -> f64 {
+    //     let v = e.v.unwrap();
+    //     let d = e.d.unwrap();
+    //     let j = e.j.unwrap();
 
-                            let mut insdj_reversed = insdj.clone();
-                            // careful insdj must be reversed (supposed to start on the J side)
-                            insdj_reversed.reverse();
-                            let log_likelihood =
-                                self.log_likelihood(&efinal, &insvd, &insdj_reversed);
-                            if log_likelihood < ip.min_log_likelihood {
-                                continue;
-                            }
-                            let likelihood = log_likelihood.exp2();
+    //     let v_end = difference_as_i64(v.end_seq, e.delv);
+    //     let d_start = (d.pos + e.deld5) as i64;
+    //     let d_end = (d.pos + d.len() - e.deld3) as i64;
+    //     let j_start = (j.start_seq + e.delj) as i64;
 
-                            probability_generation += likelihood;
-                            self.dirty_update(&efinal, likelihood, &insvd, &insdj_reversed);
-                            // println!("{}", insvd.get_string());
+    //     if (v_end > d_start) || (d_start > d_end) || (d_end > j_start) {
+    //         return f64::NEG_INFINITY;
+    //     }
 
-                            if ip.evaluate && ip.nb_best_events > 0 {
-                                // probability_generation_no_error +=
-                                //     self.likelihood_no_error(&e, &insvd, &insdj);
-                                if (best_events.len() < ip.nb_best_events)
-                                    || (best_events.last().unwrap().0 < likelihood)
-                                {
-                                    best_events = insert_in_order(
-                                        best_events,
-                                        (
-                                            likelihood,
-                                            efinal.to_static(insvd.clone(), insdj.clone()).unwrap(),
-                                        ),
-                                    );
-                                    best_events.truncate(ip.nb_best_events);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        (probability_generation, best_events)
-    }
+    //     self.v.log_likelihood(v.index)
+    //         + self.delv.log_likelihood((e.delv, v.index))
+    //         + self.dj.log_likelihood((d.index, j.index))
+    //         + self
+    //             .error
+    //             .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
+    //         + self.delj.log_likelihood((e.delj, j.index))
+    //         + self
+    //             .error
+    //             .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
+    //         + self.deld.log_likelihood((e.deld3, e.deld5, d.index))
+    //         + self.error.log_likelihood((
+    //             d.nb_errors(e.deld5, e.deld3),
+    //             d.length_with_deletion(e.deld5, e.deld3),
+    //         ))
+    //         + m.max_log_likelihood_post_deld((d_start - v_end) as usize, (j_start - d_end) as usize)
+    // }
+
+    // fn log_likelihood(&self, e: &Event, ins_vd: &Dna, ins_dj: &Dna) -> f64 {
+    //     let v = e.v.unwrap();
+    //     let d = e.d.unwrap();
+    //     let j = e.j.unwrap();
+
+    //     self.v.log_likelihood(v.index)
+    //         + self.delv.log_likelihood((e.delv, v.index))
+    //         + self.dj.log_likelihood((d.index, j.index))
+    //         + self
+    //             .error
+    //             .log_likelihood((v.nb_errors(e.delv), v.length_with_deletion(e.delv)))
+    //         + self.delj.log_likelihood((e.delj, j.index))
+    //         + self
+    //             .error
+    //             .log_likelihood((j.nb_errors(e.delj), j.length_with_deletion(e.delj)))
+    //         + self.deld.log_likelihood((e.deld3, e.deld5, d.index))
+    //         + self.error.log_likelihood((
+    //             d.nb_errors(e.deld5, e.deld3),
+    //             d.length_with_deletion(e.deld5, e.deld3),
+    //         ))
+    //         + self.insvd.log_likelihood(ins_vd)
+    //         + self.insdj.log_likelihood(ins_dj)
+    // }
+
+    // // fn log_likelihood_no_error(&self, e: &Event, ins_vd: &Dna, ins_dj: &Dna) -> f64 {
+    // //     let v = e.v.unwrap();
+    // //     let d = e.d.unwrap();
+    // //     let j = e.j.unwrap();
+    // //     return self.v.log_likelihood(v.index)
+    // //         + self.delv.log_likelihood((e.delv, v.index))
+    // //         + self.dj.log_likelihood((d.index, j.index))
+    // //         + self.delj.log_likelihood((e.delj, j.index))
+    // //         + self.insvd.log_likelihood(ins_vd)
+    // //         + self.insdj.log_likelihood(ins_dj);
+    // // }
+
+    // pub fn dirty_update(&mut self, e: &Event, likelihood: f64, insvd: &Dna, insdj: &Dna) {
+    //     let v = e.v.unwrap();
+    //     let d = e.d.unwrap();
+    //     let j = e.j.unwrap();
+    //     self.v.dirty_update(v.index, likelihood);
+    //     self.dj.dirty_update((d.index, j.index), likelihood);
+    //     self.delv.dirty_update((e.delv, v.index), likelihood);
+    //     self.delj.dirty_update((e.delj, j.index), likelihood);
+    //     self.deld
+    //         .dirty_update((e.deld3, e.deld5, d.index), likelihood);
+    //     self.insvd.dirty_update(insvd, likelihood);
+    //     self.insdj.dirty_update(insdj, likelihood);
+    //     self.error.dirty_update(
+    //         (
+    //             j.nb_errors(e.delj) + v.nb_errors(e.delv) + d.nb_errors(e.deld5, e.deld3),
+    //             j.length_with_deletion(e.delj)
+    //                 + v.length_with_deletion(e.delv)
+    //                 + d.length_with_deletion(e.deld5, e.deld3),
+    //         ),
+    //         likelihood,
+    //     );
+    // }
+
+    // pub fn infer(
+    //     &mut self,
+    //     sequence: &Sequence,
+    //     m: &Model,
+    //     ip: &InferenceParameters,
+    // ) -> (f64, Vec<(f64, StaticEvent)>) {
+    //     let mut probability_generation: f64 = 0.;
+    //     // let mut probability_generation_no_error: f64 = 0.; // TODO return this too
+    //     let mut best_events = Vec::<(f64, StaticEvent)>::new();
+
+    //     for v in sequence.v_genes.iter() {
+    //         let ev = Event {
+    //             v: Some(v),
+    //             ..Event::default()
+    //         };
+    //         if self.log_likelihood_estimate_post_v(&ev, m) < ip.min_log_likelihood {
+    //             continue;
+    //         }
+    //         for delv in 0..self.delv.dim().0 {
+    //             let edelv = Event {
+    //                 v: Some(v),
+    //                 delv,
+    //                 ..Event::default()
+    //             };
+    //             if self.log_likelihood_estimate_post_delv(&edelv, m) < ip.min_log_likelihood {
+    //                 continue;
+    //             }
+
+    //             for (j, d) in iproduct!(sequence.j_genes.iter(), sequence.d_genes.iter()) {
+    //                 let edj = Event {
+    //                     v: Some(v),
+    //                     delv,
+    //                     d: Some(d),
+    //                     j: Some(j),
+    //                     ..Event::default()
+    //                 };
+    //                 if self.log_likelihood_estimate_post_dj(&edj, m) < ip.min_log_likelihood {
+    //                     continue;
+    //                 }
+    //                 for delj in 0..self.delj.dim().0 {
+    //                     let edelj = Event {
+    //                         v: Some(v),
+    //                         delv,
+    //                         d: Some(d),
+    //                         j: Some(j),
+    //                         delj,
+    //                         ..Event::default()
+    //                     };
+    //                     if self.log_likelihood_estimate_post_delj(&edelj, m) < ip.min_log_likelihood
+    //                     {
+    //                         continue;
+    //                     }
+    //                     for (deld5, deld3) in iproduct!(0..self.deld.dim().1, 0..self.deld.dim().0)
+    //                     {
+    //                         // println!("deld5 {}, deld3 {}", self.deld.dim().1, self.deld.dim().0)
+    //                         let efinal = Event {
+    //                             v: Some(v),
+    //                             delv,
+    //                             d: Some(d),
+    //                             j: Some(j),
+    //                             delj,
+    //                             deld5,
+    //                             deld3,
+    //                         };
+    //                         if self.log_likelihood_estimate_post_deld(&efinal, m)
+    //                             < ip.min_log_likelihood
+    //                         {
+    //                             continue;
+    //                         }
+    //                         // otherwise compute the real likelihood
+    //                         let (insvd, insdj) = sequence.get_insertions_vd_dj(&efinal);
+    //                         // println!("{}", sequence.sequence.get_string());
+    //                         // println!("{}", efinal.v.unwrap().end_seq);
+    //                         // println!("{}", efinal.delv);
+    //                         //println!("{}", insvd.get_string());
+
+    //                         let mut insdj_reversed = insdj.clone();
+    //                         // careful insdj must be reversed (supposed to start on the J side)
+    //                         insdj_reversed.reverse();
+    //                         let log_likelihood =
+    //                             self.log_likelihood(&efinal, &insvd, &insdj_reversed);
+    //                         if log_likelihood < ip.min_log_likelihood {
+    //                             continue;
+    //                         }
+    //                         let likelihood = log_likelihood.exp2();
+
+    //                         probability_generation += likelihood;
+    //                         self.dirty_update(&efinal, likelihood, &insvd, &insdj_reversed);
+    //                         // println!("{}", insvd.get_string());
+
+    //                         if ip.evaluate && ip.nb_best_events > 0 {
+    //                             // probability_generation_no_error +=
+    //                             //     self.likelihood_no_error(&e, &insvd, &insdj);
+    //                             if (best_events.len() < ip.nb_best_events)
+    //                                 || (best_events.last().unwrap().0 < likelihood)
+    //                             {
+    //                                 best_events = insert_in_order(
+    //                                     best_events,
+    //                                     (
+    //                                         likelihood,
+    //                                         efinal.to_static(insvd.clone(), insdj.clone()).unwrap(),
+    //                                     ),
+    //                                 );
+    //                                 best_events.truncate(ip.nb_best_events);
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     (probability_generation, best_events)
+    // }
 
     pub fn cleanup(&self) -> Result<Features> {
         // Compute the new marginals for the next round

@@ -1,6 +1,7 @@
 //! VDJ model for TCR beta chain and IGH heavy chain
 
 pub mod event;
+pub mod feature;
 pub mod inference;
 pub mod model;
 pub mod py_bindings;
@@ -8,6 +9,7 @@ pub mod sequence;
 
 // Re-exporting for public API
 pub use self::event::{Event, StaticEvent};
+use self::feature::{AggregatedFeatureDJ, AggregatedFeatureEndV};
 pub use self::inference::Features;
 pub use self::model::Model;
 pub use self::py_bindings::GenerationResult;

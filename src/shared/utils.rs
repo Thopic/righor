@@ -416,3 +416,277 @@ pub fn max_f64(a: f64, b: f64) -> f64 {
         _ => a.max(b),
     }
 }
+
+/// Implement an array structure containing f64, indexed by min..max where min/max are i64
+pub struct RangeArray1 {
+    array: Vec<f64>,
+    pub min: i64,
+    pub max: i64, // over extremitie of the range (min + array.len())
+}
+
+impl RangeArray1 {
+    pub fn new(values: &Vec<(i64, f64)>) -> RangeArray1 {
+        if values.is_empty() {
+            return RangeArray1 {
+                min: 0,
+                max: 0,
+                array: Vec::new(),
+            };
+        }
+
+        let min = values.iter().map(|x| x.0).min().unwrap();
+        let max = values.iter().map(|x| x.0).max().unwrap() + 1;
+        let mut array = vec![0.; (max - min) as usize];
+
+        for (idx, value) in values {
+            array[(idx - min) as usize] += value;
+        }
+
+        RangeArray1 { array, min, max }
+    }
+
+    pub fn get(&self, idx: i64) -> f64 {
+        if idx < self.min || idx >= self.max {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx, self.min, self.max
+            );
+        }
+
+        self.array[(idx - self.min) as usize]
+    }
+
+    pub fn dim(&self) -> (i64, i64) {
+        (self.min, self.max)
+    }
+
+    pub fn zeros(range: (i64, i64)) -> RangeArray1 {
+        RangeArray1 {
+            min: range.0,
+            max: range.1,
+            array: vec![0.; (range.1 - range.0) as usize],
+        }
+    }
+
+    pub fn get_mut(&mut self, idx: i64) -> &mut f64 {
+        if idx < self.min || idx >= self.max {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx, self.min, self.max
+            );
+        }
+
+        self.array.get_mut((idx - self.min) as usize).unwrap()
+    }
+
+    pub fn mut_map<F>(&mut self, mut f: F)
+    where
+        F: FnMut(f64) -> f64,
+    {
+        self.array.iter_mut().for_each(|x| *x = f(*x));
+    }
+}
+
+/// Implement an array structure containing f64, indexed by min..max where min/max are i64
+pub struct RangeArray3 {
+    array: Vec<f64>,
+    pub min: (i64, i64, i64),
+    pub max: (i64, i64, i64),
+    nb0: usize,
+    nb1: usize,
+}
+
+impl RangeArray3 {
+    pub fn new(values: &Vec<((i64, i64, i64), f64)>) -> RangeArray3 {
+        if values.is_empty() {
+            return RangeArray3 {
+                min: (0, 0, 0),
+                max: (0, 0, 0),
+                nb0: 0,
+                nb1: 0,
+                array: Vec::new(),
+            };
+        }
+
+        let min = (
+            values.iter().map(|x| (x.0).0).min().unwrap(),
+            values.iter().map(|x| (x.0).1).min().unwrap(),
+            values.iter().map(|x| (x.0).2).min().unwrap(),
+        );
+        let max = (
+            values.iter().map(|x| x.0 .0).max().unwrap() + 1,
+            values.iter().map(|x| x.0 .1).max().unwrap() + 1,
+            values.iter().map(|x| x.0 .2).max().unwrap() + 1,
+        );
+        let nb0 = (max.0 - min.0) as usize;
+        let nb1 = (max.1 - min.1) as usize;
+
+        let mut array = vec![0.; nb0 * nb1 * (max.2 - min.2) as usize];
+        for ((i0, i1, i2), value) in values {
+            array[(i0 - min.0) as usize
+                + ((i1 - min.1) as usize) * nb0
+                + ((i2 - min.2) as usize) * nb1 * nb0] += value;
+        }
+        RangeArray3 {
+            array,
+            min,
+            max,
+            nb0,
+            nb1,
+        }
+    }
+
+    pub fn get(&self, idx: (i64, i64, i64)) -> f64 {
+        if idx.0 < self.min.0 || idx.0 >= self.max.0 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.0, self.min.0, self.max.0
+            );
+        }
+        if idx.1 < self.min.1 || idx.1 >= self.max.1 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.1, self.min.1, self.max.1
+            );
+        }
+        if idx.2 < self.min.2 || idx.2 >= self.max.2 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.2, self.min.2, self.max.2
+            );
+        }
+
+        self.array[(idx.0 - self.min.0) as usize
+            + ((idx.1 - self.min.1) as usize) * self.nb0
+            + ((idx.2 - self.min.2) as usize) * self.nb1 * self.nb0]
+    }
+
+    pub fn get_mut(&mut self, idx: (i64, i64, i64)) -> &mut f64 {
+        if idx.0 < self.min.0 || idx.0 >= self.max.0 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.0, self.min.0, self.max.0
+            );
+        }
+        if idx.1 < self.min.1 || idx.1 >= self.max.1 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.1, self.min.1, self.max.1
+            );
+        }
+        if idx.2 < self.min.2 || idx.2 >= self.max.2 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.2, self.min.2, self.max.2
+            );
+        }
+        self.array
+            .get_mut(
+                (idx.0 - self.min.0) as usize
+                    + ((idx.1 - self.min.1) as usize) * self.nb0
+                    + ((idx.2 - self.min.2) as usize) * self.nb1 * self.nb0,
+            )
+            .unwrap()
+    }
+
+    pub fn dim(&self) -> ((i64, i64, i64), (i64, i64, i64)) {
+        (self.min, self.max)
+    }
+
+    pub fn zeros(range: ((i64, i64, i64), (i64, i64, i64))) -> RangeArray3 {
+        RangeArray3 {
+            min: range.0,
+            max: range.1,
+            nb0: (range.1 .0 - range.0 .0) as usize,
+            nb1: (range.1 .1 - range.0 .1) as usize,
+            array: vec![
+                0.;
+                ((range.1 .0 - range.0 .0) * (range.1 .1 - range.0 .1) * (range.1 .2 - range.0 .2))
+                    as usize
+            ],
+        }
+    }
+    pub fn mut_map<F>(&mut self, mut f: F)
+    where
+        F: FnMut(f64) -> f64,
+    {
+        self.array.iter_mut().for_each(|x| *x = f(*x));
+    }
+}
+
+/// Implement an array structure containing f64, indexed by min..max where min/max are i64
+pub struct RangeArray2 {
+    array: Vec<f64>,
+    pub min: (i64, i64),
+    pub max: (i64, i64),
+    nb0: usize,
+}
+
+impl RangeArray2 {
+    pub fn new(values: &Vec<((i64, i64), f64)>) -> RangeArray2 {
+        if values.is_empty() {
+            return RangeArray2 {
+                min: (0, 0),
+                max: (0, 0),
+                nb0: 0,
+                array: Vec::new(),
+            };
+        }
+        let min = (
+            values.iter().map(|x| x.0 .0).min().unwrap(),
+            values.iter().map(|x| x.0 .1).min().unwrap(),
+        );
+        let max = (
+            values.iter().map(|x| x.0 .0).max().unwrap() + 1,
+            values.iter().map(|x| x.0 .1).max().unwrap() + 1,
+        );
+        let nb0 = (max.0 - min.0) as usize;
+
+        let mut array = vec![0.; nb0 * (max.1 - min.1) as usize];
+        for ((i0, i1), value) in values {
+            array[(i0 - min.0) as usize + (i1 - min.1) as usize * nb0] += value;
+        }
+        RangeArray2 {
+            array,
+            min,
+            max,
+            nb0,
+        }
+    }
+
+    pub fn get(&self, idx: (i64, i64)) -> f64 {
+        if idx.0 < self.min.0 || idx.0 >= self.max.0 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.0, self.min.0, self.max.0
+            );
+        }
+        if idx.1 < self.min.1 || idx.1 >= self.max.1 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.1, self.min.1, self.max.1
+            );
+        }
+
+        self.array[(idx.0 - self.min.0) as usize + (idx.1 - self.min.1) as usize * self.nb0]
+    }
+
+    pub fn get_mut(&mut self, idx: (i64, i64)) -> &mut f64 {
+        if idx.0 < self.min.0 || idx.0 >= self.max.0 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.0, self.min.0, self.max.0
+            );
+        }
+        if idx.1 < self.min.1 || idx.1 >= self.max.1 {
+            panic!(
+                "index out of bounds: {} not in [{}, {}[",
+                idx.1, self.min.1, self.max.1
+            );
+        }
+
+        self.array
+            .get_mut((idx.0 - self.min.0) as usize + (idx.1 - self.min.1) as usize * self.nb0)
+            .unwrap()
+    }
+}

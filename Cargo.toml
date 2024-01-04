@@ -10,10 +10,11 @@ path = "src/lib.rs"
 crate-type = ["cdylib", "lib"]
 
 [profile.release]
-# debug = true
+debug = true
 opt-level = 3
-panic = "abort"
-overflow-checks = false
+
+# panic = "abort"
+# overflow-checks = false
 # [profile.bench]
 # debug = true
 

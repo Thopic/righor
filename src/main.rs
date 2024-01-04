@@ -29,7 +29,7 @@ fn main() -> Result<()> {
         max_error_d: 100,
     };
     let inference_params = shared::InferenceParameters {
-        min_log_likelihood: -80.0,
+        min_log_likelihood: -100.0,
         nb_best_events: 10,
         evaluate: true,
     };
@@ -49,7 +49,7 @@ fn main() -> Result<()> {
         if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
             seq.push(als);
         }
-        // break;
+        //        break;
     }
 
     println!("{:?}", model.p_ins_vd);

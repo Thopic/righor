@@ -105,3 +105,4 @@ Things to do:
 - I think insdj is in the wrong direction ?
 - test to do: generate random sequences and check if they appear in "best scenarios"
 - if range_j / range_v / range_d doesn't match p_deld/p_delv/ p_delj in length, should complain
+- Currently this is too slow. Mostly because I'm iterating over way too many values.
