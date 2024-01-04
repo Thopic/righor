@@ -689,4 +689,24 @@ impl RangeArray2 {
             .get_mut((idx.0 - self.min.0) as usize + (idx.1 - self.min.1) as usize * self.nb0)
             .unwrap()
     }
+
+    pub fn dim(&self) -> ((i64, i64), (i64, i64)) {
+        (self.min, self.max)
+    }
+
+    pub fn zeros(range: ((i64, i64), (i64, i64))) -> RangeArray2 {
+        RangeArray2 {
+            min: range.0,
+            max: range.1,
+            nb0: (range.1 .0 - range.0 .0) as usize,
+            array: vec![0.; ((range.1 .0 - range.0 .0) * (range.1 .1 - range.0 .1)) as usize],
+        }
+    }
+
+    pub fn mut_map<F>(&mut self, mut f: F)
+    where
+        F: FnMut(f64) -> f64,
+    {
+        self.array.iter_mut().for_each(|x| *x = f(*x));
+    }
 }

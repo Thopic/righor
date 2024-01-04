@@ -54,8 +54,10 @@ impl Features {
         let mut ll_ins_vd = Vec::new();
         for ev in feature_v.start_v3..feature_v.end_v3 {
             for sd in cmp::max(ev, feature_dj.start_d5)..feature_dj.end_d5 {
-                let ins_vd = sequence.get_subsequence(ev, sd);
-                ll_ins_vd.push(((ev, sd), self.insvd.log_likelihood(&ins_vd)));
+                if sd - ev <= self.insvd.max_nb_insertions() as i64 {
+                    let ins_vd = sequence.get_subsequence(ev, sd);
+                    ll_ins_vd.push(((ev, sd), self.insvd.log_likelihood(&ins_vd)));
+                }
             }
         }
         let log_likelihood_ins_vd = RangeArray2::new(&ll_ins_vd);
@@ -63,8 +65,12 @@ impl Features {
         let mut ll_ins_dj = Vec::new();
         for sj in feature_dj.start_j5..feature_dj.end_j5 {
             for ed in feature_dj.start_d3..cmp::min(feature_dj.end_d3, sj + 1) {
-                let ins_dj = sequence.get_subsequence(ed, sj);
-                ll_ins_dj.push(((ed, sj), self.insdj.log_likelihood(&ins_dj)));
+                if sj - ed <= self.insdj.max_nb_insertions() as i64 {
+                    // careful we need to reverse ins_dj for the inference
+                    let mut ins_dj = sequence.get_subsequence(ed, sj);
+                    ins_dj.reverse();
+                    ll_ins_dj.push(((ed, sj), self.insdj.log_likelihood(&ins_dj)));
+                }
             }
         }
 
@@ -74,27 +80,46 @@ impl Features {
 
         for ev in feature_v.start_v3..feature_v.end_v3 {
             for sd in cmp::max(ev, feature_dj.start_d5)..feature_dj.end_d5 {
+                if sd - ev > self.insvd.max_nb_insertions() as i64 {
+                    continue;
+                }
+                let mut likelihood_v = 0.;
                 let ins_vd = sequence.get_subsequence(ev, sd);
+                let log_likelihood_v = feature_v.log_likelihood(ev);
                 if log_likelihood_ins_vd.get((ev, sd)) < ip.min_log_likelihood {
                     continue;
                 }
                 for ed in cmp::max(sd - 1, feature_dj.start_d3)..feature_dj.end_d3 {
                     for sj in cmp::max(ed, feature_dj.start_j5)..feature_dj.end_j5 {
-                        let ins_dj = sequence.get_subsequence(ed, sj);
-                        let log_likelihood = feature_v.log_likelihood(ev)
-                            + feature_dj.log_likelihood(sd, ed, sj)
-                            + log_likelihood_ins_vd.get((ev, sd))
+                        if sj - ed > self.insdj.max_nb_insertions() as i64 {
+                            continue;
+                        }
+                        let mut likelihood_ins = 0.;
+                        let mut ins_dj = sequence.get_subsequence(ed, sj);
+                        ins_dj.reverse();
+                        let log_likelihood_ins = log_likelihood_ins_vd.get((ev, sd))
                             + log_likelihood_ins_dj.get((ed, sj));
+                        for j_idx in 0..feature_dj.nb_j_alignments {
+                            let log_likelihood = feature_dj.log_likelihood(sd, ed, sj, j_idx)
+                                + log_likelihood_ins
+                                + log_likelihood_v;
 
-                        if log_likelihood > ip.min_log_likelihood {
-                            let likelihood = log_likelihood.exp2();
-                            l_total += likelihood;
-                            feature_v.dirty_update(ev, likelihood);
-                            feature_dj.dirty_update(sd, ed, sj, likelihood);
-                            self.insvd.dirty_update(&ins_vd, likelihood);
-                            self.insdj.dirty_update(&ins_dj, likelihood);
+                            if log_likelihood > ip.min_log_likelihood {
+                                let likelihood = log_likelihood.exp2();
+                                likelihood_v += likelihood;
+                                likelihood_ins += likelihood;
+                                l_total += likelihood;
+                                feature_dj.dirty_update(sd, ed, sj, j_idx, likelihood);
+                            }
+                        }
+                        if likelihood_ins > 0. {
+                            self.insvd.dirty_update(&ins_vd, likelihood_ins);
+                            self.insdj.dirty_update(&ins_dj, likelihood_ins);
                         }
                     }
+                }
+                if likelihood_v > 0. {
+                    feature_v.dirty_update(ev, likelihood_v);
                 }
             }
         }

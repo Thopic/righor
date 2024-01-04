@@ -97,12 +97,14 @@ Programming stuff:
 
 Things to do:
 - add more tests (interaction insertion + deletion, more than one v gene)
-- work on the speed (limit the valid D positions): One reasonable thing would be to modify VDJ to iterate on v/delv, then j/delj, then d. The v <-> j distance would give a reasonable bound on the number of insertion (and help remove a lot of shit). That said maybe it's not needed. Depend on how fast it all ends up being.
 - Error model is wrong as defined rn
-- lot of stuff don't work
-- deal with potential insertion in VJ alignment, remove the sequence from the inference if the insertion overlap with the delv range.
-- min_likelihood is useless now
-- I think insdj is in the wrong direction ?
-- test to do: generate random sequences and check if they appear in "best scenarios"
+- deal with potential insertion in V/J alignment, remove the sequence from the inference if the insertion overlap with the delv range.
 - if range_j / range_v / range_d doesn't match p_deld/p_delv/ p_delj in length, should complain
-- Currently this is too slow. Mostly because I'm iterating over way too many values.
+
+Current status:
+
+- speed is ok. Could be slightly faster. My improvement have not been crazy, so I think I'm reaching a wall. Obvious changes would be to add some unsafe (beuh). It's at Igor speed now, so it's fine. alignment procedure is a bit slow too (but that's basically library code). I could check insertion a bit less & play a bit with extract_padded_sequence. But all together, I think it's in a pretty good state.
+
+- the inference doesn't quite work. Probably a few small problems here and there, need to check with the test. deletions without insertions maaaaaybe work. error kind of work but don't quite go to the right value.
+
+- generally needs a lot more testing

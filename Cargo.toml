@@ -9,22 +9,9 @@ name = "ihor"
 path = "src/lib.rs"
 crate-type = ["cdylib", "lib"]
 
-[profile.release]
+[profile.release] # Not a ton of worthwhile optimization honestly
 debug = true
 opt-level = 3
-
-# panic = "abort"
-# overflow-checks = false
-# [profile.bench]
-# debug = true
-
-
-# [profile.dev]
-# opt-level = 3               # Use slightly better optimizations.
-# overflow-checks = false     # Disable integer overflow checks.
-# panic = "abort"
-# codegen-units = 1
-
 
 
 [dependencies]

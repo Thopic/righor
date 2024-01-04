@@ -1,5 +1,6 @@
 #![allow(unused_imports)] //TODO REMOVE
 #![allow(dead_code)]
+
 mod sequence;
 mod shared;
 pub mod vdj;
@@ -29,7 +30,7 @@ fn main() -> Result<()> {
         max_error_d: 100,
     };
     let inference_params = shared::InferenceParameters {
-        min_log_likelihood: -100.0,
+        min_log_likelihood: -400.0,
         nb_best_events: 10,
         evaluate: true,
     };

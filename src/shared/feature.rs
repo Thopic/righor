@@ -299,6 +299,9 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
     /// Arguments
     /// - observation: "(nb of error, length of the sequence without insertion)"
     fn log_likelihood(&self, observation: (usize, usize)) -> f64 {
+        if observation.0 == 0 {
+            return observation.1 as f64 * self.log1mr;
+        }
         (observation.0 as f64) * (self.logrs3)
             + ((observation.1 - observation.0) as f64) * self.log1mr
     }
@@ -331,6 +334,9 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
         for feat in iter {
             sum_err += feat.total_errors;
             sum_length += feat.total_lengths;
+        }
+        if sum_length == 0. {
+            return ErrorSingleNucleotide::new(0.);
         }
         ErrorSingleNucleotide::new(sum_err / sum_length)
     }
@@ -478,6 +484,10 @@ impl InsertionFeature {
             self.initial_distribution.clone(),
             self.transition_matrix.clone(),
         )
+    }
+
+    pub fn max_nb_insertions(&self) -> usize {
+        self.length_distribution.len()
     }
 
     /// 1- compute the log of the distribution (improve speed)

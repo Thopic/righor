@@ -236,31 +236,25 @@ impl Dna {
     ///assert!(a.extract_padded_subsequence(-2, 11).get_string() == "NNACCAAATGCNN".to_string());
     ///```
     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> Dna {
-        let mut result = Vec::new();
-        // Handle negative start index
-        if start < 0 {
-            result.extend(vec![b'N'; start.unsigned_abs() as usize]);
-        }
-        // Handle too big start index
-        if start >= self.len() as i64 {
-            return Dna {
-                seq: vec![b'N'; (end - start).unsigned_abs() as usize],
-            };
-        }
-        // Calculate the valid start and end indices
+        let len = self.len() as i64;
         let valid_start = std::cmp::max(0, start) as usize;
-        let valid_end = std::cmp::min(self.len(), end as usize);
+        let valid_end = std::cmp::min(len, end) as usize;
+        let mut result = Vec::with_capacity((end - start).abs() as usize);
 
-        // Extract the valid subsequence
-        result.extend_from_slice(&self.seq[valid_start..valid_end]);
-
-        // Handle end index beyond the array length
-        if end as usize > self.len() {
-            result.extend(vec![b'N'; end as usize - self.len()]);
+        if start < 0 {
+            result.resize(start.unsigned_abs() as usize, b'N');
         }
+
+        if start < len {
+            result.extend_from_slice(&self.seq[valid_start..valid_end]);
+        }
+
+        if end > len {
+            result.resize(result.len() + (end - len) as usize, b'N');
+        }
+
         Dna { seq: result }
     }
-
     pub fn align_left_right(
         sleft: &Dna,
         sright: &Dna,

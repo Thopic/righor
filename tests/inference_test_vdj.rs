@@ -40,7 +40,7 @@ mod common;
 #[test]
 fn infer_simple_model_vdj() -> () {
     let mut model = common::simple_model_vdj_no_ins();
-    model.error_rate = 0.1;
+    model.error_rate = 0.0;
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
     let mut gen = ihor::vdj::Generator::new(model.clone(), None);
@@ -49,9 +49,9 @@ fn infer_simple_model_vdj() -> () {
         sequences.push(gen.generate(false).full_seq);
     }
 
-    //    model = model.uniform().unwrap();
-    model.error_rate = 0.3;
-    let mut nb = 0;
+    model = model.uniform().unwrap();
+    model.error_rate = 0.;
+    // let mut nb = 0;
     let mut sequences_aligned = Vec::new();
     for s in sequences.clone().iter() {
         //        let s = "TGCTCCGTAAAAAAAAAATTTTTCCCTTTTGGGGGGCAGACAGT";
@@ -61,12 +61,12 @@ fn infer_simple_model_vdj() -> () {
         if seq_aligned.valid_alignment {
             sequences_aligned.push(seq_aligned);
         }
-        if !s.ends_with("GT") {
-            nb += 1;
-        }
+        // if !s.ends_with("GT") {
+        //     nb += 1;
+        // }
         //      break;
     }
-    println!("{}", nb);
+    //    println!("{}", nb);
     for _ in 0..100 {
         let mut features = Vec::new();
         for sal in &sequences_aligned {
@@ -77,7 +77,7 @@ fn infer_simple_model_vdj() -> () {
 
         let new_features = ihor::vdj::Features::average(features).unwrap();
         model.update(&new_features).unwrap();
-        println!("{:?}", new_features.error);
+        println!("{:?}", model.p_del_v_given_v);
     }
 }
 

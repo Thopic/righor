@@ -1,9 +1,10 @@
 use crate::sequence::utils::difference_as_i64;
 use crate::shared::feature::Feature;
-use crate::shared::utils::{RangeArray1, RangeArray3};
+use crate::shared::utils::{RangeArray1, RangeArray2, RangeArray3};
 use crate::shared::InferenceParameters;
 use crate::vdj::{Features, Sequence};
 use itertools::iproduct;
+use ndarray::Array1;
 
 /// Contains the probability of the V gene ending at position e_v
 /// For all reasonnable e_v
@@ -108,11 +109,16 @@ pub struct AggregatedFeatureDJ {
     pub start_j5: i64,
     pub end_j5: i64,
 
-    // Contains all the log-likelihood
-    log_likelihood: RangeArray3,
+    // Contains all the likelihood  P(startJ | J)
+    log_likelihood_j: RangeArray2,
+    // Contains all the likelihood  P(startD, endD | J)
+    log_likelihood_d: RangeArray3,
     // Dirty likelihood, will be updated as we go through the inference
-    dirty_likelihood: RangeArray3,
-    total_likelihood: f64,
+    dirty_likelihood_j: RangeArray2,
+    dirty_likelihood_d: RangeArray3,
+    total_likelihood_d: f64,
+    total_likelihood_j: f64,
+    pub nb_j_alignments: usize,
 }
 
 impl AggregatedFeatureDJ {
@@ -121,7 +127,8 @@ impl AggregatedFeatureDJ {
         feat: &Features,
         ip: &InferenceParameters,
     ) -> AggregatedFeatureDJ {
-        let mut total_likelihood = 0.;
+        let mut total_likelihood_j = 0.;
+        let mut total_likelihood_d = 0.;
         let min = (
             sequence.d_genes.iter().map(|x| x.pos).min().unwrap() as i64,
             sequence.d_genes.iter().map(|x| x.pos).min().unwrap() as i64
@@ -138,110 +145,172 @@ impl AggregatedFeatureDJ {
                 as i64,
         );
 
-        let mut log_likelihood = RangeArray3::zeros((min, (max.0 + 1, max.1 + 1, max.2 + 1)));
+        // pre-compute the delj likelihood to
+        let nb_j_al = sequence.j_genes.len();
+        let mut log_likelihood_j = RangeArray2::zeros(((min.2, 0), (max.2 + 1, nb_j_al as i64)));
+        let mut log_likelihood_d =
+            RangeArray3::zeros(((min.0, min.1, 0), (max.0 + 1, max.1 + 1, nb_j_al as i64)));
 
-        for (j, d) in iproduct!(sequence.j_genes.iter(), sequence.d_genes.iter()) {
+        // compute P(J) = Σ_D P(D, J)
+        let mut proba_j = Array1::<f64>::zeros(nb_j_al);
+        for (idx_j, j) in sequence.j_genes.iter().enumerate() {
+            for d in sequence.d_genes.iter() {
+                proba_j[idx_j] += feat.dj.log_likelihood((d.index, j.index)).exp2();
+            }
+        }
+        let log_proba_j = proba_j.mapv(|x| x.log2());
+
+        for (idx_j, j) in sequence.j_genes.iter().enumerate() {
+            // First deal with the j likelihood
             for delj in 0..feat.delj.dim().0 {
                 let j_start = (j.start_seq + delj) as i64;
-                let ll_pre_deld = feat.dj.log_likelihood((d.index, j.index))
+                let ll_j = log_proba_j[idx_j]
                     + feat.delj.log_likelihood((delj, j.index))
                     + feat
                         .error
                         .log_likelihood((j.nb_errors(delj), j.length_with_deletion(delj)));
 
+                if ll_j > ip.min_log_likelihood {
+                    let likelihood = ll_j.exp2();
+                    *log_likelihood_j.get_mut((j_start, idx_j as i64)) += likelihood;
+                    total_likelihood_j += likelihood;
+                }
+            }
+
+            // Now with startD and end D
+            for d in sequence.d_genes.iter() {
                 for (deld5, deld3) in iproduct!(0..feat.deld.dim().1, 0..feat.deld.dim().0) {
                     let d_start = (d.pos + deld5) as i64;
                     let d_end = (d.pos + d.len() - deld3) as i64;
-
-                    if (d_start > d_end) || (d_end > j_start) {
+                    if d_start > d_end {
                         continue;
                     }
-                    let ll = ll_pre_deld
-                        + feat.deld.log_likelihood((deld3, deld5, d.index))
+                    let ll_d = feat.deld.log_likelihood((deld3, deld5, d.index))
                         + feat.error.log_likelihood((
                             d.nb_errors(deld5, deld3),
                             d.length_with_deletion(deld5, deld3),
                         ));
-                    if ll > ip.min_log_likelihood {
-                        let likelihood = ll.exp2();
-                        *log_likelihood.get_mut((d_start, d_end, j_start)) += likelihood;
-                        total_likelihood += likelihood;
+                    if ll_d > ip.min_log_likelihood {
+                        let likelihood = ll_d.exp2();
+                        *log_likelihood_d.get_mut((d_start, d_end, idx_j as i64)) += likelihood;
+                        total_likelihood_d += likelihood;
                     }
                 }
             }
         }
 
-        log_likelihood.mut_map(|x| x.log2());
+        log_likelihood_d.mut_map(|x| x.log2());
+        log_likelihood_j.mut_map(|x| x.log2());
 
         AggregatedFeatureDJ {
-            start_d5: log_likelihood.min.0,
-            end_d5: log_likelihood.max.0,
-            start_d3: log_likelihood.min.1,
-            end_d3: log_likelihood.max.1,
-            start_j5: log_likelihood.min.2,
-            end_j5: log_likelihood.max.2,
-            dirty_likelihood: RangeArray3::zeros(log_likelihood.dim()),
-            log_likelihood,
-            total_likelihood,
+            start_d5: log_likelihood_d.min.0,
+            end_d5: log_likelihood_d.max.0,
+            start_d3: log_likelihood_d.min.1,
+            end_d3: log_likelihood_d.max.1,
+            start_j5: log_likelihood_j.min.0,
+            end_j5: log_likelihood_j.max.0,
+            dirty_likelihood_d: RangeArray3::zeros(log_likelihood_d.dim()),
+            dirty_likelihood_j: RangeArray2::zeros(log_likelihood_j.dim()),
+            log_likelihood_d,
+            log_likelihood_j,
+            total_likelihood_d,
+            total_likelihood_j,
+            nb_j_alignments: nb_j_al,
         }
     }
 
-    pub fn log_likelihood(&self, sd: i64, ed: i64, sj: i64) -> f64 {
-        self.log_likelihood.get((sd, ed, sj))
+    pub fn log_likelihood(&self, sd: i64, ed: i64, sj: i64, j_idx: usize) -> f64 {
+        self.log_likelihood_d.get((sd, ed, j_idx as i64))
+            + self.log_likelihood_j.get((sj, j_idx as i64))
     }
 
-    pub fn dirty_update(&mut self, sd: i64, ed: i64, sj: i64, likelihood: f64) {
-        *self.dirty_likelihood.get_mut((sd, ed, sj)) += likelihood;
+    pub fn dirty_update(&mut self, sd: i64, ed: i64, sj: i64, j_idx: usize, likelihood: f64) {
+        // Just update the marginals and hope for the best
+        *self.dirty_likelihood_d.get_mut((sd, ed, j_idx as i64)) += likelihood;
+        *self.dirty_likelihood_j.get_mut((sj, j_idx as i64)) += likelihood;
     }
 
     pub fn cleanup(&self, sequence: &Sequence, feat: &mut Features, ip: &InferenceParameters) {
-        for (j, d) in iproduct!(sequence.j_genes.iter(), sequence.d_genes.iter()) {
+        // compute P(J) = Σ_D P(D, J)
+        let mut proba_j = Array1::zeros(self.nb_j_alignments);
+        for (idx_j, j) in sequence.j_genes.iter().enumerate() {
+            for d in sequence.d_genes.iter() {
+                proba_j[idx_j] += feat.dj.log_likelihood((d.index, j.index)).exp2();
+            }
+        }
+        let log_proba_j = proba_j.mapv(|x: f64| x.log2());
+
+        for (j_idx, j) in sequence.j_genes.iter().enumerate() {
+            // First deal with the j likelihood
             for delj in 0..feat.delj.dim().0 {
                 let j_start = (j.start_seq + delj) as i64;
-                let ll_pre_deld = feat.dj.log_likelihood((d.index, j.index))
+                let ll_j = log_proba_j[j_idx]
                     + feat.delj.log_likelihood((delj, j.index))
                     + feat
                         .error
                         .log_likelihood((j.nb_errors(delj), j.length_with_deletion(delj)));
 
+                if ll_j > ip.min_log_likelihood {
+                    let likelihood = ll_j.exp2();
+                    let dirty_proba = self.dirty_likelihood_j.get((j_start, j_idx as i64));
+                    if dirty_proba > 0. {
+                        for d in sequence.d_genes.iter() {
+                            feat.dj.dirty_update(
+                                (d.index, j.index),
+                                dirty_proba * likelihood
+                                    / (self.total_likelihood_j * sequence.d_genes.len() as f64),
+                            );
+                        }
+
+                        feat.delj.dirty_update(
+                            (delj, j.index),
+                            dirty_proba * likelihood / self.total_likelihood_j,
+                        );
+
+                        feat.error.dirty_update(
+                            (j.nb_errors(delj), j.length_with_deletion(delj)),
+                            dirty_proba * likelihood / self.total_likelihood_j,
+                        );
+                    }
+                }
+            }
+
+            // Now with startD and end D
+            for d in sequence.d_genes.iter() {
                 for (deld5, deld3) in iproduct!(0..feat.deld.dim().1, 0..feat.deld.dim().0) {
                     let d_start = (d.pos + deld5) as i64;
                     let d_end = (d.pos + d.len() - deld3) as i64;
-                    if (d_start > d_end) || (d_end > j_start) {
+                    if d_start > d_end {
                         continue;
                     }
-                    let ll = ll_pre_deld
-                        + feat.deld.log_likelihood((deld3, deld5, d.index))
+                    let ll_d = feat.deld.log_likelihood((deld3, deld5, d.index))
                         + feat.error.log_likelihood((
                             d.nb_errors(deld5, deld3),
                             d.length_with_deletion(deld5, deld3),
                         ));
-                    if ll > ip.min_log_likelihood {
-                        let dirty_proba = self.dirty_likelihood.get((d_start, d_end, j_start));
+
+                    if ll_d > ip.min_log_likelihood {
+                        let likelihood = ll_d.exp2();
+                        let dirty_proba =
+                            self.dirty_likelihood_d.get((d_start, d_end, j_idx as i64));
                         if dirty_proba > 0. {
-                            let likelihood = ll.exp2();
                             feat.dj.dirty_update(
                                 (d.index, j.index),
-                                dirty_proba * likelihood / self.total_likelihood,
-                            );
-                            feat.delj.dirty_update(
-                                (delj, j.index),
-                                dirty_proba * likelihood / self.total_likelihood,
+                                dirty_proba * likelihood / self.total_likelihood_d,
                             );
 
                             feat.deld.dirty_update(
                                 (deld3, deld5, d.index),
-                                dirty_proba * likelihood / self.total_likelihood,
+                                dirty_proba * likelihood / self.total_likelihood_d,
                             );
 
                             feat.error.dirty_update(
                                 (
-                                    j.nb_errors(delj) + d.nb_errors(deld5, deld3),
-                                    j.length_with_deletion(delj)
-                                        + d.length_with_deletion(deld5, deld3),
+                                    d.nb_errors(deld5, deld3),
+                                    d.length_with_deletion(deld5, deld3),
                                 ),
-                                dirty_proba * likelihood / self.total_likelihood,
-                            )
+                                dirty_proba * likelihood / self.total_likelihood_d,
+                            );
                         }
                     }
                 }
