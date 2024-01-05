@@ -7,6 +7,6 @@ pub mod utils;
 
 pub use feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
-    ErrorSingleNucleotide,
+    ErrorSingleNucleotide, InsertionFeature,
 };
 pub use utils::{Gene, InferenceParameters};

@@ -1,13 +1,10 @@
 // Align the sequence to V & J genes
 use crate::sequence::Dna;
 use crate::vdj::model::Model as ModelVDJ;
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct VJAlignment {
     // Structure containing the alignment between a V/J gene and the sequence
@@ -35,7 +32,7 @@ pub struct VJAlignment {
     pub score: i32,
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl VJAlignment {
     pub fn nb_errors(&self, del: usize) -> usize {
         if del >= self.errors.len() {
@@ -56,10 +53,7 @@ impl VJAlignment {
     }
 }
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct DAlignment {
     // Structure containing the alignment between a D gene and the sequence
@@ -81,7 +75,7 @@ pub struct DAlignment {
     pub errors: Vec<Vec<usize>>, // errors[deld5][deld3] = #number of errors left with deld5, deld3
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl DAlignment {
     pub fn nb_errors(&self, deld5: usize, deld3: usize) -> usize {
         self.errors[deld5][deld3]

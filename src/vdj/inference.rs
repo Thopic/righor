@@ -2,12 +2,12 @@ use crate::shared::feature::*;
 use crate::shared::utils::{InferenceParameters, RangeArray2};
 use crate::vdj::{AggregatedFeatureDJ, AggregatedFeatureEndV, Model, Sequence};
 use anyhow::Result;
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::{pyclass, pymethods};
 use std::cmp;
 
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all))]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct Features {
     pub v: CategoricalFeature1,
     pub delv: CategoricalFeature1g1,
@@ -422,12 +422,12 @@ impl Features {
     }
 }
 
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl Features {
     #[staticmethod]
     #[pyo3(name = "average")]
     pub fn py_average(features: Vec<Features>) -> Result<Features> {
-        average(features)
+        Features::average(features)
     }
 }

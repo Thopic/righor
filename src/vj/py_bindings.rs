@@ -1,19 +1,19 @@
 //! Contains some of the python binding that would otherwise pollute the other files.
 
 use crate::vj::{Model, StaticEvent};
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::*;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct Generator {
     pub model: Model,
     pub rng: SmallRng,
 }
 
 #[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
+    all(feature = "py_binds", feature = "pyo3"),
     pyclass(get_all, set_all)
 )]
 #[derive(Debug, Clone)]
@@ -36,7 +36,7 @@ impl Generator {
     }
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl Generator {
     pub fn generate(&mut self, functional: bool) -> GenerationResult {
         let (cdr3_nt, cdr3_aa, v_index, j_index) = self.model.generate(functional, &mut self.rng);
@@ -60,7 +60,7 @@ impl Generator {
 }
 
 // Boiler-plate code for python bindings
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl Generator {
     #[new]

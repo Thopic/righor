@@ -3,15 +3,16 @@ pub mod shared;
 pub mod vdj;
 //pub mod vj;
 
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+use crate::vdj::GenerationResult;
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 pub use sequence::{AlignmentParameters, AminoAcid, DAlignment, Dna, VJAlignment};
 pub use shared::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
-    ErrorSingleNucleotide, Gene, InferenceParameters,
+    ErrorSingleNucleotide, Gene, InferenceParameters, InsertionFeature,
 };
 
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymodule]
 fn ihor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     let vdj_submod = PyModule::new(py, "vdj")?;
@@ -36,12 +37,12 @@ fn ihor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<CategoricalFeature1g1>()?;
     m.add_class::<CategoricalFeature2>()?;
     m.add_class::<CategoricalFeature2g1>()?;
-    m.add_class::<MarkovFeature>()?;
+    m.add_class::<InsertionFeature>()?;
     m.add_class::<ErrorSingleNucleotide>()?;
     m.add_class::<GenerationResult>()?;
 
     m.add_submodule(vdj_submod)?;
-    m.add_submodule(vj_submod)?;
+    //m.add_submodule(vj_submod)?;
 
     Ok(())
 }

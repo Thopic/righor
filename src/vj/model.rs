@@ -10,9 +10,9 @@ use crate::vj::sequence::{align_all_jgenes, align_all_vgenes};
 use crate::vj::{Features, Sequence, StaticEvent};
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Axis};
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use numpy::{IntoPyArray, PyArray1, PyArray2};
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use rand::Rng;
 use std::{fs::File, path::Path};
@@ -29,7 +29,7 @@ pub struct Generative {
     markov_vj: MarkovDNA,
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 #[derive(Default, Clone, Debug)]
 pub struct Model {
     // Sequence information
@@ -330,7 +330,7 @@ impl Model {
     }
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl Model {
     pub fn infer_features(
         &self,
@@ -410,7 +410,7 @@ impl Model {
         self.error_rate = feature.error.error_rate;
     }
 
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[staticmethod]
     #[pyo3(name = "load_model")]
     pub fn py_load_model(
@@ -428,62 +428,62 @@ impl Model {
     }
 
     // getter & setter for the numpy/ndarray arrays, no easy way to make them automatically
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_p_v(&self, py: Python) -> Py<PyArray1<f64>> {
         self.p_v.to_owned().into_pyarray(py).to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[setter]
     fn set_p_v(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
         self.p_v = value.as_ref(py).to_owned_array();
         Ok(())
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_p_j_given_v(&self, py: Python) -> Py<PyArray2<f64>> {
         self.p_j_given_v.to_owned().into_pyarray(py).to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[setter]
     fn set_p_j_given_v(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
         self.p_j_given_v = value.as_ref(py).to_owned_array();
         Ok(())
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_p_ins_vj(&self, py: Python) -> Py<PyArray1<f64>> {
         self.p_ins_vj.to_owned().into_pyarray(py).to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[setter]
     fn set_p_ins_vj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
         self.p_ins_vj = value.as_ref(py).to_owned_array();
         Ok(())
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_p_del_v_given_v(&self, py: Python) -> Py<PyArray2<f64>> {
         self.p_del_v_given_v.to_owned().into_pyarray(py).to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[setter]
     fn set_p_del_v_given_v(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
         self.p_del_v_given_v = value.as_ref(py).to_owned_array();
         Ok(())
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_p_del_j_given_j(&self, py: Python) -> Py<PyArray2<f64>> {
         self.p_del_j_given_j.to_owned().into_pyarray(py).to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[setter]
     fn set_p_del_j_given_j(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
         self.p_del_j_given_j = value.as_ref(py).to_owned_array();
         Ok(())
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_markov_coefficients_vj(&self, py: Python) -> Py<PyArray2<f64>> {
         self.markov_coefficients_vj
@@ -491,13 +491,13 @@ impl Model {
             .into_pyarray(py)
             .to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[setter]
     fn set_markov_coefficients_vj(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
         self.markov_coefficients_vj = value.as_ref(py).to_owned_array();
         Ok(())
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_first_nt_bias_ins_vj(&self, py: Python) -> Py<PyArray1<f64>> {
         self.first_nt_bias_ins_vj
@@ -505,7 +505,7 @@ impl Model {
             .into_pyarray(py)
             .to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "py_o3"))]
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[setter]
     fn set_first_nt_bias_ins_vj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
         self.first_nt_bias_ins_vj = value.as_ref(py).to_owned_array();

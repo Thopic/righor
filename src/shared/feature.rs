@@ -2,7 +2,7 @@ use crate::sequence::utils::{nucleotides_inv, Dna};
 use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2};
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3};
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::pyclass;
 
 // This class define different type of Feature
@@ -33,7 +33,7 @@ pub trait Feature<T> {
 
 // One-dimensional categorical distribution
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature1 {
     pub log_probas: Array1<f64>,
     pub probas_dirty: Array1<f64>,
@@ -85,7 +85,7 @@ impl CategoricalFeature1 {
 
 // One-dimensional categorical distribution, given one external parameter
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature1g1 {
     pub log_probas: Array2<f64>,
     pub probas_dirty: Array2<f64>,
@@ -138,7 +138,7 @@ impl CategoricalFeature1g1 {
 
 // Two-dimensional categorical distribution
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature2 {
     pub log_probas: Array2<f64>,
     pub probas_dirty: Array2<f64>,
@@ -192,7 +192,7 @@ impl CategoricalFeature2 {
 
 // Two-dimensional categorical distribution, given one external parameter
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature2g1 {
     pub log_probas: Array3<f64>,
     pub probas_dirty: Array3<f64>,
@@ -247,10 +247,7 @@ impl CategoricalFeature2g1 {
 
 // Most basic error model
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 pub struct ErrorSingleNucleotide {
     pub error_rate: f64,
     logrs3: f64,
@@ -344,7 +341,7 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
 
 // Markov chain structure for Dna insertion
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct InsertionFeature {
     pub length_distribution: Array1<f64>,
     pub initial_distribution: Array1<f64>,

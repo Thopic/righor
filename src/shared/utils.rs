@@ -1,7 +1,7 @@
 use crate::sequence::utils::{Dna, NUCLEOTIDES};
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array, Array1, Array2, Array3, Axis, Dimension};
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use rand::distributions::{Distribution, Uniform};
 use rand::Rng;
@@ -11,10 +11,7 @@ const EPSILON: f64 = 1e-10;
 
 // Define some storage wrapper for the V/D/J genes
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct Gene {
     pub name: String,
@@ -356,10 +353,7 @@ where
     vcloned
 }
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct InferenceParameters {
     pub min_log_likelihood: f64,
@@ -367,12 +361,12 @@ pub struct InferenceParameters {
     pub nb_best_events: usize,
 }
 
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl InferenceParameters {
     #[new]
-    pub fn py_new(min_likelihood_error: f64, min_likelihood: f64) -> Self {
-        Self::new(min_likelihood_error, min_likelihood)
+    pub fn py_new(min_log_likelihood: f64) -> Self {
+        Self::new(min_log_likelihood)
     }
 }
 

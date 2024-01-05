@@ -2,23 +2,21 @@
 
 use crate::sequence::AminoAcid;
 use crate::vdj::{Model, StaticEvent};
+use std::path::Path;
 
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct Generator {
     model: Model,
     rng: SmallRng,
 }
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Debug, Clone)]
 pub struct GenerationResult {
     pub cdr3_nt: String,
@@ -52,10 +50,13 @@ impl Generator {
         seed: Option<u64>,
     ) -> Generator {
         Generator::new(
-            path_params,
-            path_marginals,
-            path_v_anchors,
-            path_j_anchors,
+            Model::load_from_files(
+                Path::new(path_params),
+                Path::new(path_marginals),
+                Path::new(path_v_anchors),
+                Path::new(path_j_anchors),
+            )
+            .unwrap(),
             seed,
         )
     }

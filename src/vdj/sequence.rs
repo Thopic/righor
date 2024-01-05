@@ -3,13 +3,10 @@ use crate::sequence::{DAlignment, Dna, VJAlignment};
 use crate::vdj::{Event, Model};
 use std::cmp;
 
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::pyclass;
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
 pub struct Sequence {
     pub sequence: Dna,

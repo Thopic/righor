@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Result};
 use bio::alignment::{pairwise, Alignment};
 use phf::phf_map;
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use std::fmt;
 
@@ -54,10 +54,7 @@ pub fn nucleotides_inv(n: u8) -> usize {
 
     LOOKUP_TABLE[n as usize]
 }
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 pub struct AlignmentParameters {
     // Structure containing all the parameters for the alignment
     // of the V and J genes
@@ -66,7 +63,7 @@ pub struct AlignmentParameters {
     pub max_error_d: usize,
 }
 
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl AlignmentParameters {
     #[new]
@@ -118,19 +115,13 @@ impl AlignmentParameters {
     }
 }
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Dna {
     pub seq: Vec<u8>,
 }
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
-    pyclass(get_all, set_all)
-)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct AminoAcid {
     pub seq: Vec<u8>,
@@ -166,7 +157,7 @@ impl Dna {
     }
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pymethods)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl Dna {
     pub fn get_string(&self) -> String {
         self.to_string()
@@ -302,7 +293,7 @@ impl AminoAcid {
     }
 }
 
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl AminoAcid {
     #[staticmethod]
@@ -336,7 +327,7 @@ impl Dna {
     #[staticmethod]
     #[pyo3(name = "from_string")]
     pub fn py_from_string(s: &str) -> Result<Dna> {
-        from_string(s)
+        Dna::from_string(s)
     }
 }
 

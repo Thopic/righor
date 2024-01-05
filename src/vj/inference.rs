@@ -6,11 +6,11 @@ use crate::shared::InferenceParameters;
 use crate::vj::{Event, Model, Sequence, StaticEvent};
 use anyhow::Result;
 use itertools::iproduct;
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "py_o3"), pyclass(get_all))]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct Features {
     pub v: CategoricalFeature1,
     pub delv: CategoricalFeature1g1,

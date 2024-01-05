@@ -1,5 +1,5 @@
 use crate::sequence::{Dna, VJAlignment};
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
 pub struct Event<'a> {
@@ -10,7 +10,7 @@ pub struct Event<'a> {
 }
 
 #[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
+    all(feature = "py_binds", feature = "pyo3"),
     pyclass(name = "Event", get_all, set_all)
 )]
 #[derive(Default, Clone, Debug)]

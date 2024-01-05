@@ -39,13 +39,13 @@ mod common;
 
 #[test]
 fn infer_simple_model_vdj() -> () {
-    let mut model = common::simple_model_vdj_no_ins();
+    let mut model = common::simple_model_vdj_no_deletions();
     model.error_rate = 0.0;
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
-    let mut gen = ihor::vdj::Generator::new(model.clone(), None);
+    let mut gen = ihor::vdj::Generator::new(model.clone(), Some(0));
     let mut sequences = Vec::new();
-    for _ in 0..10000 {
+    for _ in 0..100000 {
         sequences.push(gen.generate(false).full_seq);
     }
 
@@ -77,7 +77,10 @@ fn infer_simple_model_vdj() -> () {
 
         let new_features = ihor::vdj::Features::average(features).unwrap();
         model.update(&new_features).unwrap();
-        println!("{:?}", model.p_del_v_given_v);
+        println!("{:?}", model.p_ins_vd);
+        println!("{:?}", model.markov_coefficients_vd);
+        println!("{:?}", model.p_ins_dj);
+        println!("{:?}", model.markov_coefficients_dj);
     }
 }
 

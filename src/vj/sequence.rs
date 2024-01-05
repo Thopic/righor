@@ -2,11 +2,11 @@ use crate::sequence::utils::{count_differences, difference_as_i64};
 use crate::sequence::Dna;
 use crate::sequence::{AlignmentParameters, DAlignment, VJAlignment};
 use crate::vj::{Event, Model};
-#[cfg(all(feature = "py_binds", feature = "py_o3"))]
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::*;
 
 #[cfg_attr(
-    all(feature = "py_binds", feature = "py_o3"),
+    all(feature = "py_binds", feature = "pyo3"),
     pyclass(get_all, set_all)
 )]
 #[derive(Default, Clone, Debug)]

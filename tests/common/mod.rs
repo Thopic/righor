@@ -383,8 +383,8 @@ pub fn simple_model_vdj_no_deletions() -> vdj::Model {
         seg_ds: vec![gd],
         p_v: array![1.],
         p_dj: array![[1.]],
-        p_ins_vd: array![0.1, 0.01, 0.002, 0.0001, 0.00005], // 0, 1, 2, 3, 4 insertions
-        p_ins_dj: array![0.1, 0.01, 0.002, 0.0001, 0.00005],
+        p_ins_vd: array![0.1, 0.1, 0.2, 0.01, 0.005], // 0, 1, 2, 3, 4 insertions
+        p_ins_dj: array![1.],
         p_del_v_given_v: array![[1.]],
         p_del_j_given_j: array![[1.]],
         p_del_d3_del_d5: array![[[1.]]],
@@ -424,6 +424,6 @@ pub fn alignment_parameters_default() -> ihor::AlignmentParameters {
     ihor::AlignmentParameters {
         min_score_v: 10,
         min_score_j: 10,
-        max_error_d: 100,
+        max_error_d: 0,
     }
 }
