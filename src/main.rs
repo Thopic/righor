@@ -15,13 +15,13 @@ use std::path::Path;
 
 fn main() -> Result<()> {
     let mut model = vdj::Model::load_from_files(
-        Path::new("models/human_T_beta/model_params.txt"),
-        Path::new("models/human_T_beta/model_marginals.txt"),
-        Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
-        Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
+        Path::new("demo/models/model_parms.txt"),
+        Path::new("demo/models/model_marginals.txt"),
+        Path::new("demo/models/V_gene_CDR3_anchors.csv"),
+        Path::new("demo/models/J_gene_CDR3_anchors.csv"),
     )?;
 
-    model = model.uniform()?;
+    //model = model.uniform()?;
     //    model.error_rate = 0.;
 
     let align_params = sequence::AlignmentParameters {
@@ -42,17 +42,12 @@ fn main() -> Result<()> {
     let mut seq = Vec::new();
     for line in tqdm!(lines) {
         let l = line?;
-
-        //let l = "CTCCCAGACATCTGTGTACTTCTGTGCCAGCAGTTTACTGCAAGAGGGGGGGGCAACTAATGAAAAACTGTTTTTTGGCAGTGGAACCCAGCTCTCTGTCTTGG".to_string();
-        //println!("{}", l);
         let s = sequence::Dna::from_string(l.trim())?;
         let als = model.align_sequence(s.clone(), &align_params)?;
         if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
             seq.push(als);
         }
-        //        break;
     }
-
     println!("{:?}", model.p_ins_vd);
     for _ in 0..5 {
         let mut features = Vec::new();
@@ -63,11 +58,9 @@ fn main() -> Result<()> {
             // );
             features.push(model.infer_features(&s, &inference_params)?);
         }
-        println!("{:?}", features[0].insvd.length_distribution);
         let new_features = vdj::Features::average(features)?;
         model.update(&new_features)?;
-        println!("hip");
-        println!("{:?}", model.p_ins_vd);
+        println!("{:?}", model.p_ins_dj);
     }
 
     Ok(())

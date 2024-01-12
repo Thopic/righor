@@ -1,7 +1,10 @@
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::shared::feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
     InsertionFeature,
 };
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use crate::shared::utils::calc_steady_state_dist;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -52,13 +55,6 @@ impl CategoricalFeature2g1 {
 #[pymethods]
 impl InsertionFeature {
     #[getter]
-    fn get_initial_distribution(&self, py: Python) -> Py<PyArray1<f64>> {
-        self.initial_distribution
-            .to_owned()
-            .into_pyarray(py)
-            .to_owned()
-    }
-    #[getter]
     fn get_transition_matrix(&self, py: Python) -> Py<PyArray2<f64>> {
         self.transition_matrix
             .to_owned()
@@ -66,8 +62,16 @@ impl InsertionFeature {
             .to_owned()
     }
     #[getter]
-    fn get_distribution_length(&self, py: Python) -> Py<PyArray1<f64>> {
+    fn get_length_distribution(&self, py: Python) -> Py<PyArray1<f64>> {
         self.length_distribution
+            .to_owned()
+            .into_pyarray(py)
+            .to_owned()
+    }
+    #[getter]
+    fn get_initial_distribution(&self, py: Python) -> Py<PyArray1<f64>> {
+        calc_steady_state_dist(&self.transition_matrix)
+            .unwrap()
             .to_owned()
             .into_pyarray(py)
             .to_owned()

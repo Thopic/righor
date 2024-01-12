@@ -1,4 +1,4 @@
-use crate::sequence::utils::{Dna, NUCLEOTIDES};
+use crate::sequence::utils::{nucleotides_inv, Dna, NUCLEOTIDES};
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array, Array1, Array2, Array3, Axis, Dimension};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -85,38 +85,32 @@ impl Default for DiscreteDistribution {
 // Markov chain structure (for the insertion process)
 #[derive(Default, Clone, Debug)]
 pub struct MarkovDNA {
-    initial_distribution: DiscreteDistribution, // first nucleotide, ACGT order
+    // initial_distribution: DiscreteDistribution, // first nucleotide, ACGT order
     transition_matrix: Vec<DiscreteDistribution>, // Markov matrix, ACGT order
 }
 
 impl MarkovDNA {
-    pub fn new(transition_probs: Array2<f64>, initial_probs: Option<Vec<f64>>) -> Result<Self> {
+    pub fn new(transition_probs: Array2<f64>) -> Result<Self> {
         let mut transition_matrix = Vec::with_capacity(transition_probs.dim().0);
         for probs in transition_probs.axis_iter(Axis(0)) {
             transition_matrix.push(DiscreteDistribution::new(probs.to_vec())?);
         }
-        let initial_distribution = match initial_probs {
-            None => DiscreteDistribution::new(calc_steady_state_dist(&transition_probs)?)?,
-            Some(dist) => DiscreteDistribution::new(dist)?,
-        };
+        // let initial_distribution = match initial_probs {
+        //     None => DiscreteDistribution::new(calc_steady_state_dist(&transition_probs)?)?,
+        //     Some(dist) => DiscreteDistribution::new(dist)?,
+        // };
         Ok(MarkovDNA {
-            initial_distribution,
+            //            initial_distribution,
             transition_matrix,
         })
     }
 
-    pub fn generate<R: Rng>(&mut self, length: usize, rng: &mut R) -> Dna {
+    pub fn generate<R: Rng>(&mut self, length: usize, previous_nucleotide: u8, rng: &mut R) -> Dna {
         let mut dna = Dna {
             seq: Vec::with_capacity(length),
         };
-        if length == 0 {
-            return dna;
-        }
-
-        let mut current_state = self.initial_distribution.generate(rng);
-        dna.seq.push(NUCLEOTIDES[current_state]);
-
-        for _ in 1..length {
+        let mut current_state = nucleotides_inv(previous_nucleotide);
+        for _ in 0..length {
             current_state = self.transition_matrix[current_state].generate(rng);
             dna.seq.push(NUCLEOTIDES[current_state]);
         }
@@ -301,6 +295,31 @@ impl Normalize for Array2<f64> {
     }
 }
 
+impl Normalize for Array3<f64> {
+    /// Normalizes the elements of an array along the first axis.
+    fn normalize_distribution(&self) -> Result<Self> {
+        if self.iter().any(|&x| !x.is_finite()) {
+            return Err(anyhow!("Array contains non-positive or non-finite values"));
+        }
+        let mut normalized = Array3::<f64>::zeros(self.dim());
+        for ii in 0..self.dim().1 {
+            for jj in 0..self.dim().2 {
+                let sum = self.slice(s![.., ii, jj]).sum();
+                if sum.abs() == 0.0f64 {
+                    for kk in 0..self.dim().0 {
+                        normalized[[kk, ii, jj]] = 0.;
+                    }
+                } else {
+                    for kk in 0..self.dim().0 {
+                        normalized[[kk, ii, jj]] = self[[kk, ii, jj]] / sum;
+                    }
+                }
+            }
+        }
+        Ok(normalized)
+    }
+}
+
 pub fn sorted_and_complete(arr: Vec<i64>) -> bool {
     // check that the array is sorted and equal to
     // arr[0]..arr.last()
@@ -415,7 +434,7 @@ pub fn max_f64(a: f64, b: f64) -> f64 {
 pub struct RangeArray1 {
     array: Vec<f64>,
     pub min: i64,
-    pub max: i64, // over extremitie of the range (min + array.len())
+    pub max: i64, // over extremity of the range (min + array.len())
 }
 
 impl RangeArray1 {
@@ -452,6 +471,10 @@ impl RangeArray1 {
 
     pub fn dim(&self) -> (i64, i64) {
         (self.min, self.max)
+    }
+
+    pub fn len(&self) -> usize {
+        (self.max - self.min) as usize
     }
 
     pub fn zeros(range: (i64, i64)) -> RangeArray1 {
@@ -686,6 +709,16 @@ impl RangeArray2 {
 
     pub fn dim(&self) -> ((i64, i64), (i64, i64)) {
         (self.min, self.max)
+    }
+
+    // return min
+    pub fn lower(&self) -> (i64, i64) {
+        self.min
+    }
+
+    // return max + 1
+    pub fn upper(&self) -> (i64, i64) {
+        self.max
     }
 
     pub fn zeros(range: ((i64, i64), (i64, i64))) -> RangeArray2 {

@@ -5,45 +5,45 @@ use ndarray::array;
 pub fn simple_model_vdj() -> vdj::Model {
     let gv1 = ihor::Gene {
         name: "V1".to_string(),
-        seq: ihor::Dna::from_string("TGCTCAGTAAAAAAAAAA").unwrap(), // need to start with a cystein
+        seq: ihor::Dna::from_string("TGCTCATGCAAAAAAAAA").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(0),
+        cdr3_pos: Some(6),
     };
     let gv2 = ihor::Gene {
         name: "V2".to_string(),
-        seq: ihor::Dna::from_string("TGCTCCAAAAGTGGGGGG").unwrap(), // need to start with a cystein
+        seq: ihor::Dna::from_string("TGCTGCAAAAGTGGGGGG").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(0),
+        cdr3_pos: Some(3),
     };
     let gv3 = ihor::Gene {
         name: "V2".to_string(),
-        seq: ihor::Dna::from_string("TGGGTCAAAAGTCCCCCC").unwrap(), // need to start with a cystein
+        seq: ihor::Dna::from_string("TGGGTCTGCAGTCCCCCC").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(0),
+        cdr3_pos: Some(6),
     };
     let gj1 = ihor::Gene {
         name: "J1".to_string(),
         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(11), // the cdr3 pos is defined before the last amino-acid, so 13-3=10
+        cdr3_pos: Some(11),
     };
     let gj2 = ihor::Gene {
         name: "J2".to_string(),
         seq: ihor::Dna::from_string("CCGCCCCACACAGT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(11), // the cdr3 pos is defined before the last amino-acid, so 13-3=10
+        cdr3_pos: Some(8),
     };
     let gj3 = ihor::Gene {
         name: "J2".to_string(),
         seq: ihor::Dna::from_string("AATACCCACACAGT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(11), // the cdr3 pos is defined before the last amino-acid, so 13-3=10
+        cdr3_pos: Some(11),
     };
 
     let gd1 = ihor::Gene {
@@ -173,6 +173,7 @@ pub fn simple_model_vdj() -> vdj::Model {
         error_rate: 0.,
         ..Default::default()
     };
+
     model.initialize().unwrap();
     model
 }
@@ -181,45 +182,45 @@ pub fn simple_model_vdj() -> vdj::Model {
 pub fn simple_model_vdj_no_ins() -> vdj::Model {
     let gv1 = ihor::Gene {
         name: "V1".to_string(),
-        seq: ihor::Dna::from_string("TGCTCAGTAAAAAAAAAA").unwrap(), // need to start with a cystein
+        seq: ihor::Dna::from_string("TGCTCATGCAAAAAATAA").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(0),
+        cdr3_pos: Some(6),
     };
     let gv2 = ihor::Gene {
         name: "V2".to_string(),
-        seq: ihor::Dna::from_string("TGCTCCAAAAGTGGGGGG").unwrap(), // need to start with a cystein
+        seq: ihor::Dna::from_string("TGCTGCAAAAGTGGGGGG").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(0),
+        cdr3_pos: Some(3),
     };
     let gv3 = ihor::Gene {
         name: "V2".to_string(),
-        seq: ihor::Dna::from_string("TGGGTCAAAAGTCCCCCC").unwrap(), // need to start with a cystein
+        seq: ihor::Dna::from_string("TGGGTCTGCAGTCCCCGC").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(0),
+        cdr3_pos: Some(6),
     };
     let gj1 = ihor::Gene {
         name: "J1".to_string(),
         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(11), // the cdr3 pos is defined before the last amino-acid, so 13-3=10
+        cdr3_pos: Some(11),
     };
     let gj2 = ihor::Gene {
         name: "J2".to_string(),
         seq: ihor::Dna::from_string("CCGCCCCACACAGT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(11), // the cdr3 pos is defined before the last amino-acid, so 13-3=10
+        cdr3_pos: Some(8),
     };
     let gj3 = ihor::Gene {
         name: "J2".to_string(),
         seq: ihor::Dna::from_string("AATACCCACACAGT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(11), // the cdr3 pos is defined before the last amino-acid, so 13-3=10
+        cdr3_pos: Some(11),
     };
 
     let gd1 = ihor::Gene {
@@ -236,7 +237,6 @@ pub fn simple_model_vdj_no_ins() -> vdj::Model {
         functional: "(F)".to_string(),
         cdr3_pos: None,
     };
-
     let mut model = ihor::vdj::Model {
         seg_vs: vec![gv1, gv2, gv3],
         seg_js: vec![gj1, gj2, gj3],
@@ -355,36 +355,71 @@ pub fn simple_model_vdj_no_ins() -> vdj::Model {
 
 /// Create a simple model with only 3 genes (one V, one D, one J) and no deletions
 pub fn simple_model_vdj_no_deletions() -> vdj::Model {
-    let gv = ihor::Gene {
+    let gv1 = ihor::Gene {
         name: "V1".to_string(),
-        seq: ihor::Dna::from_string("TGCTCAGTAAAAAAAAAA").unwrap(), // need to start with a cystein
+        seq: ihor::Dna::from_string("TGCTCATGCAAAAAAAAA").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(0),
+        cdr3_pos: Some(6),
     };
-    let gj = ihor::Gene {
+    let gv2 = ihor::Gene {
+        name: "V2".to_string(),
+        seq: ihor::Dna::from_string("TGCTGCAAAAGTGGGGGG").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        cdr3_pos: Some(3),
+    };
+    let gv3 = ihor::Gene {
+        name: "V2".to_string(),
+        seq: ihor::Dna::from_string("TGGGTCTGCAGTCCCCCC").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        cdr3_pos: Some(6),
+    };
+    let gj1 = ihor::Gene {
         name: "J1".to_string(),
         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
-        cdr3_pos: Some(11), // the cdr3 pos is defined before the last amino-acid, so 13-3=10
+        cdr3_pos: Some(11),
     };
-    let gd = ihor::Gene {
+    let gj2 = ihor::Gene {
+        name: "J2".to_string(),
+        seq: ihor::Dna::from_string("CCGCCCCACACAGT").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        cdr3_pos: Some(8),
+    };
+    let gj3 = ihor::Gene {
+        name: "J2".to_string(),
+        seq: ihor::Dna::from_string("AATACCCACACAGT").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        cdr3_pos: Some(11),
+    };
+
+    let gd1 = ihor::Gene {
         name: "D1".to_string(),
-        seq: ihor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
+        seq: ihor::Dna::from_string("TTTTTCGCTTTT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
         cdr3_pos: None,
     };
-
+    let gd2 = ihor::Gene {
+        name: "D2".to_string(),
+        seq: ihor::Dna::from_string("AAAAACGCAAAA").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        cdr3_pos: None,
+    };
     let mut model = ihor::vdj::Model {
-        seg_vs: vec![gv],
-        seg_js: vec![gj],
-        seg_ds: vec![gd],
+        seg_vs: vec![gv1],
+        seg_js: vec![gj1],
+        seg_ds: vec![gd1],
         p_v: array![1.],
         p_dj: array![[1.]],
         p_ins_vd: array![0.1, 0.1, 0.2, 0.01, 0.005], // 0, 1, 2, 3, 4 insertions
-        p_ins_dj: array![1.],
+        p_ins_dj: array![0.1, 0.9],
         p_del_v_given_v: array![[1.]],
         p_del_j_given_j: array![[1.]],
         p_del_d3_del_d5: array![[[1.]]],
@@ -422,8 +457,8 @@ pub fn inference_parameters_default() -> ihor::InferenceParameters {
 
 pub fn alignment_parameters_default() -> ihor::AlignmentParameters {
     ihor::AlignmentParameters {
-        min_score_v: 10,
-        min_score_j: 10,
-        max_error_d: 0,
+        min_score_v: 0,
+        min_score_j: 0,
+        max_error_d: 20,
     }
 }

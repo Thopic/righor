@@ -6,7 +6,7 @@ pub mod py_binding;
 pub mod utils;
 
 pub use feature::{
-    CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
-    ErrorSingleNucleotide, InsertionFeature,
+    CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature1g2, CategoricalFeature2,
+    CategoricalFeature2g1, ErrorSingleNucleotide, InsertionFeature,
 };
 pub use utils::{Gene, InferenceParameters};

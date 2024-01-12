@@ -2,20 +2,19 @@ use crate::sequence::{AlignmentParameters, AminoAcid, Dna};
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
 use crate::shared::utils::{
-    add_errors, calc_steady_state_dist, max_of_array, sorted_and_complete,
-    sorted_and_complete_0start, DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
+    add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
+    DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
 };
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
 use crate::vdj::{Features, Sequence, StaticEvent};
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array1, Array2, Array3, Axis};
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use pyo3::prelude::*;
 use rand::Rng;
 use std::path::Path;
 use std::{cmp, fs::File};
+
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use pyo3::prelude::*;
 
 #[derive(Default, Clone, Debug)]
 pub struct Generative {
@@ -45,8 +44,9 @@ pub struct Model {
     pub seg_js_sanitized: Vec<Dna>,
 
     // Probabilities of the different events
+    pub p_d_given_vj: Array3<f64>,
+    pub p_j_given_v: Array2<f64>,
     pub p_v: Array1<f64>,
-    pub p_dj: Array2<f64>,
     pub p_ins_vd: Array1<f64>,
     pub p_ins_dj: Array1<f64>,
     pub p_del_v_given_v: Array2<f64>,
@@ -55,21 +55,19 @@ pub struct Model {
     pub gen: Generative,
     pub markov_coefficients_vd: Array2<f64>,
     pub markov_coefficients_dj: Array2<f64>,
-    pub first_nt_bias_ins_vd: Array1<f64>,
-    pub first_nt_bias_ins_dj: Array1<f64>,
     pub range_del_v: (i64, i64),
     pub range_del_j: (i64, i64),
     pub range_del_d3: (i64, i64),
     pub range_del_d5: (i64, i64),
     pub error_rate: f64,
-    pub thymic_q: f64,
 
-    // pre-computed values to improve speed
-    pub max_log_likelihood_post_v: f64,
-    pub max_log_likelihood_post_delv: f64,
-    pub arr_max_log_likelihood_post_dj: Array2<f64>, // depend on d.index and the max number of insert
-    pub arr_max_log_likelihood_post_delj: Array2<f64>, // depend on d.index and the number of inserts
-    pub arr_max_log_likelihood_post_deld: Array2<f64>, // depend on the number of inserts on both sides of d
+    // Not directly useful for the model but useful for integration with other soft
+    // TODO: transform these in "getter" in the python bindings, they don't need to be precomputed
+    pub p_dj: Array2<f64>,
+    pub p_vdj: Array3<f64>,
+    pub first_nt_bias_ins_vd: Array1<f64>,
+    pub first_nt_bias_ins_dj: Array1<f64>,
+    pub thymic_q: f64,
 }
 
 impl Model {
@@ -210,27 +208,66 @@ impl Model {
         }
 
         // Set the different probabilities for the model
-        model.p_v = pm
-            .marginals
-            .get("v_choice")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_dimensionality()
-            .unwrap();
-        // For the joint probability P(D, J), we just multiply
-        // P(J) and P(D|J)
-        // model.p_dj[d, j] = pj[j] * pd[j, d]
+        let pv = pm.marginals.get("v_choice").unwrap().probabilities.clone();
         let pd = pm.marginals.get("d_gene").unwrap().probabilities.clone();
         let pj = pm.marginals.get("j_choice").unwrap().probabilities.clone();
-        let jdim = pd.dim()[0];
-        let ddim = pd.dim()[1];
-        model.p_dj = Array2::<f64>::zeros((ddim, jdim));
-        for dd in 0..ddim {
-            for jj in 0..jdim {
-                model.p_dj[[dd, jj]] = pd[[jj, dd]] * pj[[jj]]
+
+        // For P(V, D, J) two possibilities;
+        // P(V) P(D,J) [olga model] and P(V,D,J) [igor model]
+        // Igor-like
+        if pm.marginals.get("v_choice").unwrap().dimensions.len() == 1
+            && pm.marginals.get("j_choice").unwrap().dimensions.len() == 2
+            && pm.marginals.get("d_gene").unwrap().dimensions.len() == 3
+        {
+            let vdim = pd.dim()[0];
+            let jdim = pd.dim()[1];
+            let ddim = pd.dim()[2];
+
+            model.p_v = Array1::<f64>::zeros(vdim);
+            model.p_j_given_v = Array2::<f64>::zeros((jdim, vdim));
+            model.p_d_given_vj = Array3::<f64>::zeros((ddim, vdim, jdim));
+
+            for vv in 0..vdim {
+                for jj in 0..jdim {
+                    for dd in 0..ddim {
+                        model.p_d_given_vj[[dd, vv, jj]] = pd[[vv, jj, dd]];
+                    }
+                    model.p_j_given_v[[jj, vv]] = pj[[vv, jj]];
+                }
+                model.p_v[[vv]] = pv[[vv]];
             }
         }
+        // Olga-like
+        else if pm.marginals.get("v_choice").unwrap().dimensions.len() == 1
+            && pm.marginals.get("j_choice").unwrap().dimensions.len() == 1
+            && pm.marginals.get("d_gene").unwrap().dimensions.len() == 2
+        {
+            let vdim = pv.dim()[0];
+            let jdim = pd.dim()[0];
+            let ddim = pd.dim()[1];
+
+            model.p_v = Array1::<f64>::zeros(vdim);
+            model.p_j_given_v = Array2::<f64>::zeros((jdim, vdim));
+            model.p_d_given_vj = Array3::<f64>::zeros((ddim, vdim, jdim));
+
+            for vv in 0..vdim {
+                for jj in 0..jdim {
+                    for dd in 0..ddim {
+                        model.p_d_given_vj[[dd, vv, jj]] = pd[[jj, dd]];
+                    }
+                    model.p_j_given_v[[jj, vv]] = pj[[jj]];
+                }
+                model.p_v[[vv]] = pv[[vv]];
+            }
+        } else {
+            return Err::<Model, anyhow::Error>(anyhow!("Wrong format for the VDJ probabilities"));
+        }
+
+        model.set_p_vdj(
+            &model.p_d_given_vj.clone(),
+            &model.p_j_given_v.clone(),
+            &model.p_v.clone(),
+        );
 
         model.p_ins_vd = pm
             .marginals
@@ -308,9 +345,11 @@ impl Model {
         model.first_nt_bias_ins_dj =
             Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_dj)?);
 
-        model.initialize()?;
         model.error_rate = pp.error_rate;
         model.thymic_q = 9.41; // TODO: deal with this
+
+        model.initialize()?;
+
         Ok(model)
     }
 }
@@ -372,8 +411,8 @@ impl Model {
                 .push(DiscreteDistribution::new(d3d5)?);
         }
 
-        self.gen.markov_vd = MarkovDNA::new(self.markov_coefficients_vd.t().to_owned(), None)?;
-        self.gen.markov_dj = MarkovDNA::new(self.markov_coefficients_dj.t().to_owned(), None)?;
+        self.gen.markov_vd = MarkovDNA::new(self.markov_coefficients_vd.t().to_owned())?;
+        self.gen.markov_dj = MarkovDNA::new(self.markov_coefficients_dj.t().to_owned())?;
         Ok(())
     }
 
@@ -398,6 +437,7 @@ impl Model {
 
             let seq_d: &Dna = self.seg_ds[event.d_index].seq_with_pal.as_ref().unwrap();
             let seq_v: &Dna = self.seg_vs[event.v_index].seq_with_pal.as_ref().unwrap();
+            let seq_j: &Dna = self.seg_js[event.j_index].seq_with_pal.as_ref().unwrap();
 
             event.delv = self.gen.d_del_v_given_v[event.v_index].generate(rng);
             let del_d: usize = self.gen.d_del_d3_del_d5[event.d_index].generate(rng);
@@ -420,8 +460,13 @@ impl Model {
                 continue;
             }
 
-            let ins_seq_vd: Dna = self.gen.markov_vd.generate(ins_vd, rng);
-            let mut ins_seq_dj: Dna = self.gen.markov_dj.generate(ins_dj, rng);
+            // look at the last nucleotide of V (for the Markov chain)
+
+            let end_v = seq_v.seq[seq_v.len() - event.delv - 1];
+            let first_j = seq_j.seq[event.delj];
+
+            let ins_seq_vd: Dna = self.gen.markov_vd.generate(ins_vd, end_v, rng);
+            let mut ins_seq_dj: Dna = self.gen.markov_dj.generate(ins_dj, first_j, rng);
             ins_seq_dj.reverse(); // reverse for integration
 
             event.insdj = ins_seq_dj.clone();
@@ -479,7 +524,6 @@ impl Model {
     }
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl Model {
     pub fn uniform(&self) -> Result<Model> {
         let mut m = Model {
@@ -511,7 +555,11 @@ impl Model {
     pub fn initialize(&mut self) -> Result<()> {
         self.sanitize_genes()?;
         self.initialize_generative_model()?;
-        self.precompute_maximum_log_likelihoods();
+        // load the data and normalize
+        let mut feature = Features::new(self)?;
+        feature.normalize()?;
+
+        self.load_features(&feature)?;
         Ok(())
     }
 
@@ -524,19 +572,7 @@ impl Model {
         let _ = feature.infer(sequence, inference_params);
         Ok(feature)
     }
-    // pub fn most_likely_recombinations(
-    //     &self,
-    //     sequence: &Sequence,
-    //     nb_scenarios: usize,
-    //     inference_params: &InferenceParameters,
-    // ) -> Result<Vec<(f64, StaticEvent)>> {
-    //     let mut ip = inference_params.clone();
-    //     ip.nb_best_events = nb_scenarios;
-    //     ip.evaluate = true;
-    //     let mut feature = Features::new(self)?;
-    //     let _, res) = feature.infer(sequence, self, &ip);
-    //     Ok(res)
-    // }
+
     pub fn pgen(&self, sequence: &Sequence, inference_params: &InferenceParameters) -> Result<f64> {
         let mut ip = inference_params.clone();
         ip.nb_best_events = 0;
@@ -621,275 +657,51 @@ impl Model {
         (seq, vgene.name, jgene.name, vgene_sans_cdr3.len())
     }
 
-    pub fn update(&mut self, feature: &Features) -> Result<()> {
+    pub fn load_features(&mut self, feature: &Features) -> Result<()> {
         self.p_v = feature.v.log_probas.mapv(|x| x.exp2());
         self.p_del_v_given_v = feature.delv.log_probas.mapv(|x| x.exp2());
-        self.p_dj = feature.dj.log_probas.mapv(|x| x.exp2());
+        self.set_p_vdj(
+            &feature.d.log_probas.mapv(|x| x.exp2()),
+            &feature.j.log_probas.mapv(|x| x.exp2()),
+            &feature.v.log_probas.mapv(|x| x.exp2()),
+        );
         self.p_del_j_given_j = feature.delj.log_probas.mapv(|x| x.exp2());
         self.p_del_d3_del_d5 = feature.deld.log_probas.mapv(|x| x.exp2());
-        (
-            self.p_ins_vd,
-            self.first_nt_bias_ins_vd,
-            self.markov_coefficients_vd,
-        ) = feature.insvd.get_parameters();
-        (
-            self.p_ins_dj,
-            self.first_nt_bias_ins_dj,
-            self.markov_coefficients_dj,
-        ) = feature.insdj.get_parameters();
+        (self.p_ins_vd, self.markov_coefficients_vd) = feature.insvd.get_parameters();
+        (self.p_ins_dj, self.markov_coefficients_dj) = feature.insdj.get_parameters();
         self.error_rate = feature.error.error_rate;
+
+        Ok(())
+    }
+
+    pub fn update(&mut self, feature: &Features) -> Result<()> {
+        self.load_features(feature)?;
         self.initialize()?;
         Ok(())
     }
 
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[staticmethod]
-    #[pyo3(name = "load_model")]
-    pub fn py_load_model(
-        path_params: &str,
-        path_marginals: &str,
-        path_anchor_vgene: &str,
-        path_anchor_jgene: &str,
-    ) -> Result<Model> {
-        Model::load_from_files(
-            Path::new(path_params),
-            Path::new(path_marginals),
-            Path::new(path_anchor_vgene),
-            Path::new(path_anchor_jgene),
-        )
-    }
+    pub fn set_p_vdj(
+        &mut self,
+        p_d_given_vj: &Array3<f64>,
+        p_j_given_v: &Array2<f64>,
+        p_v: &Array1<f64>,
+    ) {
+        // P(V,D,J) = P(D | V, J) * P(V, J) = P(D|V,J) * P(J|V)*P(V)
 
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_p_v(&self, py: Python) -> Py<PyArray1<f64>> {
-        self.p_v.to_owned().into_pyarray(py).to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_v(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
-        self.p_v = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_p_dj(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.p_dj.to_owned().into_pyarray(py).to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_dj(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
-        self.p_dj = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_p_ins_vd(&self, py: Python) -> Py<PyArray1<f64>> {
-        self.p_ins_vd.to_owned().into_pyarray(py).to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_ins_vd(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
-        self.p_ins_vd = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_p_ins_dj(&self, py: Python) -> Py<PyArray1<f64>> {
-        self.p_ins_dj.to_owned().into_pyarray(py).to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_ins_dj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
-        self.p_ins_dj = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_p_del_v_given_v(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.p_del_v_given_v.to_owned().into_pyarray(py).to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_del_v_given_v(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
-        self.p_del_v_given_v = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_p_del_j_given_j(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.p_del_j_given_j.to_owned().into_pyarray(py).to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_del_j_given_j(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
-        self.p_del_j_given_j = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_p_del_d3_del_d5(&self, py: Python) -> Py<PyArray3<f64>> {
-        self.p_del_d3_del_d5.to_owned().into_pyarray(py).to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_del_d3_del_d5(&mut self, py: Python, value: Py<PyArray3<f64>>) -> PyResult<()> {
-        self.p_del_d3_del_d5 = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_markov_coefficients_vd(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.markov_coefficients_vd
-            .to_owned()
-            .into_pyarray(py)
-            .to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_markov_coefficients_vd(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
-        self.markov_coefficients_vd = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_markov_coefficients_dj(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.markov_coefficients_dj
-            .to_owned()
-            .into_pyarray(py)
-            .to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_markov_coefficients_dj(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
-        self.markov_coefficients_dj = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_first_nt_bias_ins_vd(&self, py: Python) -> Py<PyArray1<f64>> {
-        self.first_nt_bias_ins_vd
-            .to_owned()
-            .into_pyarray(py)
-            .to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_first_nt_bias_ins_vd(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
-        self.first_nt_bias_ins_vd = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[getter]
-    fn get_first_nt_bias_ins_dj(&self, py: Python) -> Py<PyArray1<f64>> {
-        self.first_nt_bias_ins_dj
-            .to_owned()
-            .into_pyarray(py)
-            .to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_first_nt_bias_ins_dj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
-        self.first_nt_bias_ins_dj = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
-}
-
-/// These functions compute max_log_likelihood values that are used
-/// to get rid of dead branches during the inference.
-impl Model {
-    pub fn max_log_likelihood_post_dj(&self, d_idx: usize, nb_ins: i64) -> f64 {
-        if nb_ins >= self.arr_max_log_likelihood_post_dj.dim().1 as i64 {
-            return f64::NEG_INFINITY;
-        } else if nb_ins < 0 {
-            return self.arr_max_log_likelihood_post_dj[[d_idx, 0]];
-        }
-        self.arr_max_log_likelihood_post_dj[[d_idx, nb_ins as usize]]
-    }
-
-    pub fn max_log_likelihood_post_delj(&self, d_idx: usize, nb_ins: usize) -> f64 {
-        if nb_ins >= self.arr_max_log_likelihood_post_delj.dim().1 {
-            return f64::NEG_INFINITY;
-        }
-        self.arr_max_log_likelihood_post_delj[[d_idx, nb_ins]]
-    }
-
-    pub fn max_log_likelihood_post_deld(&self, nb_ins_vd: usize, nb_ins_dj: usize) -> f64 {
-        if nb_ins_vd >= self.arr_max_log_likelihood_post_deld.dim().0
-            || nb_ins_dj >= self.arr_max_log_likelihood_post_deld.dim().1
-        {
-            return f64::NEG_INFINITY;
-        }
-        self.arr_max_log_likelihood_post_deld[[nb_ins_vd, nb_ins_dj]]
-    }
-
-    pub fn precompute_maximum_log_likelihoods(&mut self) {
-        let max_delv = max_of_array(&self.p_del_v_given_v).log2();
-        let max_dj = max_of_array(&self.p_dj).log2();
-        let max_delj = max_of_array(&self.p_del_j_given_j).log2();
-
-        let max_lins = max_of_array(&self.p_ins_vd).log2() + max_of_array(&self.p_ins_dj).log2();
-        let max_deld = max_of_array(&self.p_del_d3_del_d5).log2();
-
-        let max_transition_vd = max_of_array(&self.markov_coefficients_vd).log2();
-        let max_transition_dj = max_of_array(&self.markov_coefficients_dj).log2();
-
-        let maxlend = self
-            .seg_ds
-            .iter()
-            .map(|x| x.seq_with_pal.clone().unwrap().len())
-            .max()
-            .unwrap_or(0);
-
-        self.max_log_likelihood_post_v = max_delv + max_delj + max_dj + max_lins + max_deld;
-        self.max_log_likelihood_post_delv = max_dj + max_delj + max_lins + max_deld;
-
-        self.arr_max_log_likelihood_post_deld =
-            Array2::zeros((self.p_ins_vd.dim(), self.p_ins_dj.dim()));
-        self.arr_max_log_likelihood_post_dj = Array2::zeros((
-            self.p_dj.dim().0,
-            self.p_ins_dj.dim() + self.p_ins_vd.dim() + maxlend,
-        ));
-        self.arr_max_log_likelihood_post_delj = Array2::zeros((
-            self.p_dj.dim().0,
-            self.p_ins_dj.dim() + self.p_ins_vd.dim() + maxlend,
-        ));
-
-        let mut max_ins = Array1::zeros(self.p_ins_vd.dim() + self.p_ins_dj.dim() - 1);
-        max_ins += f64::NEG_INFINITY;
-
-        for nb_ins_vd in 0..self.p_ins_vd.dim() {
-            for nb_ins_dj in 0..self.p_ins_dj.dim() {
-                let t = max_transition_vd * (nb_ins_vd as f64)
-                    + self.p_ins_vd[nb_ins_vd].log2()
-                    + max_transition_dj * (nb_ins_dj as f64)
-                    + self.p_ins_dj[nb_ins_dj].log2();
-                //                println!("{:?} {} {}", t, nb_ins_vd, nb_ins_dj);
-                self.arr_max_log_likelihood_post_deld[[nb_ins_vd, nb_ins_dj]] = t;
-                for a in 0..(nb_ins_vd + nb_ins_dj) + 1 {
-                    if max_ins[a] < t {
-                        max_ins[a] = t;
-                    }
+        let dim = p_d_given_vj.dim();
+        self.p_vdj = Array3::zeros((dim.1, dim.0, dim.2));
+        self.p_dj = Array2::zeros((dim.0, dim.2));
+        for vv in 0..p_v.dim() {
+            for jj in 0..p_j_given_v.dim().0 {
+                for dd in 0..p_d_given_vj.dim().0 {
+                    self.p_vdj[[vv, dd, jj]] =
+                        p_d_given_vj[[dd, vv, jj]] * p_j_given_v[[jj, vv]] * p_v[vv];
+                    self.p_dj[[dd, jj]] += self.p_vdj[[vv, dd, jj]];
                 }
             }
         }
-
-        for d_idx in 0..self.p_dj.dim().0 {
-            let lend = self.seg_ds[d_idx].seq_with_pal.clone().unwrap().len();
-            for nb_ins in 0..self.p_ins_dj.dim() + self.p_ins_vd.dim() - 1 {
-                self.arr_max_log_likelihood_post_dj[[d_idx, nb_ins + lend]] =
-                    max_ins[nb_ins] + max_delj;
-                self.arr_max_log_likelihood_post_delj[[d_idx, nb_ins + lend]] = max_ins[nb_ins];
-            }
-            for leftover in 0..maxlend - lend + 1 {
-                self.arr_max_log_likelihood_post_delj[[
-                    d_idx,
-                    self.p_ins_dj.dim() + self.p_ins_vd.dim() + maxlend - 1 - leftover,
-                ]] = f64::NEG_INFINITY;
-                self.arr_max_log_likelihood_post_dj[[
-                    d_idx,
-                    self.p_ins_dj.dim() + self.p_ins_vd.dim() + maxlend - 1 - leftover,
-                ]] = f64::NEG_INFINITY;
-            }
-        }
+        self.p_d_given_vj = p_d_given_vj.clone();
+        self.p_j_given_v = p_j_given_v.clone();
+        self.p_v = p_v.clone();
     }
 }

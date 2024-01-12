@@ -3,6 +3,7 @@ pub mod shared;
 pub mod vdj;
 //pub mod vj;
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::vdj::GenerationResult;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;

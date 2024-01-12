@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ihor::shared::utils::Normalize;
 use ihor::{self, AlignmentParameters};
-use ndarray::array;
+use ndarray::{array, Array2};
 use std::path::Path;
 
 mod common;
@@ -38,9 +38,67 @@ mod common;
 // }
 
 #[test]
+fn infer_real_model() -> Result<()> {
+    let mut original_model = ihor::vdj::Model::load_from_files(
+        Path::new("models/human_T_beta/model_params.txt"),
+        Path::new("models/human_T_beta/model_marginals.txt"),
+        Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
+        Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
+    )?;
+    original_model.error_rate = 0.1;
+    // original_model.p_del_d3_del_d5 = array![[[0.3333f64, 0.3333f64, 0.3333f64]]];
+    // original_model.p_del_v_given_v = Array2::ones((1, original_model.p_v.dim()));
+    // original_model.p_del_j_given_j = Array2::ones((1, original_model.p_dj.dim().1));
+    // original_model.range_del_v = (0, 0);
+    // original_model.range_del_j = (0, 0);
+    // original_model.range_del_d3 = (0, 0);
+    // original_model.range_del_d5 = (0, 0);
+    original_model.initialize()?;
+
+    let ifp = common::inference_parameters_default();
+    let alp = common::alignment_parameters_default();
+    let mut gen = ihor::vdj::Generator::new(original_model.clone(), Some(0));
+    let mut sequences = Vec::new();
+    for _ in 0..100 {
+        sequences.push(gen.generate(false).cdr3_nt);
+    }
+    println!("Generation finished");
+    let mut model = original_model.uniform().unwrap();
+    model.error_rate = 0.5;
+    let mut sequences_aligned = Vec::new();
+    for s in sequences.clone().iter() {
+        let seq_aligned = model
+            .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
+            .unwrap();
+        if seq_aligned.valid_alignment {
+            sequences_aligned.push(seq_aligned);
+        }
+    }
+
+    println!("Alignment finished");
+    for _ in 0..100 {
+        let mut features = Vec::new();
+        for sal in &sequences_aligned {
+            let feat = model.infer_features(&sal, &ifp).unwrap();
+            features.push(feat.clone());
+            let pgen = model.pgen(&sal, &ifp).unwrap();
+        }
+
+        let new_features = ihor::vdj::Features::average(features).unwrap();
+        model.update(&new_features).unwrap();
+        println!("{:?}", model.error_rate);
+        println!("{:?}", original_model.error_rate);
+        println!("{:?}", model.p_ins_vd);
+        println!("{:?}", original_model.p_ins_vd);
+        println!("");
+    }
+    Ok(())
+}
+
+#[test]
 fn infer_simple_model_vdj() -> () {
-    let mut model = common::simple_model_vdj_no_deletions();
-    model.error_rate = 0.0;
+    let mut model = common::simple_model_vdj_no_ins();
+    model.error_rate = 0.1;
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
     let mut gen = ihor::vdj::Generator::new(model.clone(), Some(0));
@@ -49,8 +107,9 @@ fn infer_simple_model_vdj() -> () {
         sequences.push(gen.generate(false).full_seq);
     }
 
+    let original_model = model.clone();
     model = model.uniform().unwrap();
-    model.error_rate = 0.;
+    model.error_rate = 0.5;
     // let mut nb = 0;
     let mut sequences_aligned = Vec::new();
     for s in sequences.clone().iter() {
@@ -77,10 +136,15 @@ fn infer_simple_model_vdj() -> () {
 
         let new_features = ihor::vdj::Features::average(features).unwrap();
         model.update(&new_features).unwrap();
-        println!("{:?}", model.p_ins_vd);
-        println!("{:?}", model.markov_coefficients_vd);
-        println!("{:?}", model.p_ins_dj);
-        println!("{:?}", model.markov_coefficients_dj);
+        println!("{:?}", model.error_rate);
+        println!("{:?}", original_model.error_rate);
+        println!("{:?}", model.p_del_v_given_v);
+        println!("{:?}", original_model.p_del_v_given_v);
+
+        println!("");
+        // println!("{:?}", model.markov_coefficients_vd);
+        // println!("{:?}", model.p_ins_dj);
+        // println!("{:?}", model.markov_coefficients_dj);
     }
 }
 

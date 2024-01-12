@@ -102,9 +102,15 @@ Things to do:
 - if range_j / range_v / range_d doesn't match p_deld/p_delv/ p_delj in length, should complain
 
 Current status:
-
-- speed is ok. Could be slightly faster. My improvement have not been crazy, so I think I'm reaching a wall. Obvious changes would be to add some unsafe (beuh). It's at Igor speed now, so it's fine. alignment procedure is a bit slow too (but that's basically library code). I could check insertion a bit less & play a bit with extract_padded_sequence. But all together, I think it's in a pretty good state.
-
+- speed is ok. Could be slightly faster. My improvement have not been crazy, so I think I'm reaching a wall. Obvious changes would be to add some unsafe (beuh). It's at Igor speed now, so it's fine. alignment procedure is a bit slow too (but that's basically library code). I could check insertion a bit less & play a bit with extract_padded_sequence. But all together, I think it's in a pretty good state. Some easy fix: stop using Array so much, replace a lot of loop with iterators, maybe bit of unsafe.
 - the inference doesn't quite work. Probably a few small problems here and there, need to check with the test. deletions without insertions maaaaaybe work. error kind of work but don't quite go to the right value.
-
 - generally needs a lot more testing
+- Consider just the best alignment, rather than all the alignment, to decide the range of D ? With some range ?
+- Also improve the alignment, it's waaay too slow. We don't expect that many insertions. Start with aligning a fairly conserved subset of Vs, then try to align the other ones, following the same structure ?
+- I've just realized that igor is P(V,D,J) while olga is P(V)P(D,J)... Need to add some flexibility in reading the model. Let's always work in the (more complex) P(V,D,J) case, but still give access to P(V) and P(D,J).
+
+
+Tests:
+- without deletions the inference seems to go well, including with the error rate.
+- not the case with deletions. Even without insertions.
+- Interestingly, while the error rate seemed to work with the full sequence it drastically fall when just CDR3. Wait.

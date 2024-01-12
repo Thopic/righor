@@ -168,7 +168,7 @@ impl ParserParams {
             .map_err(|_e| anyhow!("Error reading the anchor file headers"))?;
         // TODO: check that the headers are right
         for result in rdr.records() {
-            let record = result.map_err(|_e| anyhow!("Error reading the anchor file headers"))?;
+            let record = result.map_err(|e| anyhow!("Error reading the record {:?}", e))?;
             let gene_name = record.get(0).unwrap();
             anchors.insert(
                 gene_name.to_string(),
@@ -180,8 +180,17 @@ impl ParserParams {
 
         if let Some(EventType::Genes(v)) = self.params.get_mut(gene_choice) {
             v.iter_mut().for_each(|g| {
-                g.cdr3_pos = Some(anchors[&g.name]);
-                g.functional = functions[&g.name].clone()
+                g.cdr3_pos = Some(
+                    *anchors
+                        .get(&g.name)
+                        .ok_or(anyhow!("{} not found in anchor file", g.name))
+                        .unwrap(),
+                );
+                g.functional = functions
+                    .get(&g.name)
+                    .ok_or(anyhow!("{} not found in anchor file", g.name))
+                    .unwrap()
+                    .clone()
             });
         } else {
             return Err(anyhow!("Wrong value for gene_choice (add_anchors_gene)"))?;
