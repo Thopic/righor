@@ -100,6 +100,7 @@ Things to do:
 - Error model is wrong as defined rn
 - deal with potential insertion in V/J alignment, remove the sequence from the inference if the insertion overlap with the delv range.
 - if range_j / range_v / range_d doesn't match p_deld/p_delv/ p_delj in length, should complain
+- having spaces in the marginal file fuck up the parsing silently => fix.
 
 Current status:
 - speed is ok. Could be slightly faster. My improvement have not been crazy, so I think I'm reaching a wall. Obvious changes would be to add some unsafe (beuh). It's at Igor speed now, so it's fine. alignment procedure is a bit slow too (but that's basically library code). I could check insertion a bit less & play a bit with extract_padded_sequence. But all together, I think it's in a pretty good state. Some easy fix: stop using Array so much, replace a lot of loop with iterators, maybe bit of unsafe.
@@ -111,6 +112,6 @@ Current status:
 
 
 Tests:
-- without deletions the inference seems to go well, including with the error rate.
-- not the case with deletions. Even without insertions.
-- Interestingly, while the error rate seemed to work with the full sequence it drastically fall when just CDR3. Wait.
+- likelihoods values seem to make sense, with/without errors
+- values obtained are close to the Igor's one. Close but not quite identical.
+- This can make quite a difference for pgen values. For ex I find a pgen value of 5e-6 rather than 7e-7 ... Made worse by the fact that I think my pgen include error proba and his does not. Hmm not clear actually, he's doing something fairly strange, I'm not sure the pgen will go up or down. I should set that up in the code.

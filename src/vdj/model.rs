@@ -19,8 +19,7 @@ use pyo3::prelude::*;
 #[derive(Default, Clone, Debug)]
 pub struct Generative {
     // Contains the distribution needed to generate the model
-    d_v: DiscreteDistribution,
-    d_dj: DiscreteDistribution,
+    d_vdj: DiscreteDistribution,
     d_ins_vd: DiscreteDistribution,
     d_ins_dj: DiscreteDistribution,
     d_del_v_given_v: Vec<DiscreteDistribution>,
@@ -226,7 +225,6 @@ impl Model {
             model.p_v = Array1::<f64>::zeros(vdim);
             model.p_j_given_v = Array2::<f64>::zeros((jdim, vdim));
             model.p_d_given_vj = Array3::<f64>::zeros((ddim, vdim, jdim));
-
             for vv in 0..vdim {
                 for jj in 0..jdim {
                     for dd in 0..ddim {
@@ -262,12 +260,6 @@ impl Model {
         } else {
             return Err::<Model, anyhow::Error>(anyhow!("Wrong format for the VDJ probabilities"));
         }
-
-        model.set_p_vdj(
-            &model.p_d_given_vj.clone(),
-            &model.p_j_given_v.clone(),
-            &model.p_v.clone(),
-        );
 
         model.p_ins_vd = pm
             .marginals
@@ -380,8 +372,7 @@ impl Model {
     }
 
     fn initialize_generative_model(&mut self) -> Result<()> {
-        self.gen.d_v = DiscreteDistribution::new(self.p_v.to_vec())?;
-        self.gen.d_dj = DiscreteDistribution::new(self.p_dj.view().iter().cloned().collect())?;
+        self.gen.d_vdj = DiscreteDistribution::new(self.p_vdj.view().iter().cloned().collect())?;
         self.gen.d_ins_vd = DiscreteDistribution::new(self.p_ins_vd.to_vec())?;
         self.gen.d_ins_dj = DiscreteDistribution::new(self.p_ins_dj.to_vec())?;
 
@@ -427,10 +418,11 @@ impl Model {
                 ..Default::default()
             };
 
-            event.v_index = self.gen.d_v.generate(rng);
-            let dj_index: usize = self.gen.d_dj.generate(rng);
-            event.d_index = dj_index / self.p_dj.dim().1;
-            event.j_index = dj_index % self.p_dj.dim().1;
+            let vdj_index: usize = self.gen.d_vdj.generate(rng);
+            event.v_index = vdj_index / (self.p_vdj.dim().1 * self.p_vdj.dim().2);
+            event.d_index =
+                (vdj_index % (self.p_vdj.dim().1 * self.p_vdj.dim().2)) / self.p_vdj.dim().2;
+            event.j_index = vdj_index % self.p_dj.dim().1;
 
             let seq_v_cdr3: &Dna = &self.seg_vs_sanitized[event.v_index];
             let seq_j_cdr3: &Dna = &self.seg_js_sanitized[event.j_index];
@@ -535,7 +527,8 @@ impl Model {
             range_del_j: self.range_del_j,
             range_del_d5: self.range_del_d5,
             p_v: Array1::<f64>::ones(self.p_v.dim()),
-            p_dj: Array2::<f64>::ones(self.p_dj.dim()),
+            p_j_given_v: Array2::<f64>::ones(self.p_j_given_v.dim()),
+            p_d_given_vj: Array3::<f64>::ones(self.p_d_given_vj.dim()),
             p_ins_vd: Array1::<f64>::ones(self.p_ins_vd.dim()),
             p_ins_dj: Array1::<f64>::ones(self.p_ins_dj.dim()),
             p_del_v_given_v: Array2::<f64>::ones(self.p_del_v_given_v.dim()),
@@ -554,6 +547,12 @@ impl Model {
 
     pub fn initialize(&mut self) -> Result<()> {
         self.sanitize_genes()?;
+        // define the non-critical parameters
+        self.set_p_vdj(
+            &self.p_d_given_vj.clone(),
+            &self.p_j_given_v.clone(),
+            &self.p_v.clone(),
+        );
         self.initialize_generative_model()?;
         // load the data and normalize
         let mut feature = Features::new(self)?;
@@ -687,7 +686,6 @@ impl Model {
         p_v: &Array1<f64>,
     ) {
         // P(V,D,J) = P(D | V, J) * P(V, J) = P(D|V,J) * P(J|V)*P(V)
-
         let dim = p_d_given_vj.dim();
         self.p_vdj = Array3::zeros((dim.1, dim.0, dim.2));
         self.p_dj = Array2::zeros((dim.0, dim.2));

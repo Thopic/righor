@@ -9,6 +9,7 @@ pub mod vdj;
 use anyhow::{anyhow, Result};
 use kdam::tqdm;
 use ndarray::array;
+use ndarray::Axis;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -48,7 +49,10 @@ fn main() -> Result<()> {
             seq.push(als);
         }
     }
-    println!("{:?}", model.p_ins_vd);
+    println!(
+        "{:?}",
+        model.p_del_d3_del_d5.sum_axis(Axis(0)).sum_axis(Axis(1))
+    );
     for _ in 0..5 {
         let mut features = Vec::new();
         for s in tqdm!(seq.clone().iter(), total = seq.len()) {
@@ -60,7 +64,10 @@ fn main() -> Result<()> {
         }
         let new_features = vdj::Features::average(features)?;
         model.update(&new_features)?;
-        println!("{:?}", model.p_ins_dj);
+        println!(
+            "{:?}",
+            model.p_del_d3_del_d5.sum_axis(Axis(0)).sum_axis(Axis(1))
+        );
     }
 
     Ok(())

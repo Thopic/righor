@@ -57,10 +57,13 @@ impl AggregatedFeatureEndV {
         feat: &Features,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureEndV> {
-        let mut log_likelihood = RangeArray1::zeros((
-            difference_as_i64(v.end_seq, feat.delv.dim().0) + 1,
-            v.end_seq as i64 + 1,
-        ));
+        let mut log_likelihood = RangeArray1::constant(
+            (
+                difference_as_i64(v.end_seq, feat.delv.dim().0) + 1,
+                v.end_seq as i64 + 1,
+            ),
+            f64::NEG_INFINITY,
+        );
         let mut total_likelihood = 0.;
         for delv in 0..feat.delv.dim().0 {
             let v_end = difference_as_i64(v.end_seq, delv);
@@ -130,10 +133,10 @@ impl AggregatedFeatureStartJ {
         feat: &Features,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureStartJ> {
-        let mut log_likelihood = RangeArray1::zeros((
-            j.start_seq as i64,
-            (j.start_seq + feat.delj.dim().0) as i64 - 1,
-        ));
+        let mut log_likelihood = RangeArray1::constant(
+            (j.start_seq as i64, (j.start_seq + feat.delj.dim().0) as i64),
+            f64::NEG_INFINITY,
+        );
         let mut total_likelihood = 0.;
         for delj in 0..feat.delj.dim().0 {
             let j_start = (j.start_seq + delj) as i64;
@@ -233,6 +236,7 @@ impl AggregatedFeatureSpanD {
                 if d_start > d_end {
                     continue;
                 }
+
                 let ll_d = feat.d.log_likelihood((d.index, v.index, j.index))
                     + feat.deld.log_likelihood((deld3, deld5, d.index))
                     + feat.error.log_likelihood((
@@ -336,22 +340,23 @@ impl FeatureVD {
             + feat.deld.dim().1 as i64
             - 1;
 
-        let mut values = Vec::with_capacity(
-            ((max_end_v + 1 - min_end_v) * (max_start_d + 1 - min_start_d)) as usize,
+        let mut log_likelihood = RangeArray2::constant(
+            ((min_end_v, min_start_d), (max_end_v + 1, max_start_d + 1)),
+            f64::NEG_INFINITY,
         );
+
         for ev in min_end_v..=max_end_v {
             for sd in min_start_d..=max_start_d {
                 if sd >= ev && ((sd - ev) as usize) < feat.insvd.max_nb_insertions() {
                     let ins_vd_plus_first = sequence.get_subsequence(ev - 1, sd);
                     let ll = feat.insvd.log_likelihood(&ins_vd_plus_first);
                     if ll > ip.min_log_likelihood {
-                        values.push(((ev, sd), ll));
+                        *log_likelihood.get_mut((ev, sd)) = ll;
                     }
                 }
             }
         }
 
-        let log_likelihood = RangeArray2::new(&values);
         FeatureVD {
             dirty_likelihood: RangeArray2::zeros(log_likelihood.dim()),
             log_likelihood,
@@ -427,9 +432,11 @@ impl FeatureDJ {
             + feat.delj.dim().0 as i64
             - 1;
 
-        let mut values = Vec::with_capacity(
-            ((max_end_d + 1 - min_end_d) * (max_start_j + 1 - min_start_j)) as usize,
+        let mut log_likelihood = RangeArray2::constant(
+            ((min_end_d, min_start_j), (max_end_d + 1, max_start_j + 1)),
+            f64::NEG_INFINITY,
         );
+
         for ed in min_end_d..=max_end_d {
             for sj in min_start_j..=max_start_j {
                 if sj >= ed && ((sj - ed) as usize) < feat.insdj.max_nb_insertions() {
@@ -438,12 +445,12 @@ impl FeatureDJ {
                     ins_dj_plus_last.reverse();
                     let ll = feat.insdj.log_likelihood(&ins_dj_plus_last);
                     if ll > ip.min_log_likelihood {
-                        values.push(((ed, sj), ll));
+                        *log_likelihood.get_mut((ed, sj)) = ll;
                     }
                 }
             }
         }
-        let log_likelihood = RangeArray2::new(&values);
+
         FeatureDJ {
             dirty_likelihood: RangeArray2::zeros(log_likelihood.dim()),
             log_likelihood,

@@ -173,7 +173,7 @@ impl ParserParams {
             anchors.insert(
                 gene_name.to_string(),
                 usize::from_str(record.get(1).unwrap())
-                    .map_err(|_e| anyhow!("Error reading the anchor file headers"))?,
+                    .map_err(|e| anyhow!("Error reading the anchor file headers: {:?}", e))?,
             );
             functions.insert(gene_name.to_string(), record.get(2).unwrap().to_string());
         }

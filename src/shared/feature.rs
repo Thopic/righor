@@ -537,12 +537,12 @@ impl InsertionFeature {
     }
 
     /// Just return the log likelihood from the length (faster)
-    pub fn log_likelihood_length(&self, observation: usize) -> f64 {
-        if observation >= self.log_length_distribution_internal.len() {
-            return f64::NEG_INFINITY;
-        }
-        self.log_length_distribution_internal[observation]
-    }
+    // pub fn log_likelihood_length(&self, observation: usize) -> f64 {
+    //     if observation >= self.log_length_distribution_internal.len() {
+    //         return f64::NEG_INFINITY;
+    //     }
+    //     self.log_length_distribution_internal[observation]
+    // }
 
     pub fn get_parameters(&self) -> (Array1<f64>, Array2<f64>) {
         (

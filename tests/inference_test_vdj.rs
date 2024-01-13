@@ -38,6 +38,25 @@ mod common;
 // }
 
 #[test]
+fn match_igor() -> Result<()> {
+    let igor_model = ihor::vdj::Model::load_from_files(
+        Path::new("demo/models/test/tcr_beta/models/model_parms.txt"),
+        Path::new("demo/models/test/tcr_beta/models/model_marginals.txt"),
+        Path::new("demo/models/test/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
+        Path::new("demo/models/test/tcr_beta/ref_genome/J_gene_CDR3_anchors.csv"),
+    )?;
+    let ifp = common::inference_parameters_default();
+    let alp = common::alignment_parameters_default();
+    let s = "TCAGAACCCAGGGACTCAGCTGTGTATTTTTGTGCTAGTGGTTTGGTACAATCAGCCCCA";
+    let seq_aligned = igor_model
+        .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
+        .unwrap();
+    let pgen = igor_model.pgen(&seq_aligned, &ifp).unwrap();
+    println!("{:?}", pgen);
+    Ok(())
+}
+
+#[test]
 fn infer_real_model() -> Result<()> {
     let mut original_model = ihor::vdj::Model::load_from_files(
         Path::new("models/human_T_beta/model_params.txt"),
@@ -94,26 +113,31 @@ fn infer_real_model() -> Result<()> {
     }
     Ok(())
 }
+//                    18----------v           v--------- 30
+//              TGCTCATGCAAAAAAAAATTTTTCGCTTTTGGGGGGCAGTCAGT
+//              TGCTCATGCAAAAAAAAA
+//                                            GGGGGGCAGTCAGT
+//
 
 #[test]
 fn infer_simple_model_vdj() -> () {
-    let mut model = common::simple_model_vdj_no_ins();
+    let mut model = common::simple_model_vdj();
     model.error_rate = 0.1;
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
     let mut gen = ihor::vdj::Generator::new(model.clone(), Some(0));
     let mut sequences = Vec::new();
-    for _ in 0..100000 {
+    for _ in 0..1000 {
         sequences.push(gen.generate(false).full_seq);
     }
 
     let original_model = model.clone();
-    model = model.uniform().unwrap();
-    model.error_rate = 0.5;
+    //    model = model.uniform().unwrap();
+    //  model.error_rate = 0.5;
     // let mut nb = 0;
     let mut sequences_aligned = Vec::new();
     for s in sequences.clone().iter() {
-        //        let s = "TGCTCCGTAAAAAAAAAATTTTTCCCTTTTGGGGGGCAGACAGT";
+        //        let s = "TGCTCATGCAAAAAAAATTTTTCGCTTTTGGGGGGCAGTCAGT";
         let seq_aligned = model
             .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
             .unwrap();
@@ -126,10 +150,12 @@ fn infer_simple_model_vdj() -> () {
         //      break;
     }
     //    println!("{}", nb);
-    for _ in 0..100 {
+    //    println!("{:?} {:?}", model.p_ins_vd, model.p_ins_dj);
+    for _ in 0..5 {
         let mut features = Vec::new();
         for sal in &sequences_aligned {
             let feat = model.infer_features(&sal, &ifp).unwrap();
+
             features.push(feat.clone());
             let pgen = model.pgen(&sal, &ifp).unwrap();
         }
