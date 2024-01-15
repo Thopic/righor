@@ -171,13 +171,13 @@ impl Model {
     }
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
-    fn get_p_del_d3_del_d5(&self, py: Python) -> Py<PyArray3<f64>> {
-        self.p_del_d3_del_d5.to_owned().into_pyarray(py).to_owned()
+    fn get_p_del_d5_del_d3(&self, py: Python) -> Py<PyArray3<f64>> {
+        self.p_del_d5_del_d3.to_owned().into_pyarray(py).to_owned()
     }
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[setter]
-    fn set_p_del_d3_del_d5(&mut self, py: Python, value: Py<PyArray3<f64>>) -> PyResult<()> {
-        self.p_del_d3_del_d5 = value.as_ref(py).to_owned_array();
+    fn set_p_del_d5_del_d3(&mut self, py: Python, value: Py<PyArray3<f64>>) -> PyResult<()> {
+        self.p_del_d5_del_d3 = value.as_ref(py).to_owned_array();
         Ok(())
     }
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]

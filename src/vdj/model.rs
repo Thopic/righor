@@ -5,6 +5,7 @@ use crate::shared::utils::{
     add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
     DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
 };
+use crate::vdj::inference::ResultInference;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
 use crate::vdj::{Features, Sequence, StaticEvent};
 use anyhow::{anyhow, Result};
@@ -24,7 +25,7 @@ pub struct Generative {
     d_ins_dj: DiscreteDistribution,
     d_del_v_given_v: Vec<DiscreteDistribution>,
     d_del_j_given_j: Vec<DiscreteDistribution>,
-    d_del_d3_del_d5: Vec<DiscreteDistribution>,
+    d_del_d5_del_d3: Vec<DiscreteDistribution>,
     markov_vd: MarkovDNA,
     markov_dj: MarkovDNA,
 }
@@ -50,7 +51,7 @@ pub struct Model {
     pub p_ins_dj: Array1<f64>,
     pub p_del_v_given_v: Array2<f64>,
     pub p_del_j_given_j: Array2<f64>,
-    pub p_del_d3_del_d5: Array3<f64>, // P(del_d3, del_d5 | D)
+    pub p_del_d5_del_d3: Array3<f64>, // P(del_d5, del_d3 | D)
     pub gen: Generative,
     pub markov_coefficients_vd: Array2<f64>,
     pub markov_coefficients_dj: Array2<f64>,
@@ -304,11 +305,11 @@ impl Model {
         let ddim = pdeld3.dim()[0];
         let d5dim = pdeld3.dim()[1];
         let d3dim = pdeld3.dim()[2];
-        model.p_del_d3_del_d5 = Array3::<f64>::zeros((d5dim, d3dim, ddim));
+        model.p_del_d5_del_d3 = Array3::<f64>::zeros((d5dim, d3dim, ddim));
         for dd in 0..ddim {
             for d5 in 0..d5dim {
                 for d3 in 0..d3dim {
-                    model.p_del_d3_del_d5[[d5, d3, dd]] = pdeld3[[dd, d5, d3]] * pdeld5[[dd, d5]]
+                    model.p_del_d5_del_d3[[d5, d3, dd]] = pdeld3[[dd, d5, d3]] * pdeld5[[dd, d5]]
                 }
             }
         }
@@ -389,17 +390,17 @@ impl Model {
                 .push(DiscreteDistribution::new(row.to_vec())?);
         }
 
-        self.gen.d_del_d3_del_d5 = Vec::new();
-        for ii in 0..self.p_del_d3_del_d5.dim().2 {
-            let d3d5: Vec<f64> = self
-                .p_del_d3_del_d5
-                .slice(s![.., .., ii])
+        self.gen.d_del_d5_del_d3 = Vec::new();
+        for ddd in 0..self.p_del_d5_del_d3.dim().2 {
+            let d5d3: Vec<f64> = self
+                .p_del_d5_del_d3
+                .slice(s![.., .., ddd])
                 .iter()
                 .cloned()
                 .collect();
             self.gen
-                .d_del_d3_del_d5
-                .push(DiscreteDistribution::new(d3d5)?);
+                .d_del_d5_del_d3
+                .push(DiscreteDistribution::new(d5d3)?);
         }
 
         self.gen.markov_vd = MarkovDNA::new(self.markov_coefficients_vd.t().to_owned())?;
@@ -432,9 +433,9 @@ impl Model {
             let seq_j: &Dna = self.seg_js[event.j_index].seq_with_pal.as_ref().unwrap();
 
             event.delv = self.gen.d_del_v_given_v[event.v_index].generate(rng);
-            let del_d: usize = self.gen.d_del_d3_del_d5[event.d_index].generate(rng);
-            event.deld5 = del_d / self.p_del_d3_del_d5.dim().0;
-            event.deld3 = del_d % self.p_del_d3_del_d5.dim().0;
+            let del_d: usize = self.gen.d_del_d5_del_d3[event.d_index].generate(rng);
+            event.deld5 = del_d / self.p_del_d5_del_d3.dim().1;
+            event.deld3 = del_d % self.p_del_d5_del_d3.dim().1;
             event.delj = self.gen.d_del_j_given_j[event.j_index].generate(rng);
 
             let ins_vd: usize = self.gen.d_ins_vd.generate(rng);
@@ -533,7 +534,7 @@ impl Model {
             p_ins_dj: Array1::<f64>::ones(self.p_ins_dj.dim()),
             p_del_v_given_v: Array2::<f64>::ones(self.p_del_v_given_v.dim()),
             p_del_j_given_j: Array2::<f64>::ones(self.p_del_j_given_j.dim()),
-            p_del_d3_del_d5: Array3::<f64>::ones(self.p_del_d3_del_d5.dim()),
+            p_del_d5_del_d3: Array3::<f64>::ones(self.p_del_d5_del_d3.dim()),
             markov_coefficients_vd: Array2::<f64>::ones(self.markov_coefficients_vd.dim()),
             markov_coefficients_dj: Array2::<f64>::ones(self.markov_coefficients_dj.dim()),
             first_nt_bias_ins_vd: Array1::<f64>::ones(self.first_nt_bias_ins_vd.dim()),
@@ -572,13 +573,16 @@ impl Model {
         Ok(feature)
     }
 
-    pub fn pgen(&self, sequence: &Sequence, inference_params: &InferenceParameters) -> Result<f64> {
+    pub fn infer(
+        &self,
+        sequence: &Sequence,
+        inference_params: &InferenceParameters,
+    ) -> Result<ResultInference> {
         let mut ip = inference_params.clone();
         ip.nb_best_events = 0;
         ip.evaluate = true;
         let mut feature = Features::new(self)?;
-        let pg = feature.infer(sequence, &ip);
-        pg
+        feature.infer(sequence, &ip)
     }
 
     pub fn align_sequence(
@@ -606,8 +610,8 @@ impl Model {
             .v_genes
             .iter()
             .map(|v| {
-                if v.end_seq > self.p_del_v_given_v.dim().0 + self.p_del_d3_del_d5.dim().1 {
-                    v.end_seq - (self.p_del_v_given_v.dim().0 + self.p_del_d3_del_d5.dim().1)
+                if v.end_seq > self.p_del_v_given_v.dim().0 + self.p_del_d5_del_d3.dim().0 {
+                    v.end_seq - (self.p_del_v_given_v.dim().0 + self.p_del_d5_del_d3.dim().0)
                 } else {
                     0
                 }
@@ -620,7 +624,7 @@ impl Model {
             .iter()
             .map(|j| {
                 cmp::min(
-                    j.start_seq + (self.p_del_j_given_j.dim().0 + self.p_del_d3_del_d5.dim().0),
+                    j.start_seq + (self.p_del_j_given_j.dim().0 + self.p_del_d5_del_d3.dim().1),
                     dna_seq.len(),
                 )
             })
@@ -665,7 +669,7 @@ impl Model {
             &feature.v.log_probas.mapv(|x| x.exp2()),
         );
         self.p_del_j_given_j = feature.delj.log_probas.mapv(|x| x.exp2());
-        self.p_del_d3_del_d5 = feature.deld.log_probas.mapv(|x| x.exp2());
+        self.p_del_d5_del_d3 = feature.deld.log_probas.mapv(|x| x.exp2());
         (self.p_ins_vd, self.markov_coefficients_vd) = feature.insvd.get_parameters();
         (self.p_ins_dj, self.markov_coefficients_dj) = feature.insdj.get_parameters();
         self.error_rate = feature.error.error_rate;

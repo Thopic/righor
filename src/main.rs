@@ -34,6 +34,7 @@ fn main() -> Result<()> {
         min_log_likelihood: -400.0,
         nb_best_events: 10,
         evaluate: true,
+        pgen: true,
     };
 
     let path = Path::new("demo/murugan_naive1_noncoding_demo_seqs.txt");
@@ -51,7 +52,7 @@ fn main() -> Result<()> {
     }
     println!(
         "{:?}",
-        model.p_del_d3_del_d5.sum_axis(Axis(0)).sum_axis(Axis(1))
+        model.p_del_d5_del_d3.sum_axis(Axis(0)).sum_axis(Axis(1))
     );
     for _ in 0..5 {
         let mut features = Vec::new();
@@ -66,7 +67,7 @@ fn main() -> Result<()> {
         model.update(&new_features)?;
         println!(
             "{:?}",
-            model.p_del_d3_del_d5.sum_axis(Axis(0)).sum_axis(Axis(1))
+            model.p_del_d5_del_d3.sum_axis(Axis(0)).sum_axis(Axis(1))
         );
     }
 

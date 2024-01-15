@@ -95,7 +95,6 @@ impl Marginal {
                 key
             )))?;
             let values = parse_values(values_line)?;
-
             for (idx, val) in values.iter().enumerate() {
                 let mut idxs = indexes.clone();
                 idxs.push(idx);

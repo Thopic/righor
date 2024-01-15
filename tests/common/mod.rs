@@ -35,7 +35,7 @@ pub fn simple_model_vdj() -> vdj::Model {
         p_ins_dj: array![0.4, 0.2, 0.1, 0.1, 0.1, 0.05, 0.05],
         p_del_v_given_v: array![[0.1], [0.2], [0.4], [0.1], [0.05], [0.1], [0.05],],
         p_del_j_given_j: array![[0.1], [0.2], [0.4], [0.1], [0.05], [0.1], [0.05],],
-        p_del_d3_del_d5: array![
+        p_del_d5_del_d3: array![
             [[0.05], [0.1], [0.05], [0.3], [0.02]],
             [[0.05], [0.1], [0.05], [0.3], [0.02]],
             [[0.05], [0.35], [0.05], [0.3], [0.02]],
@@ -56,8 +56,8 @@ pub fn simple_model_vdj() -> vdj::Model {
         first_nt_bias_ins_dj: array![0.25, 0.25, 0.25, 0.25],
         range_del_v: (-2, 4),
         range_del_j: (-2, 4),
-        range_del_d3: (-1, 3),
-        range_del_d5: (-1, 1),
+        range_del_d3: (-1, 1),
+        range_del_d5: (-1, 3),
         error_rate: 0.,
         ..Default::default()
     };
@@ -68,9 +68,10 @@ pub fn simple_model_vdj() -> vdj::Model {
 
 pub fn inference_parameters_default() -> ihor::InferenceParameters {
     ihor::InferenceParameters {
-        min_log_likelihood: -600.0,
+        min_log_likelihood: -2000.0,
         nb_best_events: 10,
         evaluate: true,
+        pgen: true,
     }
 }
 

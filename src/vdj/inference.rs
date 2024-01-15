@@ -12,13 +12,20 @@ use std::cmp;
 
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
+pub struct ResultInference {
+    pub likelihood: f64,
+    pub pgen: f64,
+}
+
+#[derive(Default, Clone, Debug)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct Features {
     pub v: CategoricalFeature1,
     pub delv: CategoricalFeature1g1,
     pub j: CategoricalFeature1g1,
     pub d: CategoricalFeature1g2,
     pub delj: CategoricalFeature1g1,
-    pub deld: CategoricalFeature2g1, // d3, d5, d
+    pub deld: CategoricalFeature2g1, // d5, d3, d
     pub insvd: InsertionFeature,
     pub insdj: InsertionFeature,
     pub error: ErrorSingleNucleotide,
@@ -32,7 +39,7 @@ impl Features {
             j: CategoricalFeature1g1::new(&model.p_j_given_v)?,
             d: CategoricalFeature1g2::new(&model.p_d_given_vj)?,
             delj: CategoricalFeature1g1::new(&model.p_del_j_given_j)?,
-            deld: CategoricalFeature2g1::new(&model.p_del_d3_del_d5)?, // dim: (d3, d5, d)
+            deld: CategoricalFeature2g1::new(&model.p_del_d5_del_d3)?, // dim: (d5, d3, d)
             insvd: InsertionFeature::new(&model.p_ins_vd, &model.markov_coefficients_vd)?,
             insdj: InsertionFeature::new(&model.p_ins_dj, &model.markov_coefficients_dj)?,
             error: ErrorSingleNucleotide::new(model.error_rate)?,
@@ -40,17 +47,27 @@ impl Features {
     }
 
     // TODO: needs to make a structure "InferenceResult"
-    pub fn infer(&mut self, sequence: &Sequence, ip: &InferenceParameters) -> Result<f64> {
+    pub fn infer(
+        &mut self,
+        sequence: &Sequence,
+        ip: &InferenceParameters,
+    ) -> Result<ResultInference> {
         // Estimate the likelihood of all possible insertions
         let mut ins_vd = FeatureVD::new(sequence, self, ip);
         let mut ins_dj = FeatureDJ::new(sequence, self, ip);
 
         // Now start the inference
         let mut l_total = 0.;
+        let mut pgen = 0.;
+
         for val in &sequence.v_genes {
             for jal in &sequence.j_genes {
-                l_total +=
+                let result_inference =
                     self.infer_given_alignment(sequence, &val, &jal, &mut ins_vd, &mut ins_dj, ip)?;
+                l_total += result_inference.likelihood;
+                if ip.pgen {
+                    pgen += result_inference.pgen;
+                }
             }
         }
 
@@ -59,7 +76,10 @@ impl Features {
         ins_dj.disaggregate(&sequence.sequence, self, ip);
         // Move the dirty proba for the next cycle, normalize everything
         self.cleanup()?;
-        Ok(l_total)
+        Ok(ResultInference {
+            likelihood: l_total,
+            pgen: (pgen / l_total).exp2(),
+        })
     }
 
     pub fn infer_given_alignment(
@@ -70,18 +90,30 @@ impl Features {
         ins_vd: &mut FeatureVD,
         ins_dj: &mut FeatureDJ,
         ip: &InferenceParameters,
-    ) -> Result<f64> {
+    ) -> Result<ResultInference> {
         let mut feature_v = match AggregatedFeatureEndV::new(val, &self, ip) {
             Some(f) => f,
-            None => return Ok(0.),
+            None => {
+                return Ok(ResultInference {
+                    pgen: 0.,
+                    likelihood: 0.,
+                })
+            }
         };
         let mut feature_d = AggregatedFeatureSpanD::new(val, &sequence.d_genes, jal, &self, ip);
         let mut feature_j = match AggregatedFeatureStartJ::new(val, jal, &self, ip) {
             Some(f) => f,
-            None => return Ok(0.),
+            None => {
+                return Ok(ResultInference {
+                    pgen: 0.,
+                    likelihood: 0.,
+                })
+            }
         };
 
         let mut l_total = 0.;
+        let mut pgen = 0.; // likelihood but without pgen
+
         for ev in cmp::max(feature_v.start_v3, ins_vd.min_ev())
             ..cmp::min(feature_v.end_v3, ins_vd.max_ev())
         {
@@ -102,11 +134,12 @@ impl Features {
                     for sj in ed.max(feature_j.start_j5).max(ins_dj.min_sj())
                         ..feature_j.end_j5.min(ins_dj.max_sj())
                     {
+                        let log_likelihood_ins_dj = ins_dj.log_likelihood(ed, sj);
                         let log_likelihood = log_likelihood_v
                             + feature_j.log_likelihood(sj)
                             + feature_d.log_likelihood(sd, ed)
                             + log_likelihood_ins_vd
-                            + ins_dj.log_likelihood(ed, sj);
+                            + log_likelihood_ins_dj;
 
                         if log_likelihood > ip.min_log_likelihood {
                             let likelihood = log_likelihood.exp2();
@@ -116,6 +149,34 @@ impl Features {
                             feature_d.dirty_update(sd, ed, likelihood);
                             ins_vd.dirty_update(ev, sd, likelihood);
                             ins_dj.dirty_update(ed, sj, likelihood);
+
+                            if ip.pgen {
+                                // println!(
+                                //     "{} {} {} {} {}",
+                                //     feature_v.log_likelihood_no_err(ev),
+                                //     feature_j.log_likelihood_no_err(sj),
+                                //     feature_d.log_likelihood_no_err(sd, ed),
+                                //     log_likelihood_ins_vd,
+                                //     log_likelihood_ins_dj
+                                // );
+                                // println!(
+                                //     "PGEN {} {}",
+                                //     likelihood,
+                                //     (log_likelihood_ins_vd + log_likelihood_ins_dj).exp2()
+                                //         * (feature_v.log_likelihood_no_err(ev)
+                                //             + feature_j.log_likelihood_no_err(sj)
+                                //             + feature_d.log_likelihood_no_err(sd, ed)
+                                //             + log_likelihood_ins_vd
+                                //             + log_likelihood_ins_dj)
+                                // );
+
+                                pgen += likelihood
+                                    * (feature_v.log_likelihood_no_err(ev)
+                                        + feature_j.log_likelihood_no_err(sj)
+                                        + feature_d.log_likelihood_no_err(sd, ed)
+                                        + log_likelihood_ins_vd
+                                        + log_likelihood_ins_dj);
+                            }
                         }
                     }
                 }
@@ -129,7 +190,10 @@ impl Features {
             feature_j.disaggregate(val, jal, self, ip);
         }
 
-        Ok(l_total)
+        Ok(ResultInference {
+            pgen: pgen,
+            likelihood: l_total,
+        })
     }
 
     // pub fn infer(&mut self, sequence: &Sequence, ip: &InferenceParameters) -> Result<f64> {

@@ -112,6 +112,4 @@ Current status:
 
 
 Tests:
-- likelihoods values seem to make sense, with/without errors
-- values obtained are close to the Igor's one. Close but not quite identical.
-- This can make quite a difference for pgen values. For ex I find a pgen value of 5e-6 rather than 7e-7 ... Made worse by the fact that I think my pgen include error proba and his does not. Hmm not clear actually, he's doing something fairly strange, I'm not sure the pgen will go up or down. I should set that up in the code.
+- result match with Igor on the test dataset (pgen the same), but not yet on the full dataset. I need to figure out if this is an alignment problem (D gene ?) or something else (most likely pgen ? Error in loading the model)

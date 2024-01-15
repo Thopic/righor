@@ -377,6 +377,7 @@ where
 pub struct InferenceParameters {
     pub min_log_likelihood: f64,
     pub evaluate: bool,
+    pub pgen: bool,
     pub nb_best_events: usize,
 }
 
@@ -392,6 +393,7 @@ impl InferenceParameters {
 impl InferenceParameters {
     pub fn new(min_likelihood: f64) -> Self {
         Self {
+            pgen: true,
             min_log_likelihood: min_likelihood.log2(),
             evaluate: true,
             nb_best_events: 1,

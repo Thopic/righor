@@ -40,19 +40,22 @@ mod common;
 #[test]
 fn match_igor() -> Result<()> {
     let igor_model = ihor::vdj::Model::load_from_files(
-        Path::new("demo/models/test/tcr_beta/models/model_parms.txt"),
-        Path::new("demo/models/test/tcr_beta/models/model_marginals.txt"),
-        Path::new("demo/models/test/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
-        Path::new("demo/models/test/tcr_beta/ref_genome/J_gene_CDR3_anchors.csv"),
+        Path::new("demo/models/human/tcr_beta/models/model_parms.txt"),
+        Path::new("demo/models/human/tcr_beta/models/model_marginals.txt"),
+        Path::new("demo/models/human/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
+        Path::new("demo/models/human/tcr_beta/ref_genome/J_gene_CDR3_anchors.csv"),
     )?;
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
-    let s = "TCAGAACCCAGGGACTCAGCTGTGTATTTTTGTGCTAGTGGTTTGGTACAATCAGCCCCA";
+    let s = "GGTGGTAGAGTCGCCCGGACACCAAGGCACGACGTGACAGAGATGGGTCAAGAAGCAACAATGCGATGCCAGCCAAGTTTAGGCCACAATACTGCTTTCCGGTCCAGACAGCCCATGCTCCAAGGACTGGAGTTGCTGGCCTACTTGCTCATCCGGGGTCCTGTAGATGATTCGAGGATGCCGCAGGTTCGATCCTCAGCAGAGATCCCTGATGCAATTTTAGCCACTCTGAAGATACATACCTCAGAACCCCAGAACCCAGCTGTGTATTTTTGTGCTAGTGGCTAAGTGGGACAGTGGGCCTAGCAATCAGCCCCAGCATTTTGGTGATGGGACTTGTCTCTCCATCCTAG";
     let seq_aligned = igor_model
         .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
         .unwrap();
-    let pgen = igor_model.pgen(&seq_aligned, &ifp).unwrap();
-    println!("{:?}", pgen);
+    let feat = igor_model.infer_features(&seq_aligned, &ifp).unwrap();
+    println!("{:?}", feat);
+    let result = igor_model.infer(&seq_aligned, &ifp).unwrap();
+    println!("{:?}", result);
+
     Ok(())
 }
 
@@ -100,7 +103,6 @@ fn infer_real_model() -> Result<()> {
         for sal in &sequences_aligned {
             let feat = model.infer_features(&sal, &ifp).unwrap();
             features.push(feat.clone());
-            let pgen = model.pgen(&sal, &ifp).unwrap();
         }
 
         let new_features = ihor::vdj::Features::average(features).unwrap();
@@ -157,7 +159,6 @@ fn infer_simple_model_vdj() -> () {
             let feat = model.infer_features(&sal, &ifp).unwrap();
 
             features.push(feat.clone());
-            let pgen = model.pgen(&sal, &ifp).unwrap();
         }
 
         let new_features = ihor::vdj::Features::average(features).unwrap();

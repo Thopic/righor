@@ -197,8 +197,8 @@ pub fn align_all_dgenes(
     let mut daligns: Vec<DAlignment> = Vec::new();
     for (indexd, d) in model.seg_ds.iter().enumerate() {
         let dpal = d.seq_with_pal.as_ref().unwrap();
-        let max_del_d5 = cmp::max(model.p_del_d3_del_d5.dim().1, dpal.len());
-        let max_del_d3 = cmp::max(model.p_del_d3_del_d5.dim().0, dpal.len());
+        let max_del_d5 = cmp::max(model.p_del_d5_del_d3.dim().0, dpal.len());
+        let max_del_d3 = cmp::max(model.p_del_d5_del_d3.dim().1, dpal.len());
         for pos in limit_5side..=limit_3side - dpal.len() {
             let mut errors = vec![vec![0; max_del_d3]; max_del_d5];
             for del_d5 in 0..max_del_d5 {
