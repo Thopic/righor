@@ -1,0 +1,44 @@
+@Event_list
+#GeneChoice;V_gene;Undefined_side;7;v_choice
+%X07223|TRBV12-5*01|Homo sapiens|F|V-REGION|392..681|290 nt|1| | | | |290+0=290| | |;GATGCTAGAGTCACCCAGACACCAAGGCACAAGGTGACAGAGATGGGACAAGAAGTAACAATGAGATGTCAGCCAATTTTAGGCCACAATACTGTTTTCTGGTACAGACAGACCATGATGCAAGGACTGGAGTTGCTGGCTTACTTCCGCAACCGGGCTCCTCTAGATGATTCGGGGATGCCGAAGGATCGATTCTCAGCAGAGATGCCTGATGCAACTTTAGCCACTCTGAAGATCCAGCCCTCAGAACCCAGGGACTCAGCTGTGTATTTTTGTGCTAGTGGTTTGGT;0
+#GeneChoice;D_gene;Undefined_side;6;d_gene
+% TRBD2*01;GGGACTAGCGGGGGGG;1
+% TRBD2*02;GGGACTAGCGGGAGGG;2
+% TRBD1*01;GGGACAGGGGGC;0
+#GeneChoice;J_gene;Undefined_side;7;j_choice
+%M14158|TRBJ1-5*01|Homo sapiens|F|J-REGION|2368..2417|50 nt|2| | | | |50+0=50| | |;TAGCAATCAGCCCCAGCATTTTGGTGATGGGACTCGACTCTCCATCCTAG;0
+#Deletion;V_gene;Three_prime;5;v_3_del
+%0;0
+#Deletion;D_gene;Three_prime;5;d_3_del
+%0;0
+#Deletion;D_gene;Five_prime;5;d_5_del
+%0;0
+#Deletion;J_gene;Five_prime;5;j_5_del
+%0;0
+#Insertion;VD_genes;Undefined_side;4;vd_ins
+%0;0
+#Insertion;DJ_gene;Undefined_side;2;dj_ins
+%0;0
+%1;1
+#DinucMarkov;VD_genes;Undefined_side;3;vd_dinucl
+%T;3
+%C;1
+%G;2
+%A;0
+#DinucMarkov;DJ_gene;Undefined_side;1;dj_dinucl
+%T;3
+%C;1
+%G;2
+%A;0
+@Edges
+%GeneChoice_V_gene_Undefined_side_prio7_size1;Deletion_V_gene_Three_prime_prio5_size1
+%GeneChoice_V_gene_Undefined_side_prio7_size1;GeneChoice_D_gene_Undefined_side_prio6_size3
+%GeneChoice_V_gene_Undefined_side_prio7_size1;GeneChoice_J_gene_Undefined_side_prio7_size1
+%GeneChoice_D_gene_Undefined_side_prio6_size3;Deletion_D_gene_Three_prime_prio5_size1
+%GeneChoice_D_gene_Undefined_side_prio6_size3;Deletion_D_gene_Five_prime_prio5_size1
+%GeneChoice_J_gene_Undefined_side_prio7_size1;Deletion_J_gene_Five_prime_prio5_size1
+%GeneChoice_J_gene_Undefined_side_prio7_size1;GeneChoice_D_gene_Undefined_side_prio6_size3
+%Deletion_D_gene_Five_prime_prio5_size1;Deletion_D_gene_Three_prime_prio5_size1
+@ErrorRate
+#SingleErrorRate
+0.1

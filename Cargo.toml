@@ -6,12 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "ihor"
-crate-type = ["cdylib"]
+path = "src/lib.rs"
+crate-type = ["cdylib", "lib"]
 
-[profile.release]
+[profile.release] # Not a ton of worthwhile optimization honestly
 debug = true
-[profile.bench]
-debug = true
+opt-level = 3
+
 
 [dependencies]
 rand = { version = "0.8.5", features = [ "small_rng" ] }
@@ -21,6 +22,19 @@ regex = "1.9"
 ndarray = "0.15"
 csv = "1.1"
 enum_dispatch = "0.3"
-pyo3 = {version = "0.20.0", features = ["extension-module"]}
-ndarray-linalg = {version = "0.14", features = ["openblas"]}
+pyo3 = {version = "0.20.0", features = ["extension-module", "anyhow", "multiple-pymethods"], optional=true}
+# ndarray-linalg = {version = "0.14", features = ["openblas"]}
 duplicate = {version = "1.0.0"}
+bio = "1.5"
+kdam = {version="0.5.1", optional=true}
+approx_eq = "0.1.8"
+itertools = "0.10.0"
+numpy = {version = "0.20", optional=true}
+anyhow = "1.0.76"
+wasm-bindgen = "0.2.88"
+getrandom = { version = "0.2", features = ["js"] }
+fast-math = "0.1"
+
+[features]
+default = ["kdam"]
+py_binds = ["numpy", "pyo3"]

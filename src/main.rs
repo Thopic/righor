@@ -1,28 +1,50 @@
-mod utils;
-mod parser;
-mod model;
-use parser::{ParserMarginals, ParserParams};
+#![allow(unused_imports)] //TODO REMOVE
+#![allow(dead_code)]
+
+mod sequence;
+mod shared;
+pub mod vdj;
+//pub mod vj;
+
+use anyhow::{anyhow, Result};
+use kdam::tqdm;
+use ndarray::array;
+use ndarray::Axis;
+use std::fs::File;
+use std::io::{self, BufRead};
 use std::path::Path;
-use model::{ModelVDJ, ModelVJ};
-use rand::{SeedableRng};
-use rand::rngs::{SmallRng};
 
-fn main() {
-    let mut model = ModelVDJ::load_model(Path::new("models/human_T_beta/model_params.txt"),
-					 Path::new("models/human_T_beta/model_marginals.txt"),
-					 Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
-					 Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv")).unwrap();
+fn main() -> Result<()> {
+    let mut igor_model = ihor::vdj::Model::load_from_files(
+        Path::new("demo/models/human/tcr_beta/models/model_parms.txt"),
+        Path::new("demo/models/human/tcr_beta/models/model_marginals.txt"),
+        Path::new("demo/models/human/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
+        Path::new("demo/models/human/tcr_beta/ref_genome/J_gene_CDR3_anchors.csv"),
+    )?;
+    igor_model.error_rate = 0.;
 
-    let mut small_rng = SmallRng::seed_from_u64(42);
-    let (dna, _, v, j) = model.generate(true, &mut small_rng);
-    println!("{:?}", model.recreate_full_sequence(dna, v, j).0.to_string());
+    let align_params = ihor::AlignmentParameters::default();
+    let inference_params = ihor::InferenceParameters::default();
 
-    let mut model = ModelVJ::load_model(Path::new("models/human_T_alpha/model_params.txt"),
-					 Path::new("models/human_T_alpha/model_marginals.txt"),
-					 Path::new("models/human_T_alpha/V_gene_CDR3_anchors.csv"),
-					 Path::new("models/human_T_alpha/J_gene_CDR3_anchors.csv")).unwrap();
+    let path = Path::new("../igor_1-4-0/demo/murugan_naive1_noncoding_demo_seqs.txt");
+    let file = File::open(&path)?;
+    let lines = io::BufReader::new(file).lines();
 
+    let mut seq = Vec::new();
+    for line in tqdm!(lines) {
+        let l = line?;
+        let s = ihor::Dna::from_string(l.trim())?;
+        let als = igor_model.align_sequence(s.clone(), &align_params)?;
+        if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
+            seq.push(als);
+        }
+    }
+    for _ in 0..1 {
+        for s in tqdm!(seq.clone().iter(), total = seq.len()) {
+            let result = igor_model.infer(&s, &inference_params).unwrap();
+            println!("{:?}", result);
+        }
+    }
 
-    let (dna, aa, v, j) = model.generate(true, &mut small_rng);
-    println!("{:?}", model.recreate_full_sequence(dna, v, j).0.to_string());
+    Ok(())
 }

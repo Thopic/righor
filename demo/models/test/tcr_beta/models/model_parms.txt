@@ -1,0 +1,61 @@
+@Event_list
+#GeneChoice;V_gene;Undefined_side;7;v_choice
+%X07223|TRBV12-5*01|Homo sapiens|F|V-REGION|392..681|290 nt|1| | | | |290+0=290| | |;GATGCTAGAGTCACCCAGACACCAAGGCACAAGGTGACAGAGATGGGACAAGAAGTAACAATGAGATGTCAGCCAATTTTAGGCCACAATACTGTTTTCTGGTACAGACAGACCATGATGCAAGGACTGGAGTTGCTGGCTTACTTCCGCAACCGGGCTCCTCTAGATGATTCGGGGATGCCGAAGGATCGATTCTCAGCAGAGATGCCTGATGCAACTTTAGCCACTCTGAAGATCCAGCCCTCAGAACCCAGGGACTCAGCTGTGTATTTTTGTGCTAGTGGTTTGGT;0
+%M27385|TRBV7-9*05|Homo sapiens|(F)|V-REGION|34..321|288 nt|1| | | | |288+0=288| Edited | |;GATACTGGAGTCTCCCAGAACCCCAGACACAAGATCACAAAGAGGGGACAGAATGTAACTTTCAGGTGTGATCCAATTTCTGAACACAACCGCCTTTATTGGTACCGACAGACCCTGGGGCAGGGCCCAGAGTTTCTGACTTACTTCCAGAATGAAGCTCAACTAGAAAAATCAAGGCTGCTCAGTGATCGGTTCTCTGCAGAGAGGCCTAAGGGATCTCTCTCCACCTTGGAGATCCAGCGCACAGAGCAGGGGGACTCGGCCATGTATCTCTGTGCCAGCAGCTTAGC;1
+%AF009660|TRBV10-1*02|Homo sapiens|F|V-REGION|54913..55199|287 nt|1| | | | |287+0=287| | |;GATGCTGAAATCACCCAGAGCCCAAGACACAAGATCACAGAGACAGGAAGGCAGGTGACCTTGGCGTGTCACCAGACTTGGAACCACAACAATATGTTCTGGTATCGACAAGACCTGGGACATGGGCTGAGGCTGATCCATTACTCATATGGTGTTCACGACACTAACAAAGGAGAAGTCTCAGATGGCTACAGTGTCTCTAGATCAAACACAGAGGACCTCCCCCTCACTCTGGAGTCTGCTGCCTCCTCCCAGACATCTGTATATTTCTGCGCCAGCAGTGAGTC;2
+#GeneChoice;D_gene;Undefined_side;6;d_gene
+% TRBD2*01;GGGACTAGCGGGGGGG;1
+% TRBD2*02;GGGACTAGCGGGAGGG;2
+% TRBD1*01;GGGACAGGGGGC;0
+#GeneChoice;J_gene;Undefined_side;7;j_choice
+%M14158|TRBJ1-5*01|Homo sapiens|F|J-REGION|2368..2417|50 nt|2| | | | |50+0=50| | |;TAGCAATCAGCCCCAGCATTTTGGTGATGGGACTCGACTCTCCATCCTAG;0
+%K02545|TRBJ1-2*01|Homo sapiens|F|J-REGION|886..933|48 nt|3| | | | |48+0=48| | |;CTAACTATGGCTACACCTTCGGTTCGGGGACCAGGTTAACCGTTGTAG;1
+#Deletion;V_gene;Three_prime;5;v_3_del
+%-1;0
+%0;1
+%1;2
+%2;3
+#Deletion;D_gene;Three_prime;5;d_3_del
+%-1;0
+%0;1
+#Deletion;D_gene;Five_prime;5;d_5_del
+%0;0
+%1;1
+%2;2
+#Deletion;J_gene;Five_prime;5;j_5_del
+%-1;0
+%0;1
+%1;2
+#Insertion;VD_genes;Undefined_side;4;vd_ins
+%0;0
+%1;1
+%2;2
+#Insertion;DJ_gene;Undefined_side;2;dj_ins
+%0;0
+%1;1
+%2;2
+%3;3
+%4;4
+%5;5
+#DinucMarkov;VD_genes;Undefined_side;3;vd_dinucl
+%T;3
+%C;1
+%G;2
+%A;0
+#DinucMarkov;DJ_gene;Undefined_side;1;dj_dinucl
+%T;3
+%C;1
+%G;2
+%A;0
+@Edges
+%GeneChoice_V_gene_Undefined_side_prio7_size3;Deletion_V_gene_Three_prime_prio5_size4
+%GeneChoice_V_gene_Undefined_side_prio7_size3;GeneChoice_D_gene_Undefined_side_prio6_size3
+%GeneChoice_V_gene_Undefined_side_prio7_size3;GeneChoice_J_gene_Undefined_side_prio7_size2
+%GeneChoice_D_gene_Undefined_side_prio6_size3;Deletion_D_gene_Three_prime_prio5_size2
+%GeneChoice_D_gene_Undefined_side_prio6_size3;Deletion_D_gene_Five_prime_prio5_size3
+%GeneChoice_J_gene_Undefined_side_prio7_size2;Deletion_J_gene_Five_prime_prio5_size3
+%GeneChoice_J_gene_Undefined_side_prio7_size2;GeneChoice_D_gene_Undefined_side_prio6_size3
+%Deletion_D_gene_Five_prime_prio5_size3;Deletion_D_gene_Three_prime_prio5_size2
+@ErrorRate
+#SingleErrorRate
+0.000
