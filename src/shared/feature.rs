@@ -1,5 +1,5 @@
 use crate::sequence::utils::{nucleotides_inv, Dna};
-use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2};
+use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2, Normalize3};
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -22,7 +22,7 @@ use pyo3::pyclass;
 
 pub trait Feature<T> {
     fn dirty_update(&mut self, observation: T, likelihood: f64);
-    fn log_likelihood(&self, observation: T) -> f64;
+    fn likelihood(&self, observation: T) -> f64;
     fn cleanup(&self) -> Result<Self>
     where
         Self: Sized;
@@ -36,7 +36,7 @@ pub trait Feature<T> {
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature1 {
-    pub log_probas: Array1<f64>,
+    pub probas: Array1<f64>,
     pub probas_dirty: Array1<f64>,
 }
 
@@ -44,8 +44,8 @@ impl Feature<usize> for CategoricalFeature1 {
     fn dirty_update(&mut self, observation: usize, likelihood: f64) {
         self.probas_dirty[[observation]] += likelihood;
     }
-    fn log_likelihood(&self, observation: usize) -> f64 {
-        self.log_probas[[observation]]
+    fn likelihood(&self, observation: usize) -> f64 {
+        self.probas[[observation]]
     }
     fn cleanup(&self) -> Result<CategoricalFeature1> {
         CategoricalFeature1::new(&self.probas_dirty)
@@ -57,10 +57,9 @@ impl Feature<usize> for CategoricalFeature1 {
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .log_probas
-            .mapv(|x| x.exp2());
+            .probas;
         for feat in iter {
-            average_proba = average_proba + feat.log_probas.mapv(|x| x.exp2());
+            average_proba = average_proba + feat.probas;
             len += 1;
         }
         CategoricalFeature1::new(&(average_proba / (len as f64)))
@@ -71,19 +70,19 @@ impl CategoricalFeature1 {
     pub fn new(probabilities: &Array1<f64>) -> Result<CategoricalFeature1> {
         Ok(CategoricalFeature1 {
             probas_dirty: Array1::<f64>::zeros(probabilities.dim()),
-            log_probas: probabilities.normalize_distribution()?.mapv(|x| x.log2()),
+            probas: probabilities.normalize_distribution()?,
         })
     }
     pub fn dim(&self) -> usize {
-        self.log_probas.dim()
+        self.probas.dim()
     }
 
     pub fn normalize(&self) -> Result<Self> {
-        Self::new(&self.log_probas.mapv(|x| x.exp2()))
+        Self::new(&self.probas)
     }
 
     pub fn check(&self) {
-        if self.log_probas.iter().any(|&x| x > 0.) {
+        if self.probas.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
     }
@@ -93,7 +92,7 @@ impl CategoricalFeature1 {
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature1g1 {
-    pub log_probas: Array2<f64>,
+    pub probas: Array2<f64>,
     pub probas_dirty: Array2<f64>,
 }
 
@@ -101,8 +100,8 @@ impl Feature<(usize, usize)> for CategoricalFeature1g1 {
     fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
         self.probas_dirty[[observation.0, observation.1]] += likelihood;
     }
-    fn log_likelihood(&self, observation: (usize, usize)) -> f64 {
-        self.log_probas[[observation.0, observation.1]]
+    fn likelihood(&self, observation: (usize, usize)) -> f64 {
+        self.probas[[observation.0, observation.1]]
     }
     fn cleanup(&self) -> Result<CategoricalFeature1g1> {
         CategoricalFeature1g1::new(&self.probas_dirty)
@@ -115,10 +114,9 @@ impl Feature<(usize, usize)> for CategoricalFeature1g1 {
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .log_probas
-            .mapv(|x| x.exp2());
+            .probas;
         for feat in iter {
-            average_proba += &feat.log_probas.mapv(|x| x.exp2());
+            average_proba += &feat.probas;
             len += 1;
         }
         CategoricalFeature1g1::new(&(average_proba / (len as f64)))
@@ -129,18 +127,18 @@ impl CategoricalFeature1g1 {
     pub fn new(probabilities: &Array2<f64>) -> Result<CategoricalFeature1g1> {
         Ok(CategoricalFeature1g1 {
             probas_dirty: Array2::<f64>::zeros(probabilities.dim()),
-            log_probas: probabilities.normalize_distribution()?.mapv(|x| x.log2()),
+            probas: probabilities.normalize_distribution()?,
         })
     }
     pub fn dim(&self) -> (usize, usize) {
-        self.log_probas.dim()
+        self.probas.dim()
     }
     pub fn normalize(&self) -> Result<Self> {
-        Self::new(&self.log_probas.mapv(|x| x.exp2()))
+        Self::new(&self.probas)
     }
 
     pub fn check(&self) {
-        if self.log_probas.iter().any(|&x| x > 0.) {
+        if self.probas.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
     }
@@ -150,7 +148,7 @@ impl CategoricalFeature1g1 {
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature1g2 {
-    pub log_probas: Array3<f64>,
+    pub probas: Array3<f64>,
     pub probas_dirty: Array3<f64>,
 }
 
@@ -158,8 +156,8 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature1g2 {
     fn dirty_update(&mut self, observation: (usize, usize, usize), likelihood: f64) {
         self.probas_dirty[[observation.0, observation.1, observation.2]] += likelihood;
     }
-    fn log_likelihood(&self, observation: (usize, usize, usize)) -> f64 {
-        self.log_probas[[observation.0, observation.1, observation.2]]
+    fn likelihood(&self, observation: (usize, usize, usize)) -> f64 {
+        self.probas[[observation.0, observation.1, observation.2]]
     }
     fn cleanup(&self) -> Result<CategoricalFeature1g2> {
         CategoricalFeature1g2::new(&self.probas_dirty)
@@ -172,10 +170,9 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature1g2 {
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .log_probas
-            .mapv(|x| x.exp2());
+            .probas;
         for feat in iter {
-            average_proba += &feat.log_probas.mapv(|x| x.exp2());
+            average_proba += &feat.probas;
             len += 1;
         }
         CategoricalFeature1g2::new(&(average_proba / (len as f64)))
@@ -186,18 +183,18 @@ impl CategoricalFeature1g2 {
     pub fn new(probabilities: &Array3<f64>) -> Result<CategoricalFeature1g2> {
         Ok(CategoricalFeature1g2 {
             probas_dirty: Array3::<f64>::zeros(probabilities.dim()),
-            log_probas: probabilities.normalize_distribution()?.mapv(|x| x.log2()),
+            probas: probabilities.normalize_distribution()?,
         })
     }
     pub fn dim(&self) -> (usize, usize, usize) {
-        self.log_probas.dim()
+        self.probas.dim()
     }
     pub fn normalize(&self) -> Result<Self> {
-        Self::new(&self.log_probas.mapv(|x| x.exp2()))
+        Self::new(&self.probas)
     }
 
     pub fn check(&self) {
-        if self.log_probas.iter().any(|&x| x > 0.) {
+        if self.probas.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
     }
@@ -207,7 +204,7 @@ impl CategoricalFeature1g2 {
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature2 {
-    pub log_probas: Array2<f64>,
+    pub probas: Array2<f64>,
     pub probas_dirty: Array2<f64>,
 }
 
@@ -215,8 +212,8 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
     fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
         self.probas_dirty[[observation.0, observation.1]] += likelihood;
     }
-    fn log_likelihood(&self, observation: (usize, usize)) -> f64 {
-        self.log_probas[[observation.0, observation.1]]
+    fn likelihood(&self, observation: (usize, usize)) -> f64 {
+        self.probas[[observation.0, observation.1]]
     }
     fn cleanup(&self) -> Result<CategoricalFeature2> {
         CategoricalFeature2::new(&self.probas_dirty)
@@ -228,10 +225,9 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .log_probas
-            .mapv(|x| x.exp2());
+            .probas;
         for feat in iter {
-            average_proba = average_proba + feat.log_probas.mapv(|x| x.exp2());
+            average_proba = average_proba + feat.probas;
             len += 1;
         }
         CategoricalFeature2::new(&(average_proba / (len as f64)))
@@ -241,21 +237,19 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
 impl CategoricalFeature2 {
     pub fn new(probabilities: &Array2<f64>) -> Result<CategoricalFeature2> {
         Ok(CategoricalFeature2 {
-            log_probas: probabilities
-                .normalize_distribution_double()?
-                .mapv(|x| x.log2()),
+            probas: probabilities.normalize_distribution_double()?,
             probas_dirty: Array2::<f64>::zeros(probabilities.dim()),
         })
     }
     pub fn dim(&self) -> (usize, usize) {
-        self.log_probas.dim()
+        self.probas.dim()
     }
     pub fn normalize(&self) -> Result<Self> {
-        Self::new(&self.log_probas.mapv(|x| x.exp2()))
+        Self::new(&self.probas)
     }
 
     pub fn check(&self) {
-        if self.log_probas.iter().any(|&x| x > 0.) {
+        if self.probas.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
     }
@@ -265,7 +259,7 @@ impl CategoricalFeature2 {
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct CategoricalFeature2g1 {
-    pub log_probas: Array3<f64>,
+    pub probas: Array3<f64>,
     pub probas_dirty: Array3<f64>,
 }
 
@@ -273,8 +267,8 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
     fn dirty_update(&mut self, observation: (usize, usize, usize), likelihood: f64) {
         self.probas_dirty[[observation.0, observation.1, observation.2]] += likelihood;
     }
-    fn log_likelihood(&self, observation: (usize, usize, usize)) -> f64 {
-        self.log_probas[[observation.0, observation.1, observation.2]]
+    fn likelihood(&self, observation: (usize, usize, usize)) -> f64 {
+        self.probas[[observation.0, observation.1, observation.2]]
     }
     fn cleanup(&self) -> Result<CategoricalFeature2g1> {
         let m = CategoricalFeature2g1::new(&self.probas_dirty)?;
@@ -287,10 +281,9 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .log_probas
-            .mapv(|x| x.exp2());
+            .probas;
         for feat in iter {
-            average_proba = average_proba + feat.log_probas.mapv(|x| x.exp2());
+            average_proba = average_proba + feat.probas;
             len += 1;
         }
         CategoricalFeature2g1::new(&(average_proba / (len as f64)))
@@ -301,20 +294,74 @@ impl CategoricalFeature2g1 {
     pub fn new(probabilities: &Array3<f64>) -> Result<CategoricalFeature2g1> {
         Ok(CategoricalFeature2g1 {
             probas_dirty: Array3::<f64>::zeros(probabilities.dim()),
-            log_probas: probabilities
-                .normalize_distribution_double()?
-                .mapv(|x| x.log2()),
+            probas: probabilities.normalize_distribution_double()?,
         })
     }
     pub fn dim(&self) -> (usize, usize, usize) {
-        self.log_probas.dim()
+        self.probas.dim()
     }
     pub fn normalize(&self) -> Result<Self> {
-        Self::new(&self.log_probas.mapv(|x| x.exp2()))
+        Self::new(&self.probas)
     }
 
     pub fn check(&self) {
-        if self.log_probas.iter().any(|&x| x > 0.) {
+        if self.probas.iter().any(|&x| x > 1.) {
+            panic!("Probabilities larger than one !");
+        }
+    }
+}
+
+// Three-dimensional distribution
+#[derive(Default, Clone, Debug)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
+pub struct CategoricalFeature3 {
+    pub probas: Array3<f64>,
+    pub probas_dirty: Array3<f64>,
+}
+
+impl Feature<(usize, usize, usize)> for CategoricalFeature3 {
+    fn dirty_update(&mut self, observation: (usize, usize, usize), likelihood: f64) {
+        self.probas_dirty[[observation.0, observation.1, observation.2]] += likelihood;
+    }
+    fn likelihood(&self, observation: (usize, usize, usize)) -> f64 {
+        self.probas[[observation.0, observation.1, observation.2]]
+    }
+    fn cleanup(&self) -> Result<CategoricalFeature3> {
+        let m = CategoricalFeature3::new(&self.probas_dirty)?;
+        Ok(m)
+    }
+    fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature3> + ExactSizeIterator,
+    ) -> Result<CategoricalFeature3> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas;
+        for feat in iter {
+            average_proba = average_proba + feat.probas;
+            len += 1;
+        }
+        CategoricalFeature3::new(&(average_proba / (len as f64)))
+    }
+}
+
+impl CategoricalFeature3 {
+    pub fn new(probabilities: &Array3<f64>) -> Result<CategoricalFeature3> {
+        Ok(CategoricalFeature3 {
+            probas_dirty: Array3::<f64>::zeros(probabilities.dim()),
+            probas: probabilities.normalize_distribution_3()?,
+        })
+    }
+    pub fn dim(&self) -> (usize, usize, usize) {
+        self.probas.dim()
+    }
+    pub fn normalize(&self) -> Result<Self> {
+        Self::new(&self.probas)
+    }
+
+    pub fn check(&self) {
+        if self.probas.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
     }
@@ -370,12 +417,14 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
 
     /// Arguments
     /// - observation: "(nb of error, length of the sequence without insertion)"
-    fn log_likelihood(&self, observation: (usize, usize)) -> f64 {
+    /// The complete formula is likelihood = (r/3)^(nb error) * (1-r)^(length - nb error)
+    fn likelihood(&self, observation: (usize, usize)) -> f64 {
         if observation.0 == 0 {
-            return observation.1 as f64 * self.log1mr;
+            return (observation.1 as f64 * self.log1mr).exp2();
         }
-        (observation.0 as f64) * (self.logrs3)
-            + ((observation.1 - observation.0) as f64) * self.log1mr
+        ((observation.0 as f64) * self.logrs3
+            + ((observation.1 - observation.0) as f64) * self.log1mr)
+            .exp2()
     }
     fn cleanup(&self) -> Result<ErrorSingleNucleotide> {
         // estimate the error_rate of the sequence from the dirty
@@ -422,10 +471,8 @@ pub struct InsertionFeature {
     //pub initial_distribution: Array1<f64>, // This should not be here anymore, rm
     pub transition_matrix: Array2<f64>,
 
-    // log-transformed & include non-standard nucleotides
-    //    log_initial_distribution_internal: Array1<f64>,
-    log_transition_matrix_internal: Array2<f64>,
-    log_length_distribution_internal: Array1<f64>,
+    // include non-standard nucleotides
+    transition_matrix_internal: Array2<f64>,
 
     // for updating
     transition_matrix_dirty: Array2<f64>,
@@ -459,22 +506,22 @@ impl Feature<&Dna> for InsertionFeature {
     /// Observation plus one contains the sequence of interest with the nucleotide
     /// preceding it, so if we're interested in the insertion CTGGC that pops up
     /// in the sequence CAACTGGCAC we would send ACTGGC.
-    fn log_likelihood(&self, observation_plus_one: &Dna) -> f64 {
-        if observation_plus_one.len() > self.log_length_distribution_internal.len() {
-            return f64::NEG_INFINITY;
+    fn likelihood(&self, observation_plus_one: &Dna) -> f64 {
+        if observation_plus_one.len() > self.length_distribution.len() {
+            return 0.;
         }
         if observation_plus_one.len() == 1 {
-            return self.log_length_distribution_internal[0];
+            return self.length_distribution[0];
         }
         let len = observation_plus_one.len() - 1;
-        let mut log_proba = 0.;
+        let mut proba = 1.;
         for ii in 1..len + 1 {
-            log_proba += self.log_transition_matrix_internal[[
+            proba *= self.transition_matrix_internal[[
                 nucleotides_inv(observation_plus_one.seq[ii - 1]),
                 nucleotides_inv(observation_plus_one.seq[ii]),
             ]];
         }
-        log_proba + self.log_length_distribution_internal[len]
+        proba * self.length_distribution[len]
     }
     fn cleanup(&self) -> Result<InsertionFeature> {
         InsertionFeature::new(
@@ -503,14 +550,10 @@ impl Feature<&Dna> for InsertionFeature {
 
 impl InsertionFeature {
     pub fn check(&self) {
-        if self.log_transition_matrix_internal.iter().any(|&x| x > 0.) {
+        if self.transition_matrix_internal.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
-        if self
-            .log_length_distribution_internal
-            .iter()
-            .any(|&x| x > 0.)
-        {
+        if self.length_distribution.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
     }
@@ -524,8 +567,7 @@ impl InsertionFeature {
             transition_matrix: normalize_transition_matrix(transition_matrix)?,
             transition_matrix_dirty: Array2::<f64>::zeros(transition_matrix.dim()),
             length_distribution_dirty: Array1::<f64>::zeros(length_distribution.dim()),
-            log_transition_matrix_internal: Array2::<f64>::zeros((5, 5)),
-            log_length_distribution_internal: Array1::<f64>::zeros(length_distribution.dim()),
+            transition_matrix_internal: Array2::<f64>::zeros((5, 5)),
         };
 
         m.define_internal();
@@ -535,14 +577,6 @@ impl InsertionFeature {
     pub fn normalize(&self) -> Result<Self> {
         Self::new(&self.length_distribution, &self.transition_matrix)
     }
-
-    /// Just return the log likelihood from the length (faster)
-    // pub fn log_likelihood_length(&self, observation: usize) -> f64 {
-    //     if observation >= self.log_length_distribution_internal.len() {
-    //         return f64::NEG_INFINITY;
-    //     }
-    //     self.log_length_distribution_internal[observation]
-    // }
 
     pub fn get_parameters(&self) -> (Array1<f64>, Array2<f64>) {
         (
@@ -555,20 +589,16 @@ impl InsertionFeature {
         self.length_distribution.len()
     }
 
-    /// 1- compute the log of the distribution (improve speed)
-    /// 2- deal with undefined (N) nucleotides
+    /// deal with undefined (N) nucleotides
     fn define_internal(&mut self) {
-        self.log_length_distribution_internal = self.length_distribution.mapv(|x| x.log2());
-
         for ii in 0..4 {
             for jj in 0..4 {
-                self.log_transition_matrix_internal[[ii, jj]] =
-                    self.transition_matrix[[ii, jj]].log2();
+                self.transition_matrix_internal[[ii, jj]] = self.transition_matrix[[ii, jj]];
             }
         }
         for ii in 0..5 {
-            self.log_transition_matrix_internal[[ii, 4]] = 0.;
-            self.log_transition_matrix_internal[[4, ii]] = 0.;
+            self.transition_matrix_internal[[ii, 4]] = 0.;
+            self.transition_matrix_internal[[4, ii]] = 0.;
         }
     }
 }

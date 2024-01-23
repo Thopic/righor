@@ -3,7 +3,7 @@ use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
 use crate::shared::utils::{
     add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
-    DiscreteDistribution, Gene, InferenceParameters, MarkovDNA,
+    DiscreteDistribution, Gene, InferenceParameters, MarkovDNA, Normalize,
 };
 use crate::vdj::inference::ResultInference;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
@@ -222,18 +222,13 @@ impl Model {
             let vdim = pd.dim()[0];
             let jdim = pd.dim()[1];
             let ddim = pd.dim()[2];
-
-            model.p_v = Array1::<f64>::zeros(vdim);
-            model.p_j_given_v = Array2::<f64>::zeros((jdim, vdim));
-            model.p_d_given_vj = Array3::<f64>::zeros((ddim, vdim, jdim));
+            model.p_vdj = Array3::<f64>::zeros((vdim, ddim, jdim));
             for vv in 0..vdim {
                 for jj in 0..jdim {
                     for dd in 0..ddim {
-                        model.p_d_given_vj[[dd, vv, jj]] = pd[[vv, jj, dd]];
+                        model.p_vdj[[vv, dd, jj]] = pd[[vv, jj, dd]] * pj[[vv, jj]] * pv[[vv]];
                     }
-                    model.p_j_given_v[[jj, vv]] = pj[[vv, jj]];
                 }
-                model.p_v[[vv]] = pv[[vv]];
             }
         }
         // Olga-like
@@ -244,23 +239,19 @@ impl Model {
             let vdim = pv.dim()[0];
             let jdim = pd.dim()[0];
             let ddim = pd.dim()[1];
-
-            model.p_v = Array1::<f64>::zeros(vdim);
-            model.p_j_given_v = Array2::<f64>::zeros((jdim, vdim));
-            model.p_d_given_vj = Array3::<f64>::zeros((ddim, vdim, jdim));
-
+            model.p_vdj = Array3::<f64>::zeros((vdim, ddim, jdim));
             for vv in 0..vdim {
                 for jj in 0..jdim {
                     for dd in 0..ddim {
-                        model.p_d_given_vj[[dd, vv, jj]] = pd[[jj, dd]];
+                        model.p_vdj[[vv, dd, jj]] = pd[[jj, dd]] * pv[[vv]] * pj[[jj]];
                     }
-                    model.p_j_given_v[[jj, vv]] = pj[[jj]];
                 }
-                model.p_v[[vv]] = pv[[vv]];
             }
         } else {
             return Err::<Model, anyhow::Error>(anyhow!("Wrong format for the VDJ probabilities"));
         }
+
+        model.set_p_vdj(&model.p_vdj.clone())?;
 
         model.p_ins_vd = pm
             .marginals
@@ -345,9 +336,7 @@ impl Model {
 
         Ok(model)
     }
-}
 
-impl Model {
     pub fn sanitize_genes(&mut self) -> Result<()> {
         // Trim the V/J nucleotides sequences at the CDR3 region (include F/W/C residues)
         // and append the maximum number of reverse palindromic insertions appended.
@@ -359,6 +348,7 @@ impl Model {
         for g in self.seg_js.iter_mut() {
             g.create_palindromic_ends((-self.range_del_j.0) as usize, 0);
         }
+
         for g in self.seg_ds.iter_mut() {
             g.create_palindromic_ends(
                 (-self.range_del_d5.0) as usize,
@@ -515,9 +505,7 @@ impl Model {
         let seq_aa: Option<AminoAcid> = cdr3_err.translate().ok();
         (cdr3_err, seq_aa, full_seq, event, vname, jname)
     }
-}
 
-impl Model {
     pub fn uniform(&self) -> Result<Model> {
         let mut m = Model {
             seg_vs: self.seg_vs.clone(),
@@ -548,18 +536,11 @@ impl Model {
 
     pub fn initialize(&mut self) -> Result<()> {
         self.sanitize_genes()?;
-        // define the non-critical parameters
-        self.set_p_vdj(
-            &self.p_d_given_vj.clone(),
-            &self.p_j_given_v.clone(),
-            &self.p_v.clone(),
-        );
-        self.initialize_generative_model()?;
         // load the data and normalize
         let mut feature = Features::new(self)?;
         feature.normalize()?;
-
         self.load_features(&feature)?;
+        self.initialize_generative_model()?;
         Ok(())
     }
 
@@ -578,11 +559,8 @@ impl Model {
         sequence: &Sequence,
         inference_params: &InferenceParameters,
     ) -> Result<ResultInference> {
-        let mut ip = inference_params.clone();
-        ip.nb_best_events = 0;
-        ip.evaluate = true;
         let mut feature = Features::new(self)?;
-        feature.infer(sequence, &ip)
+        feature.infer(sequence, inference_params)
     }
 
     pub fn align_sequence(
@@ -661,15 +639,11 @@ impl Model {
     }
 
     pub fn load_features(&mut self, feature: &Features) -> Result<()> {
-        self.p_v = feature.v.log_probas.mapv(|x| x.exp2());
-        self.p_del_v_given_v = feature.delv.log_probas.mapv(|x| x.exp2());
-        self.set_p_vdj(
-            &feature.d.log_probas.mapv(|x| x.exp2()),
-            &feature.j.log_probas.mapv(|x| x.exp2()),
-            &feature.v.log_probas.mapv(|x| x.exp2()),
-        );
-        self.p_del_j_given_j = feature.delj.log_probas.mapv(|x| x.exp2());
-        self.p_del_d5_del_d3 = feature.deld.log_probas.mapv(|x| x.exp2());
+        self.p_vdj = feature.vdj.probas.clone();
+        self.p_del_v_given_v = feature.delv.probas.clone();
+        self.set_p_vdj(&feature.vdj.probas.clone())?;
+        self.p_del_j_given_j = feature.delj.probas.clone();
+        self.p_del_d5_del_d3 = feature.deld.probas.clone();
         (self.p_ins_vd, self.markov_coefficients_vd) = feature.insvd.get_parameters();
         (self.p_ins_dj, self.markov_coefficients_dj) = feature.insdj.get_parameters();
         self.error_rate = feature.error.error_rate;
@@ -683,27 +657,25 @@ impl Model {
         Ok(())
     }
 
-    pub fn set_p_vdj(
-        &mut self,
-        p_d_given_vj: &Array3<f64>,
-        p_j_given_v: &Array2<f64>,
-        p_v: &Array1<f64>,
-    ) {
+    pub fn set_p_vdj(&mut self, p_vdj: &Array3<f64>) -> Result<()> {
         // P(V,D,J) = P(D | V, J) * P(V, J) = P(D|V,J) * P(J|V)*P(V)
-        let dim = p_d_given_vj.dim();
-        self.p_vdj = Array3::zeros((dim.1, dim.0, dim.2));
-        self.p_dj = Array2::zeros((dim.0, dim.2));
-        for vv in 0..p_v.dim() {
-            for jj in 0..p_j_given_v.dim().0 {
-                for dd in 0..p_d_given_vj.dim().0 {
-                    self.p_vdj[[vv, dd, jj]] =
-                        p_d_given_vj[[dd, vv, jj]] * p_j_given_v[[jj, vv]] * p_v[vv];
+        self.p_vdj = p_vdj.clone();
+        self.p_d_given_vj = Array3::zeros((p_vdj.dim().1, p_vdj.dim().0, p_vdj.dim().2));
+        self.p_j_given_v = Array2::zeros((p_vdj.dim().2, p_vdj.dim().0));
+        self.p_dj = Array2::zeros((p_vdj.dim().1, p_vdj.dim().2));
+        self.p_v = Array1::zeros(p_vdj.dim().0);
+        for vv in 0..p_vdj.dim().0 {
+            for jj in 0..p_vdj.dim().2 {
+                for dd in 0..p_vdj.dim().1 {
+                    self.p_j_given_v[[jj, vv]] += self.p_vdj[[vv, dd, jj]];
+                    self.p_d_given_vj[[dd, vv, jj]] += self.p_vdj[[vv, dd, jj]];
                     self.p_dj[[dd, jj]] += self.p_vdj[[vv, dd, jj]];
+                    self.p_v[[vv]] += self.p_vdj[[vv, dd, jj]];
                 }
             }
         }
-        self.p_d_given_vj = p_d_given_vj.clone();
-        self.p_j_given_v = p_j_given_v.clone();
-        self.p_v = p_v.clone();
+        self.p_d_given_vj = self.p_d_given_vj.normalize_distribution()?;
+        self.p_j_given_v = self.p_j_given_v.normalize_distribution()?;
+        Ok(())
     }
 }

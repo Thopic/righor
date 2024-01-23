@@ -63,6 +63,16 @@ pub struct AlignmentParameters {
     pub max_error_d: usize,
 }
 
+impl Default for AlignmentParameters {
+    fn default() -> AlignmentParameters {
+        AlignmentParameters {
+            min_score_v: 0,
+            min_score_j: 0,
+            max_error_d: 100,
+        }
+    }
+}
+
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl AlignmentParameters {

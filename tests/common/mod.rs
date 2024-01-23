@@ -67,18 +67,9 @@ pub fn simple_model_vdj() -> vdj::Model {
 }
 
 pub fn inference_parameters_default() -> ihor::InferenceParameters {
-    ihor::InferenceParameters {
-        min_log_likelihood: -2000.0,
-        nb_best_events: 10,
-        evaluate: true,
-        pgen: true,
-    }
+    ihor::InferenceParameters::default()
 }
 
 pub fn alignment_parameters_default() -> ihor::AlignmentParameters {
-    ihor::AlignmentParameters {
-        min_score_v: 0,
-        min_score_j: 0,
-        max_error_d: 50,
-    }
+    ihor::AlignmentParameters::default()
 }

@@ -30,6 +30,14 @@ impl Sequence {
         self.j_genes.clone().into_iter().max_by_key(|m| m.score)
     }
 
+    pub fn get_specific_dgene(&self, d_idx: usize) -> Vec<DAlignment> {
+        self.d_genes
+            .clone()
+            .into_iter()
+            .filter(|d| d.index == d_idx)
+            .collect()
+    }
+
     pub fn get_insertions_vd_dj(&self, e: &Event) -> (Dna, Dna) {
         // seq         :          SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
         // V-gene      : VVVVVVVVVVVVVVVVVVVV

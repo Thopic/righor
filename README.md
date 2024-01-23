@@ -13,7 +13,7 @@ Install the library:
 In the git folder:
 ``` sh
 pip install maturin
-maturin develop --release
+maturin develop --release -F py_binds,pyo3 --profile release
 ```
 
 How to use:
@@ -21,20 +21,13 @@ How to use:
 
 Fast generation:
 ```py
+import ihor
 # Create generation model (once only)
 gen = ihor.vdj.Generator(
 "models/human_T_beta/model_params.txt",
 "models/human_T_beta/model_marginals.txt",
 "models/human_T_beta/V_gene_CDR3_anchors.csv",
 "models/human_T_beta/J_gene_CDR3_anchors.csv")
-
-# For a VJ model
-# gen = ihor.vj.Generator(
-# "models/human_T_alpha/model_params.txt",
-# "models/human_T_alpha/model_marginals.txt",
-# "models/human_T_alpha/V_gene_CDR3_anchors.csv",
-# "models/human_T_alpha/J_gene_CDR3_anchors.csv")
-
 
 # Generate productive amino-acid sequence
 result = gen.generate(True) # False for unproductive
@@ -45,71 +38,57 @@ print(f"CDR3: {result.cdr3_nt} {result.cdr3_aa}")
 
 
 Inference:
-----------
-
-
 ```py
 import ihor
 from tqdm import tqdm
 
 # load the model
 model = ihor.vdj.Model.load_model("models/human_T_beta/model_params.txt",
-	"models/human_T_beta/model_marginals.txt",
-	"models/human_T_beta/V_gene_CDR3_anchors.csv",
-	"models/human_T_beta/J_gene_CDR3_anchors.csv")
+"models/human_T_beta/model_marginals.txt",
+"models/human_T_beta/V_gene_CDR3_anchors.csv",
+"models/human_T_beta/J_gene_CDR3_anchors.csv")
 
 # define parameters for the alignment and the inference
-align_params = ihor.AlignmentParameters(min_score_v= 40, min_score_j= 10, max_error_d=10)
-infer_params = ihor.InferenceParameters(min_likelihood=1e-40, min_likelihood_error=1e-60)
+align_params = ihor.AlignmentParameters(min_score_v=0, min_score_j=0,max_error_d=100)
+infer_params = ihor.InferenceParameters(min_likelihood=1e-400)
 
 # read the file line by line and align each sequence
 seq = []
 with open('demo/murugan_naive1_noncoding_demo_seqs.txt') as f:
-	for l in tqdm(f):
-		seq += [model.align_sequence(ihor.Dna.from_string(l.strip()), align_params)]
-
-nb_rounds = 5
-# Expectation-Maximization
-for _ in range(nb_rounds):
-	features = []
-	for s in tqdm(seq):
-		# infer the feature of each sequence
-		features += [model.infer_features(s, infer_params)]
-	# then compute the average
-	new_feat = ihor.vdj.Features.average(features)
-	# update the model
-	model.update(new_feat)
-
-
+    for l in tqdm(f):
+        s = model.align_sequence(l.strip(), align_params)
+        r = model.infer(s, infer_params)
+        print(r.likelihood)
 ```
 
+
+Differences with IGoR:
+- "dynamic programming" method, instead of summing over all events we first pre-compute over sum of events. This means that we can run it with undefined nucleotides like N (at least in theory, I need to add full support for these).
+- The D gene alignment is less constrained
+
 Limitations (I think also true for IGoR but not clear):
-- Need to get rid of any primers/ends on the V gene side.
+- Need to get rid of any primers/ends on the V gene side before running it
 - The reads need to be long enough to fully cover the CDR3 (even when it's particularly long)
 - still not sure if I should use initial_distribution for the insertion model
 
 
 Programming stuff:
-- Some unneeded duplicated code, mostly because pyo3 not compatible with templates + need to be removed for wasm compilation
-- open_blas is a pain in the ass, takes forever to compile, all that for one not-very-important diagonalisation -> now it's removed.
-- log always means log2. ln is neperian.
-
+- Compile for python: `maturin develop --release -F py_binds,pyo3`
+- I'm working on the web version on a different crate, importing the library, need to push that on git.
 
 Things to do:
-- add more tests (interaction insertion + deletion, more than one v gene)
-- Error model is wrong as defined rn
+- test the inference
+- add more tests
+- deal with the "pgen with errors"
 - deal with potential insertion in V/J alignment, remove the sequence from the inference if the insertion overlap with the delv range.
+- write igor file, offer a json export
+
+Bug:
+- having spaces in the marginal file mess up the parsing silently, needs to be fixed
 - if range_j / range_v / range_d doesn't match p_deld/p_delv/ p_delj in length, should complain
-- having spaces in the marginal file fuck up the parsing silently => fix.
+- generally should complain if the file is not exactly what is expected
+- speed is way slower when compiled with python
 
 Current status:
-- speed is ok. Could be slightly faster. My improvement have not been crazy, so I think I'm reaching a wall. Obvious changes would be to add some unsafe (beuh). It's at Igor speed now, so it's fine. alignment procedure is a bit slow too (but that's basically library code). I could check insertion a bit less & play a bit with extract_padded_sequence. But all together, I think it's in a pretty good state. Some easy fix: stop using Array so much, replace a lot of loop with iterators, maybe bit of unsafe.
-- the inference doesn't quite work. Probably a few small problems here and there, need to check with the test. deletions without insertions maaaaaybe work. error kind of work but don't quite go to the right value.
-- generally needs a lot more testing
-- Consider just the best alignment, rather than all the alignment, to decide the range of D ? With some range ?
-- Also improve the alignment, it's waaay too slow. We don't expect that many insertions. Start with aligning a fairly conserved subset of Vs, then try to align the other ones, following the same structure ?
-- I've just realized that igor is P(V,D,J) while olga is P(V)P(D,J)... Need to add some flexibility in reading the model. Let's always work in the (more complex) P(V,D,J) case, but still give access to P(V) and P(D,J).
-
-
-Tests:
-- result match with Igor on the test dataset (pgen the same), but not yet on the full dataset. I need to figure out if this is an alignment problem (D gene ?) or something else (most likely pgen ? Error in loading the model)
+- speed is ok (50 seqs/s roughly ?). Could be slightly faster. I think some range should be replaced by iterator. Another big improvement would be to consider shorter V segment during the alignment.
+- pgen works, but because I consider way more D gene alignment than Quentin some issue when endD and startD are really close to each other.

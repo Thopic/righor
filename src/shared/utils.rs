@@ -9,6 +9,10 @@ use rand_distr::WeightedAliasIndex;
 
 const EPSILON: f64 = 1e-10;
 
+fn max_vector(arr: &Vec<f64>) -> Option<f64> {
+    arr.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied()
+}
+
 // Define some storage wrapper for the V/D/J genes
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
@@ -159,6 +163,30 @@ pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
     }
 }
 
+/// Normalize the distribution on the first three axis
+pub trait Normalize3 {
+    fn normalize_distribution_3(&self) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+impl Normalize3 for Array3<f64> {
+    fn normalize_distribution_3(&self) -> Result<Self> {
+        if self.iter().any(|&x| x < 0.0) {
+            // negative values mean something wrong happened
+            return Err(anyhow!("Array contains non-positive values"));
+        }
+
+        let sum = self.sum();
+        if sum.abs() == 0.0f64 {
+            // return a uniform distribution
+            return Ok(Array3::zeros(self.dim()));
+        }
+
+        Ok(self / sum)
+    }
+}
+
 /// Normalize the distribution on the two first axis
 pub trait Normalize2 {
     fn normalize_distribution_double(&self) -> Result<Self>
@@ -175,8 +203,8 @@ impl Normalize2 for Array2<f64> {
 
         let sum = self.sum();
         if sum.abs() == 0.0f64 {
-            // return a uniform distribution
-            return Ok(Array2::zeros(self.dim()) / ((self.dim().0 * self.dim().1) as f64));
+            // return a zero distribution
+            return Ok(Array2::zeros(self.dim()));
         }
 
         Ok(self / sum)
@@ -373,20 +401,51 @@ where
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct InferenceParameters {
-    pub min_log_likelihood: f64,
+    pub min_likelihood: f64,
     pub evaluate: bool,
     pub pgen: bool,
     pub nb_best_events: usize,
+    pub store_best_event: bool,
+}
+
+#[cfg_attr(
+    all(feature = "py_binds", feature = "pyo3"),
+    pyclass(name = "Event", get_all, set_all)
+)]
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct Event {
+    pub v_index: usize,
+    pub v_start_gene: usize, // start of the sequence in the V gene
+    pub j_index: usize,
+    pub j_start_seq: usize, // start of the palindromic J gene (with all dels) in the sequence
+    pub d_index: Option<usize>,
+    pub end_v: i64,
+    pub start_d: Option<i64>,
+    pub end_d: Option<i64>,
+    pub start_j: i64,
+    pub likelihood: f64,
+}
+
+impl Default for InferenceParameters {
+    fn default() -> InferenceParameters {
+        InferenceParameters {
+            min_likelihood: (-400.0f64).exp2(),
+            nb_best_events: 10,
+            evaluate: true,
+            pgen: true,
+            store_best_event: true,
+        }
+    }
 }
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl InferenceParameters {
     #[new]
-    pub fn py_new(min_log_likelihood: f64) -> Self {
-        Self::new(min_log_likelihood)
+    pub fn py_new(min_likelihood: f64) -> Self {
+        Self::new(min_likelihood)
     }
 }
 
@@ -394,9 +453,10 @@ impl InferenceParameters {
     pub fn new(min_likelihood: f64) -> Self {
         Self {
             pgen: true,
-            min_log_likelihood: min_likelihood.log2(),
+            min_likelihood,
             evaluate: true,
             nb_best_events: 1,
+            store_best_event: true,
         }
     }
 }
@@ -462,14 +522,13 @@ impl RangeArray1 {
     }
 
     pub fn get(&self, idx: i64) -> f64 {
-        if idx < self.min || idx >= self.max {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx, self.min, self.max
-            );
-        }
+        debug_assert!(idx >= self.min && idx < self.max);
+        //unsafe because improve perf
+        unsafe { *self.array.get_unchecked((idx - self.min) as usize) }
+    }
 
-        self.array[(idx - self.min) as usize]
+    pub fn max_value(&self) -> f64 {
+        max_vector(&self.array).unwrap()
     }
 
     pub fn dim(&self) -> (i64, i64) {
@@ -497,14 +556,9 @@ impl RangeArray1 {
     }
 
     pub fn get_mut(&mut self, idx: i64) -> &mut f64 {
-        if idx < self.min || idx >= self.max {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx, self.min, self.max
-            );
-        }
-
-        self.array.get_mut((idx - self.min) as usize).unwrap()
+        debug_assert!(idx >= self.min && idx < self.max);
+        //unsafe because improve perf
+        unsafe { self.array.get_unchecked_mut((idx - self.min) as usize) }
     }
 
     pub fn mut_map<F>(&mut self, mut f: F)
@@ -564,57 +618,44 @@ impl RangeArray3 {
         }
     }
 
-    pub fn get(&self, idx: (i64, i64, i64)) -> f64 {
-        if idx.0 < self.min.0 || idx.0 >= self.max.0 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.0, self.min.0, self.max.0
-            );
-        }
-        if idx.1 < self.min.1 || idx.1 >= self.max.1 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.1, self.min.1, self.max.1
-            );
-        }
-        if idx.2 < self.min.2 || idx.2 >= self.max.2 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.2, self.min.2, self.max.2
-            );
-        }
-
-        self.array[(idx.0 - self.min.0) as usize
-            + ((idx.1 - self.min.1) as usize) * self.nb0
-            + ((idx.2 - self.min.2) as usize) * self.nb1 * self.nb0]
+    pub fn max_value(&self) -> f64 {
+        max_vector(&self.array).unwrap()
     }
 
-    pub fn get_mut(&mut self, idx: (i64, i64, i64)) -> &mut f64 {
-        if idx.0 < self.min.0 || idx.0 >= self.max.0 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.0, self.min.0, self.max.0
-            );
-        }
-        if idx.1 < self.min.1 || idx.1 >= self.max.1 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.1, self.min.1, self.max.1
-            );
-        }
-        if idx.2 < self.min.2 || idx.2 >= self.max.2 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.2, self.min.2, self.max.2
-            );
-        }
-        self.array
-            .get_mut(
+    pub fn get(&self, idx: (i64, i64, i64)) -> f64 {
+        debug_assert!(
+            idx.0 >= self.min.0
+                && idx.0 < self.max.0
+                && idx.1 >= self.min.1
+                && idx.1 < self.max.1
+                && idx.2 >= self.min.2
+                && idx.2 < self.max.2
+        );
+        unsafe {
+            *self.array.get_unchecked(
                 (idx.0 - self.min.0) as usize
                     + ((idx.1 - self.min.1) as usize) * self.nb0
                     + ((idx.2 - self.min.2) as usize) * self.nb1 * self.nb0,
             )
-            .unwrap()
+        }
+    }
+
+    pub fn get_mut(&mut self, idx: (i64, i64, i64)) -> &mut f64 {
+        debug_assert!(
+            idx.0 >= self.min.0
+                && idx.0 < self.max.0
+                && idx.1 >= self.min.1
+                && idx.1 < self.max.1
+                && idx.2 >= self.min.2
+                && idx.2 < self.max.2
+        );
+        unsafe {
+            self.array.get_unchecked_mut(
+                (idx.0 - self.min.0) as usize
+                    + ((idx.1 - self.min.1) as usize) * self.nb0
+                    + ((idx.2 - self.min.2) as usize) * self.nb1 * self.nb0,
+            )
+        }
     }
 
     pub fn dim(&self) -> ((i64, i64, i64), (i64, i64, i64)) {
@@ -698,40 +739,30 @@ impl RangeArray2 {
         }
     }
 
-    pub fn get(&self, idx: (i64, i64)) -> f64 {
-        if idx.0 < self.min.0 || idx.0 >= self.max.0 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.0, self.min.0, self.max.0
-            );
-        }
-        if idx.1 < self.min.1 || idx.1 >= self.max.1 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.1, self.min.1, self.max.1
-            );
-        }
+    pub fn max_value(&self) -> f64 {
+        max_vector(&self.array).unwrap()
+    }
 
-        self.array[(idx.0 - self.min.0) as usize + (idx.1 - self.min.1) as usize * self.nb0]
+    pub fn get(&self, idx: (i64, i64)) -> f64 {
+        debug_assert!(
+            idx.0 >= self.min.0 && idx.0 < self.max.0 && idx.1 >= self.min.1 && idx.1 < self.max.1
+        );
+        unsafe {
+            *self.array.get_unchecked(
+                (idx.0 - self.min.0) as usize + (idx.1 - self.min.1) as usize * self.nb0,
+            )
+        }
     }
 
     pub fn get_mut(&mut self, idx: (i64, i64)) -> &mut f64 {
-        if idx.0 < self.min.0 || idx.0 >= self.max.0 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.0, self.min.0, self.max.0
-            );
+        debug_assert!(
+            idx.0 >= self.min.0 && idx.0 < self.max.0 && idx.1 >= self.min.1 && idx.1 < self.max.1
+        );
+        unsafe {
+            self.array.get_unchecked_mut(
+                (idx.0 - self.min.0) as usize + (idx.1 - self.min.1) as usize * self.nb0,
+            )
         }
-        if idx.1 < self.min.1 || idx.1 >= self.max.1 {
-            panic!(
-                "index out of bounds: {} not in [{}, {}[",
-                idx.1, self.min.1, self.max.1
-            );
-        }
-
-        self.array
-            .get_mut((idx.0 - self.min.0) as usize + (idx.1 - self.min.1) as usize * self.nb0)
-            .unwrap()
     }
 
     pub fn dim(&self) -> ((i64, i64), (i64, i64)) {

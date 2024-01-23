@@ -14,8 +14,8 @@ use pyo3::prelude::*;
 #[pymethods]
 impl CategoricalFeature1 {
     #[getter]
-    fn get_log_probas(&self, py: Python) -> Py<PyArray1<f64>> {
-        self.log_probas.to_owned().into_pyarray(py).to_owned()
+    fn get_probas(&self, py: Python) -> Py<PyArray1<f64>> {
+        self.probas.to_owned().into_pyarray(py).to_owned()
     }
 }
 
@@ -23,8 +23,8 @@ impl CategoricalFeature1 {
 #[pymethods]
 impl CategoricalFeature1g1 {
     #[getter]
-    fn get_log_probas(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.log_probas.to_owned().into_pyarray(py).to_owned()
+    fn get_probas(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.probas.to_owned().into_pyarray(py).to_owned()
     }
 }
 
@@ -32,12 +32,12 @@ impl CategoricalFeature1g1 {
 #[pymethods]
 impl CategoricalFeature2 {
     #[getter]
-    fn get_log_probas(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.log_probas.to_owned().into_pyarray(py).to_owned()
+    fn get_probas(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.probas.to_owned().into_pyarray(py).to_owned()
     }
     #[setter]
-    fn set_log_probas(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
-        self.log_probas = value.as_ref(py).to_owned_array();
+    fn set_probas(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
+        self.probas = value.as_ref(py).to_owned_array();
         Ok(())
     }
 }
@@ -46,8 +46,8 @@ impl CategoricalFeature2 {
 #[pymethods]
 impl CategoricalFeature2g1 {
     #[getter]
-    fn get_log_probas(&self, py: Python) -> Py<PyArray3<f64>> {
-        self.log_probas.to_owned().into_pyarray(py).to_owned()
+    fn get_probas(&self, py: Python) -> Py<PyArray3<f64>> {
+        self.probas.to_owned().into_pyarray(py).to_owned()
     }
 }
 

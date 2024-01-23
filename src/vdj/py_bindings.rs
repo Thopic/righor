@@ -1,7 +1,10 @@
 //! Contains some of the python binding that would otherwise pollute the other files.
 
 use crate::sequence::AminoAcid;
-use crate::vdj::{Model, StaticEvent};
+use crate::vdj::inference::ResultInference;
+use crate::vdj::{Model, Sequence, StaticEvent};
+use crate::Dna;
+use crate::{AlignmentParameters, InferenceParameters};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use anyhow::Result;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -66,9 +69,14 @@ impl Generator {
             seed,
         )
     }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    #[pyo3(name = "generate")]
+    pub fn py_generate(&mut self, functional: bool) -> GenerationResult {
+        self.generate(functional)
+    }
 }
 
-#[cfg_attr(features = "py_bind", pymethods)]
 impl Generator {
     pub fn generate(&mut self, functional: bool) -> GenerationResult {
         let (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname) =
@@ -101,6 +109,27 @@ impl Model {
             Path::new(path_anchor_vgene),
             Path::new(path_anchor_jgene),
         )
+    }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    #[pyo3(name = "align_sequence")]
+    pub fn py_align_sequence(
+        &self,
+        dna_seq: &str,
+        align_params: &AlignmentParameters,
+    ) -> Result<Sequence> {
+        let dna = Dna::from_string(dna_seq)?;
+        self.align_sequence(dna, align_params)
+    }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    #[pyo3(name = "infer")]
+    pub fn py_infer(
+        &self,
+        sequence: &Sequence,
+        inference_params: &InferenceParameters,
+    ) -> Result<ResultInference> {
+        self.infer(sequence, inference_params)
     }
 
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]

@@ -37,9 +37,14 @@ mod common;
 //     }
 // }
 
+// TATCTCTGTGCCAGCAGCTTAGCGGACTAGCGGGAGGGCATAGCAATCAGCCCCAGCATTTTGGTGATGGGACTCGACTCTCCATCCTAG
+// TATCTCTGTGCCAGCAGCTTAGC
+//                       GGGACTAGCGGGAGGGC
+//                                       .ATAGCAATCAGCCCCAGCATTTTGGTGATGGGACTCGACTCTCCATCCTAG
+//                                       CA
 #[test]
 fn match_igor() -> Result<()> {
-    let igor_model = ihor::vdj::Model::load_from_files(
+    let mut igor_model = ihor::vdj::Model::load_from_files(
         Path::new("demo/models/human/tcr_beta/models/model_parms.txt"),
         Path::new("demo/models/human/tcr_beta/models/model_marginals.txt"),
         Path::new("demo/models/human/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
@@ -47,14 +52,14 @@ fn match_igor() -> Result<()> {
     )?;
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
-    let s = "GGTGGTAGAGTCGCCCGGACACCAAGGCACGACGTGACAGAGATGGGTCAAGAAGCAACAATGCGATGCCAGCCAAGTTTAGGCCACAATACTGCTTTCCGGTCCAGACAGCCCATGCTCCAAGGACTGGAGTTGCTGGCCTACTTGCTCATCCGGGGTCCTGTAGATGATTCGAGGATGCCGCAGGTTCGATCCTCAGCAGAGATCCCTGATGCAATTTTAGCCACTCTGAAGATACATACCTCAGAACCCCAGAACCCAGCTGTGTATTTTTGTGCTAGTGGCTAAGTGGGACAGTGGGCCTAGCAATCAGCCCCAGCATTTTGGTGATGGGACTTGTCTCTCCATCCTAG";
+    igor_model.error_rate = 0.;
+    let s = "GAAGCTGGAGTGGTTCAGTCTCCCAGATATAAGATTATAGAGAAAAAACAGCCTGTGGCTTTTTGGTGCAATCCTATTTCTGGCCACAATACCCTTTACTGGTACCTGCAGAACTTGGGACAGGGCCCGGAGCTTCTGATTCGATATGAGAATGAGGAAGCAGTAGACGATTCACAGTTGCCTAAGGATCGATTTTCTGCAGAGAGGCTCAAAGGAGTAGACTCCACTCTCAAGATCCAGCCTGCAGAGCTTGGGGACTCGGCCGTGTATCTCTGTGCCAGCAGCCACGCGGGGGGATGAGCAGTTCTTCGGGCCAGGGACACGGCTCACCGTGCTAG";
     let seq_aligned = igor_model
         .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
         .unwrap();
     let feat = igor_model.infer_features(&seq_aligned, &ifp).unwrap();
-    println!("{:?}", feat);
     let result = igor_model.infer(&seq_aligned, &ifp).unwrap();
-    println!("{:?}", result);
+    assert!((result.likelihood - 8.204457e-11).abs() < 1e-14);
 
     Ok(())
 }
