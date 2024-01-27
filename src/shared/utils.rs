@@ -404,6 +404,7 @@ where
 #[derive(Clone, Debug)]
 pub struct InferenceParameters {
     pub min_likelihood: f64,
+    pub min_ratio_likelihood: f64,
     pub evaluate: bool,
     pub pgen: bool,
     pub nb_best_events: usize,
@@ -432,6 +433,7 @@ impl Default for InferenceParameters {
     fn default() -> InferenceParameters {
         InferenceParameters {
             min_likelihood: (-400.0f64).exp2(),
+            min_ratio_likelihood: (-100.0f64).exp2(),
             nb_best_events: 10,
             evaluate: true,
             pgen: true,
@@ -454,6 +456,7 @@ impl InferenceParameters {
         Self {
             pgen: true,
             min_likelihood,
+            min_ratio_likelihood: 0.,
             evaluate: true,
             nb_best_events: 1,
             store_best_event: true,

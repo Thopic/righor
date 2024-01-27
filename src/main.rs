@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     for _ in 0..1 {
         for s in tqdm!(seq.clone().iter(), total = seq.len()) {
             let result = igor_model.infer(&s, &inference_params).unwrap();
-            println!("{:?}", result);
+            //println!("{:?}", result);
         }
     }
 

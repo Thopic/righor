@@ -29,6 +29,7 @@ pub struct ResultInference {
     pub likelihood: f64,
     pub pgen: f64,
     best_event: Option<Event>,
+    best_likelihood: f64,
 }
 
 impl ResultInference {
@@ -37,17 +38,8 @@ impl ResultInference {
             likelihood: 0.,
             pgen: 0.,
             best_event: None,
+            best_likelihood: 0.,
         }
-    }
-
-    pub fn best_event_likelihood(&self, ip: &InferenceParameters) -> f64 {
-        if ip.store_best_event {
-            return match &self.best_event {
-                Some(e) => e.likelihood,
-                None => 0.,
-            };
-        }
-        1.
     }
 
     pub fn set_best_event(&mut self, ev: Event, ip: &InferenceParameters) {
@@ -181,6 +173,10 @@ impl Features {
             self.vdj
                 .likelihood((feature_v.index, feature_d.index, feature_j.index));
 
+        let mut cutoff = ip
+            .min_likelihood
+            .max(ip.min_ratio_likelihood * current_result.best_likelihood);
+
         let (min_ev, max_ev) = (
             cmp::max(feature_v.start_v3, ins_vd.min_ev()),
             cmp::min(feature_v.end_v3, ins_vd.max_ev()),
@@ -200,16 +196,19 @@ impl Features {
 
         for ev in min_ev..max_ev {
             let likelihood_v = feature_v.likelihood(ev);
-            if likelihood_v < ip.min_likelihood {
+            if likelihood_v * likelihood_vdj < cutoff {
                 continue;
             }
             for sd in cmp::max(ev, min_sd)..max_sd {
                 let likelihood_ins_vd = ins_vd.likelihood(ev, sd);
-                if likelihood_ins_vd * likelihood_v < ip.min_likelihood {
+                if likelihood_ins_vd * likelihood_v * likelihood_vdj < cutoff {
                     continue;
                 }
                 for ed in cmp::max(sd - 1, min_ed)..max_ed {
                     let likelihood_d = feature_d.likelihood(sd, ed);
+                    if likelihood_ins_vd * likelihood_v * likelihood_d * likelihood_vdj < cutoff {
+                        continue;
+                    }
 
                     for sj in cmp::max(ed, min_sj)..max_sj {
                         let likelihood_ins_dj = ins_dj.likelihood(ed, sj);
@@ -221,24 +220,27 @@ impl Features {
                             * likelihood_ins_dj
                             * likelihood_vdj;
 
-                        if likelihood > ip.min_likelihood {
+                        if likelihood > cutoff {
                             current_result.likelihood += likelihood;
-                            if ip.store_best_event
-                                && likelihood > current_result.best_event_likelihood(ip)
-                            {
-                                let event = Event {
-                                    v_index: feature_v.index,
-                                    v_start_gene: feature_v.start_gene,
-                                    j_index: feature_j.index,
-                                    j_start_seq: feature_j.start_seq,
-                                    d_index: Some(feature_d.index),
-                                    end_v: ev,
-                                    start_d: Some(sd),
-                                    end_d: Some(ed),
-                                    start_j: sj,
-                                    likelihood: likelihood,
-                                };
-                                current_result.set_best_event(event, ip);
+                            if likelihood > current_result.best_likelihood {
+                                current_result.best_likelihood = likelihood;
+                                cutoff = (ip.min_likelihood)
+                                    .max(ip.min_ratio_likelihood * current_result.best_likelihood);
+                                if ip.store_best_event {
+                                    let event = Event {
+                                        v_index: feature_v.index,
+                                        v_start_gene: feature_v.start_gene,
+                                        j_index: feature_j.index,
+                                        j_start_seq: feature_j.start_seq,
+                                        d_index: Some(feature_d.index),
+                                        end_v: ev,
+                                        start_d: Some(sd),
+                                        end_d: Some(ed),
+                                        start_j: sj,
+                                        likelihood: likelihood,
+                                    };
+                                    current_result.set_best_event(event, ip);
+                                }
                             }
                             feature_v.dirty_update(ev, likelihood);
                             feature_j.dirty_update(sj, likelihood);
@@ -260,7 +262,6 @@ impl Features {
 
     pub fn cleanup(&mut self) -> Result<()> {
         // Compute the new marginals for the next round
-
         self.vdj = self.vdj.cleanup()?;
         self.delv = self.delv.cleanup()?;
         self.delj = self.delj.cleanup()?;
@@ -268,7 +269,6 @@ impl Features {
         self.insvd = self.insvd.cleanup()?;
         self.insdj = self.insdj.cleanup()?;
         self.error = self.error.cleanup()?;
-
         Ok(())
     }
 }

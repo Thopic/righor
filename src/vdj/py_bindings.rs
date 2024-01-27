@@ -1,9 +1,14 @@
 //! Contains some of the python binding that would otherwise pollute the other files.
 
 use crate::sequence::AminoAcid;
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::vdj::inference::ResultInference;
-use crate::vdj::{Model, Sequence, StaticEvent};
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use crate::vdj::Sequence;
+use crate::vdj::{Model, StaticEvent};
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::Dna;
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::{AlignmentParameters, InferenceParameters};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use anyhow::Result;

@@ -61,6 +61,7 @@ pub struct AlignmentParameters {
     pub min_score_v: i32,
     pub min_score_j: i32,
     pub max_error_d: usize,
+    pub left_v_cutoff: usize,
 }
 
 impl Default for AlignmentParameters {
@@ -69,6 +70,7 @@ impl Default for AlignmentParameters {
             min_score_v: 0,
             min_score_j: 0,
             max_error_d: 100,
+            left_v_cutoff: 40,
         }
     }
 }
@@ -83,11 +85,17 @@ impl AlignmentParameters {
 }
 
 impl AlignmentParameters {
-    pub fn new(min_score_v: i32, min_score_j: i32, max_error_d: usize) -> Self {
+    pub fn new(
+        min_score_v: i32,
+        min_score_j: i32,
+        max_error_d: usize,
+        left_v_cutoff: usize,
+    ) -> Self {
         Self {
             min_score_v,
             min_score_j,
             max_error_d,
+            left_v_cutoff, // shorten the V gene for alignment (improve speed)
         }
     }
 }
@@ -115,8 +123,30 @@ impl AlignmentParameters {
         }
     }
 
+    fn get_scoring_local(&self) -> pairwise::Scoring<Box<dyn Fn(u8, u8) -> i32>> {
+        pairwise::Scoring {
+            gap_open: -50,
+            gap_extend: -10,
+            // TODO: deal better with possible IUPAC codes
+            match_fn: Box::new(|a: u8, b: u8| {
+                if a == b {
+                    6i32
+                } else if (a == b'N') | (b == b'N') {
+                    0i32
+                } else {
+                    -6i32
+                }
+            }),
+            match_scores: None,
+            xclip_prefix: 0,
+            xclip_suffix: 0,
+            yclip_prefix: 0,
+            yclip_suffix: 0,
+        }
+    }
+
     pub fn valid_v_alignment(&self, al: &Alignment) -> bool {
-        al.score > self.min_score_v && al.xend - al.xstart == al.yend - al.ystart
+        al.xend - al.xstart == al.yend - al.ystart
     }
 
     pub fn valid_j_alignment(&self, al: &Alignment) -> bool {
@@ -272,6 +302,66 @@ impl Dna {
         );
 
         aligner.custom(sleft.seq.as_slice(), sright.seq.as_slice())
+    }
+
+    // A fast alignment algorithm just for V (because V is a bit long)
+    // Basically ignore the possible insertions/deletions
+    // seq     :    SSSSSSSSSSSSSSSSSSSSSSSSSSS
+    // cutV    :              VVVV (start_vcut = 13, leftv_cutoff = 4)
+    // full V  : VVVVVVVVVVVVVVVVV
+    //              ^   ystart = 0, xstart = 3
+    //                           ^ yend = 13, xend = 16
+    //                        ^ cutal.xstart = 0, cutal.ystart = 10
+    //                           ^ cutal.xend=3, cutal.yend = 13
+    pub fn v_alignment(
+        v: &Dna,
+        seq: &Dna,
+        align_params: &AlignmentParameters,
+    ) -> Option<Alignment> {
+        let start_vcut = if v.len() > align_params.left_v_cutoff {
+            v.len() - align_params.left_v_cutoff
+        } else {
+            0
+        };
+
+        if start_vcut == 0 {
+            // just do a normal alignment
+            let alignment = Self::align_left_right(v, seq, align_params);
+            if !align_params.valid_v_alignment(&alignment) {
+                return None;
+            }
+            return Some(alignment);
+        }
+
+        let cutv = &v.seq[start_vcut..];
+
+        let mut aligner = pairwise::Aligner::with_capacity_and_scoring(
+            cutv.len(),
+            seq.len(),
+            align_params.get_scoring_local(), // no left-right constraint
+        );
+
+        let cutal = aligner.custom(cutv, seq.seq.as_slice());
+        // V should start before the sequence
+        if cutal.ystart > start_vcut {
+            return None;
+        }
+
+        let alignment = bio::alignment::Alignment {
+            ystart: 0, // that's where V start in the sequence, so always 0
+            xstart: start_vcut + cutal.xstart - cutal.ystart,
+            xend: start_vcut + cutal.xend,
+            yend: cutal.yend,
+            ylen: seq.len(),
+            xlen: v.len(),
+            ..Default::default() // the other values are meaningless in that context
+        };
+
+        if !align_params.valid_v_alignment(&alignment) {
+            return None;
+        }
+
+        Some(alignment)
     }
 
     pub fn position_differences(sequence: &Dna, template: &Dna) -> Vec<usize> {

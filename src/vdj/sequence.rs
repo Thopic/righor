@@ -115,35 +115,36 @@ pub fn align_all_vgenes(
     let mut v_genes: Vec<VJAlignment> = Vec::new();
     for (indexv, v) in model.seg_vs.iter().enumerate() {
         let palv = v.seq_with_pal.as_ref().unwrap();
-        let alignment = Dna::align_left_right(palv, seq, align_params);
-        if align_params.valid_v_alignment(&alignment) {
-            // println!(
-            //     "{}",
-            //     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 200)
-            // );
-            // println!("V: {:?}", alignment.score);
-            let max_del_v = model.p_del_v_given_v.dim().0;
+        let alignment = match Dna::v_alignment(palv, seq, align_params) {
+            Some(al) => al,
+            None => continue,
+        };
+        // println!(
+        //     "{}",
+        //     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 200)
+        // );
+        // println!("V: {:?}", alignment.score);
+        let max_del_v = model.p_del_v_given_v.dim().0;
 
-            let mut errors = vec![0; max_del_v];
-            for del_v in 0..max_del_v {
-                if del_v <= palv.len() && del_v <= alignment.yend - alignment.ystart {
-                    errors[del_v] = count_differences(
-                        &seq.seq[alignment.ystart..alignment.yend - del_v],
-                        &palv.seq[alignment.xstart..alignment.xend - del_v],
-                    );
-                }
+        let mut errors = vec![0; max_del_v];
+        for del_v in 0..max_del_v {
+            if del_v <= palv.len() && del_v <= alignment.yend - alignment.ystart {
+                errors[del_v] = count_differences(
+                    &seq.seq[alignment.ystart..alignment.yend - del_v],
+                    &palv.seq[alignment.xstart..alignment.xend - del_v],
+                );
             }
-
-            v_genes.push(VJAlignment {
-                index: indexv,
-                start_gene: alignment.xstart,
-                end_gene: alignment.xend,
-                start_seq: alignment.ystart,
-                end_seq: alignment.yend,
-                errors,
-                score: alignment.score,
-            });
         }
+
+        v_genes.push(VJAlignment {
+            index: indexv,
+            start_gene: alignment.xstart,
+            end_gene: alignment.xend,
+            start_seq: alignment.ystart,
+            end_seq: alignment.yend,
+            errors,
+            score: alignment.score,
+        });
     }
     v_genes
 }
