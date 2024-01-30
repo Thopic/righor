@@ -411,24 +411,6 @@ pub struct InferenceParameters {
     pub store_best_event: bool,
 }
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "pyo3"),
-    pyclass(name = "Event", get_all, set_all)
-)]
-#[derive(Default, Clone, Debug, PartialEq)]
-pub struct Event {
-    pub v_index: usize,
-    pub v_start_gene: usize, // start of the sequence in the V gene
-    pub j_index: usize,
-    pub j_start_seq: usize, // start of the palindromic J gene (with all dels) in the sequence
-    pub d_index: Option<usize>,
-    pub end_v: i64,
-    pub start_d: Option<i64>,
-    pub end_d: Option<i64>,
-    pub start_j: i64,
-    pub likelihood: f64,
-}
-
 impl Default for InferenceParameters {
     fn default() -> InferenceParameters {
         InferenceParameters {

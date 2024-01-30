@@ -7,7 +7,7 @@ use crate::shared::utils::{
 };
 use crate::vdj::inference::ResultInference;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
-use crate::vdj::{Features, Sequence, StaticEvent};
+use crate::vdj::{Features, InfEvent, Sequence, StaticEvent};
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array1, Array2, Array3, Axis};
 use rand::Rng;
@@ -560,7 +560,21 @@ impl Model {
         inference_params: &InferenceParameters,
     ) -> Result<ResultInference> {
         let mut feature = Features::new(self)?;
-        feature.infer(sequence, inference_params)
+        let mut result = feature.infer(sequence, inference_params)?;
+        result.fill_event(self, sequence)?;
+        Ok(result)
+    }
+
+    pub fn get_v_gene(&self, event: &InfEvent) -> String {
+        self.seg_vs[event.v_index].name.clone()
+    }
+
+    pub fn get_j_gene(&self, event: &InfEvent) -> String {
+        self.seg_js[event.j_index].name.clone()
+    }
+
+    pub fn get_d_gene(&self, event: &InfEvent) -> String {
+        self.seg_ds[event.d_index].name.clone()
     }
 
     pub fn align_sequence(

@@ -82,6 +82,9 @@ Things to do:
 - deal with the "pgen with errors"
 - deal with potential insertion in V/J alignment, remove the sequence from the inference if the insertion overlap with the delv range.
 - write igor file, offer a json export
+- deal with having a specific V gene (or a specific set of V gene) in the model
+- support for VJ
+- StaticEvent / GenEvent
 
 Bug:
 - having spaces in the marginal file mess up the parsing silently, needs to be fixed

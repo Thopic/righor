@@ -1,10 +1,11 @@
+use crate::sequence::utils::Dna;
 use crate::shared::feature::*;
-use crate::shared::utils::{Event, InferenceParameters};
+use crate::shared::utils::InferenceParameters;
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
     Model, Sequence,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::{pyclass, pymethods};
 use std::cmp;
@@ -23,12 +24,42 @@ use std::cmp;
 //     }
 // }
 
+#[cfg_attr(
+    all(feature = "py_binds", feature = "pyo3"),
+    pyclass(name = "InfEvent", get_all, set_all)
+)]
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct InfEvent {
+    pub v_index: usize,
+    pub v_start_gene: usize, // start of the sequence in the V gene
+    pub j_index: usize,
+    pub j_start_seq: usize, // start of the palindromic J gene (with all dels) in the sequence
+    pub d_index: usize,
+    // position of the v,d,j genes in the sequence
+    pub end_v: i64,
+    pub start_d: i64,
+    pub end_d: i64,
+    pub start_j: i64,
+
+    // sequences (only added after the inference is over)
+    pub ins_vd: Option<Dna>,
+    pub ins_dj: Option<Dna>,
+    pub d_segment: Option<Dna>,
+    pub sequence: Option<Dna>,
+    pub cdr3: Option<Dna>,
+    pub full_sequence: Option<Dna>,
+    pub reconstructed_sequence: Option<Dna>,
+
+    // likelihood (pgen + perror)
+    pub likelihood: f64,
+}
+
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct ResultInference {
     pub likelihood: f64,
     pub pgen: f64,
-    best_event: Option<Event>,
+    best_event: Option<InfEvent>,
     best_likelihood: f64,
 }
 
@@ -41,15 +72,84 @@ impl ResultInference {
             best_likelihood: 0.,
         }
     }
-
-    pub fn set_best_event(&mut self, ev: Event, ip: &InferenceParameters) {
+    pub fn set_best_event(&mut self, ev: InfEvent, ip: &InferenceParameters) {
         if ip.store_best_event {
             self.best_event = Some(ev);
         }
     }
-
-    pub fn get_best_event(&self) -> Option<Event> {
+    pub fn get_best_event(&self) -> Option<InfEvent> {
         self.best_event.clone()
+    }
+    /// I just store the necessary stuff in the Event variable while looping
+    /// Fill event add enough to be able to completely recreate the sequence
+    pub fn fill_event(&mut self, model: &Model, sequence: &Sequence) -> Result<()> {
+        if !self.best_event.is_none() {
+            let mut event = self.best_event.clone().unwrap();
+            event.ins_vd = Some(
+                sequence
+                    .sequence
+                    .extract_padded_subsequence(event.end_v, event.start_d),
+            );
+            event.ins_dj = Some(
+                sequence
+                    .sequence
+                    .extract_padded_subsequence(event.end_d, event.start_j),
+            );
+            event.d_segment = Some(
+                sequence
+                    .sequence
+                    .extract_padded_subsequence(event.start_d, event.end_d),
+            );
+
+            event.sequence = Some(sequence.sequence.clone());
+
+            let cdr3_pos_v = model.seg_vs[event.v_index]
+                .cdr3_pos
+                .ok_or(anyhow!("Gene not loaded correctly"))?;
+            let cdr3_pos_j = model.seg_vs[event.j_index]
+                .cdr3_pos
+                .ok_or(anyhow!("Gene not loaded correctly"))?;
+
+            let start_cdr3 = cdr3_pos_v as i64 - event.v_start_gene as i64;
+            let end_cdr3 = event.j_start_seq as i64 + cdr3_pos_j as i64;
+
+            event.cdr3 = Some(
+                sequence
+                    .sequence
+                    .extract_padded_subsequence(start_cdr3, end_cdr3),
+            );
+
+            let gene_v = model.seg_vs[event.v_index]
+                .clone()
+                .seq_with_pal
+                .ok_or(anyhow!("Model not loaded correctly"))?;
+
+            let gene_j = model.seg_js[event.j_index]
+                .clone()
+                .seq_with_pal
+                .ok_or(anyhow!("Model not loaded correctly"))?;
+
+            let mut full_seq = gene_v.extract_subsequence(0, event.v_start_gene);
+            full_seq.extend(&sequence.sequence);
+            full_seq.extend(&gene_j.extract_subsequence(
+                (event.start_j - event.j_start_seq as i64) as usize,
+                gene_j.len(),
+            ));
+            event.full_sequence = Some(full_seq);
+
+            let mut reconstructed_seq =
+                gene_v.extract_subsequence(0, (event.end_v + event.v_start_gene as i64) as usize);
+            reconstructed_seq.extend(&event.ins_vd.clone().unwrap());
+            reconstructed_seq.extend(&event.d_segment.clone().unwrap());
+            reconstructed_seq.extend(&event.ins_dj.clone().unwrap());
+            reconstructed_seq.extend(&gene_j.extract_padded_subsequence(
+                event.start_j - event.j_start_seq as i64,
+                gene_j.len() as i64,
+            ));
+            event.reconstructed_sequence = Some(reconstructed_seq);
+            self.best_event = Some(event);
+        }
+        Ok(())
     }
 }
 
@@ -227,17 +327,18 @@ impl Features {
                                 cutoff = (ip.min_likelihood)
                                     .max(ip.min_ratio_likelihood * current_result.best_likelihood);
                                 if ip.store_best_event {
-                                    let event = Event {
+                                    let event = InfEvent {
                                         v_index: feature_v.index,
                                         v_start_gene: feature_v.start_gene,
                                         j_index: feature_j.index,
                                         j_start_seq: feature_j.start_seq,
-                                        d_index: Some(feature_d.index),
+                                        d_index: feature_d.index,
                                         end_v: ev,
-                                        start_d: Some(sd),
-                                        end_d: Some(ed),
+                                        start_d: sd,
+                                        end_d: ed,
                                         start_j: sj,
                                         likelihood: likelihood,
+                                        ..Default::default()
                                     };
                                     current_result.set_best_event(event, ip);
                                 }
