@@ -26,7 +26,7 @@ fn main() -> Result<()> {
     let align_params = ihor::AlignmentParameters::default();
     let inference_params = ihor::InferenceParameters::default();
 
-    let path = Path::new("../igor_1-4-0/demo/murugan_naive1_noncoding_demo_seqs.txt");
+    let path = Path::new("../igor_1-4-0/demo/generated.txt"); //"murugan_naive1_noncoding_demo_seqs.txt");
     let file = File::open(&path)?;
     let lines = io::BufReader::new(file).lines();
 

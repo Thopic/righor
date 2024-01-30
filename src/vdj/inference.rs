@@ -106,12 +106,15 @@ impl ResultInference {
             let cdr3_pos_v = model.seg_vs[event.v_index]
                 .cdr3_pos
                 .ok_or(anyhow!("Gene not loaded correctly"))?;
-            let cdr3_pos_j = model.seg_vs[event.j_index]
+            let cdr3_pos_j = model.seg_js[event.j_index]
                 .cdr3_pos
                 .ok_or(anyhow!("Gene not loaded correctly"))?;
 
             let start_cdr3 = cdr3_pos_v as i64 - event.v_start_gene as i64;
-            let end_cdr3 = event.j_start_seq as i64 + cdr3_pos_j as i64;
+
+            // careful, cdr3_pos_j does not! include the palindromic insertions
+            // Also does not include the last codon
+            let end_cdr3 = event.j_start_seq as i64 + cdr3_pos_j as i64 - model.range_del_j.0 + 3;
 
             event.cdr3 = Some(
                 sequence
@@ -131,10 +134,10 @@ impl ResultInference {
 
             let mut full_seq = gene_v.extract_subsequence(0, event.v_start_gene);
             full_seq.extend(&sequence.sequence);
-            full_seq.extend(&gene_j.extract_subsequence(
-                (event.start_j - event.j_start_seq as i64) as usize,
-                gene_j.len(),
-            ));
+            full_seq.extend(
+                &gene_j
+                    .extract_subsequence(sequence.sequence.len() - event.j_start_seq, gene_j.len()),
+            );
             event.full_sequence = Some(full_seq);
 
             let mut reconstructed_seq =
