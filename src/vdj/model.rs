@@ -511,11 +511,13 @@ impl Model {
             seg_vs: self.seg_vs.clone(),
             seg_js: self.seg_js.clone(),
             seg_ds: self.seg_ds.clone(),
+
             range_del_d3: self.range_del_d3,
             range_del_v: self.range_del_v,
             range_del_j: self.range_del_j,
             range_del_d5: self.range_del_d5,
             p_v: Array1::<f64>::ones(self.p_v.dim()),
+            p_vdj: Array3::<f64>::ones(self.p_vdj.dim()),
             p_j_given_v: Array2::<f64>::ones(self.p_j_given_v.dim()),
             p_d_given_vj: Array3::<f64>::ones(self.p_d_given_vj.dim()),
             p_ins_vd: Array1::<f64>::ones(self.p_ins_vd.dim()),
@@ -544,17 +546,7 @@ impl Model {
         Ok(())
     }
 
-    pub fn infer_features(
-        &self,
-        sequence: &Sequence,
-        inference_params: &InferenceParameters,
-    ) -> Result<Features> {
-        let mut feature = Features::new(self)?;
-        let _ = feature.infer(sequence, inference_params);
-        Ok(feature)
-    }
-
-    pub fn infer(
+    pub fn evaluate(
         &self,
         sequence: &Sequence,
         inference_params: &InferenceParameters,
@@ -562,7 +554,26 @@ impl Model {
         let mut feature = Features::new(self)?;
         let mut result = feature.infer(sequence, inference_params)?;
         result.fill_event(self, sequence)?;
+        result.features = Some(feature.clone());
         Ok(result)
+    }
+
+    pub fn infer(
+        &mut self,
+        sequences: &Vec<Sequence>,
+        inference_params: &InferenceParameters,
+    ) -> Result<()> {
+        let mut ip = inference_params.clone();
+        ip.infer = true;
+        let mut features = Vec::new();
+        for sequence in sequences {
+            let mut feature = Features::new(self)?;
+            let _ = feature.infer(sequence, &ip)?;
+            features.push(feature);
+        }
+        let avg_features = Features::average(features)?;
+        self.update(&avg_features)?;
+        Ok(())
     }
 
     pub fn get_v_gene(&self, event: &InfEvent) -> String {

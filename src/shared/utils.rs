@@ -403,11 +403,15 @@ where
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Clone, Debug)]
 pub struct InferenceParameters {
+    // The evaluation/inference algorithm will cut branches
+    // with likelihood < min_likelihood
     pub min_likelihood: f64,
+    // The evaluation/inference algorithm will cut branches with
+    // likelihood < (best current likelihood * min_ratio_likelihood)
     pub min_ratio_likelihood: f64,
-    pub evaluate: bool,
-    pub pgen: bool,
-    pub nb_best_events: usize,
+    // If true, run the inference (so update the features)
+    pub infer: bool,
+    // If true store the highest likelihood event
     pub store_best_event: bool,
 }
 
@@ -416,9 +420,7 @@ impl Default for InferenceParameters {
         InferenceParameters {
             min_likelihood: (-400.0f64).exp2(),
             min_ratio_likelihood: (-100.0f64).exp2(),
-            nb_best_events: 10,
-            evaluate: true,
-            pgen: true,
+            infer: true,
             store_best_event: true,
         }
     }
@@ -428,19 +430,25 @@ impl Default for InferenceParameters {
 #[pymethods]
 impl InferenceParameters {
     #[new]
-    pub fn py_new(min_likelihood: f64) -> Self {
-        Self::new(min_likelihood)
+    pub fn py_new() -> Self {
+        Self::new(0.)
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}. store_best_event={})", self.min_likelihood, self.min_ratio_likelihood, self.infer, self.store_best_event))
+    }
+
+    fn __str__(&self) -> PyResult<String> {
+        // This is what will be shown when you use print() in Python
+        self.__repr__()
     }
 }
 
 impl InferenceParameters {
     pub fn new(min_likelihood: f64) -> Self {
         Self {
-            pgen: true,
             min_likelihood,
             min_ratio_likelihood: 0.,
-            evaluate: true,
-            nb_best_events: 1,
+            infer: false,
             store_best_event: true,
         }
     }

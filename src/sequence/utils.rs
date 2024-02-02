@@ -79,8 +79,19 @@ impl Default for AlignmentParameters {
 #[pymethods]
 impl AlignmentParameters {
     #[new]
-    pub fn py_new(min_score_v: i32, min_score_j: i32, max_error_d: usize) -> Self {
-        Self::new(min_score_v, min_score_j, max_error_d)
+    pub fn py_new() -> Self {
+        Self::new(0, 0, 100, 40)
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!(
+            "AlignmentParameters(min_score_v={}, min_score_j={}, max_error_d={}. left_v_cutoff={})",
+            self.min_score_v, self.min_score_j, self.max_error_d, self.left_v_cutoff
+        ))
+    }
+
+    fn __str__(&self) -> PyResult<String> {
+        // This is what will be shown when you use print() in Python
+        self.__repr__()
     }
 }
 

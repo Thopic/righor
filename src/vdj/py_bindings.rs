@@ -20,6 +20,8 @@ use std::path::Path;
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use pyo3::types::PyDict;
 
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
@@ -117,6 +119,27 @@ impl Model {
     }
 
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    fn __deepcopy__(&self, _memo: &PyDict) -> Self {
+        self.clone()
+    }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    fn copy(&self) -> Self {
+        self.clone()
+    }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    pub fn generator(&self, seed: Option<u64>) -> Generator {
+        Generator::new(self.clone(), seed)
+    }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    #[pyo3(name = "uniform")]
+    pub fn py_uniform(&self) -> PyResult<Model> {
+        Ok(self.uniform()?)
+    }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[pyo3(name = "align_sequence")]
     pub fn py_align_sequence(
         &self,
@@ -128,13 +151,23 @@ impl Model {
     }
 
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[pyo3(name = "infer")]
-    pub fn py_infer(
+    #[pyo3(name = "evaluate")]
+    pub fn py_evaluate(
         &self,
         sequence: &Sequence,
         inference_params: &InferenceParameters,
     ) -> Result<ResultInference> {
-        self.infer(sequence, inference_params)
+        self.evaluate(sequence, inference_params)
+    }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    #[pyo3(name = "infer")]
+    pub fn py_infer(
+        &mut self,
+        sequences: Vec<Sequence>,
+        inference_params: &InferenceParameters,
+    ) -> Result<()> {
+        self.infer(&sequences, inference_params)
     }
 
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -269,5 +302,15 @@ impl Model {
     fn set_first_nt_bias_ins_dj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
         self.first_nt_bias_ins_dj = value.as_ref(py).to_owned_array();
         Ok(())
+    }
+}
+
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl ResultInference {
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    #[pyo3(name = "display")]
+    fn py_display(&self, model: &Model) -> PyResult<String> {
+        Ok(self.display(model)?)
     }
 }

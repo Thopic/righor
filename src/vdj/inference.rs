@@ -7,7 +7,7 @@ use crate::vdj::{
 };
 use anyhow::{anyhow, Result};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use pyo3::{pyclass, pymethods};
+use pyo3::{pyclass, pymethods, PyResult};
 use std::cmp;
 
 // pub struct BranchCut {
@@ -61,15 +61,115 @@ pub struct ResultInference {
     pub pgen: f64,
     best_event: Option<InfEvent>,
     best_likelihood: f64,
+    pub features: Option<Features>,
+}
+
+/// A Result class that's easily readable
+#[derive(Default, Clone, Debug)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
+pub struct ResultHuman {
+    pub n_cdr3: String,
+    pub aa_cdr3: String,
+    pub likelihood: f64,
+    pub pgen: f64,
+    pub likelihood_ratio_best: f64,
+    pub seq: String,
+    pub full_seq: String,
+    pub reconstructed_seq: String,
+    pub aligned_v: String,
+    pub aligned_j: String,
+    pub v_name: String,
+    pub j_name: String,
 }
 
 impl ResultInference {
+    pub fn display(&self, model: &Model) -> Result<String> {
+        if self.best_event.is_none() {
+            return Ok(format!(
+                "Result:\n\
+		 - Likelihood: {}\n\
+		 - Pgen: {}\n",
+                self.likelihood, self.pgen
+            ));
+        }
+
+        let rh = self.to_human(model)?;
+        Ok(format!(
+            "Result:\n\
+	     \tLikelihood: {:.2e}, pgen: {:.2e}\n\
+	     \tMost likely event:\n\
+	     \t- CDR3 (nucleotides): {} \n\
+	     \t- CDR3 (amino acids): {} \n\
+	     \t- V name: {} \n\
+	     \t- J name: {} \n\
+	     \t- likelihood ratio: {} \n ",
+            self.likelihood,
+            self.pgen,
+            rh.n_cdr3,
+            rh.aa_cdr3,
+            rh.v_name,
+            rh.j_name,
+            rh.likelihood_ratio_best
+        ))
+    }
+
+    /// Translate the result to an easier to read/print version
+    pub fn to_human(&self, model: &Model) -> Result<ResultHuman> {
+        let best_event = self.get_best_event().ok_or(anyhow!("No event"))?;
+
+        let translated_cdr3 = if best_event.cdr3.clone().unwrap().len() % 3 == 0 {
+            best_event
+                .cdr3
+                .clone()
+                .unwrap()
+                .translate()
+                .unwrap()
+                .to_string()
+        } else {
+            String::new()
+        };
+
+        let reconstructed_seq = best_event
+            .reconstructed_sequence
+            .clone()
+            .unwrap()
+            .get_string();
+        let width = reconstructed_seq.len();
+
+        let aligned_v = format!(
+            "{:width$}",
+            model.seg_vs[best_event.v_index].seq.get_string(),
+            width = width
+        );
+        let aligned_j = format!(
+            "{:>width$}",
+            model.seg_js[best_event.j_index].seq.get_string(),
+            width = width
+        );
+
+        return Ok(ResultHuman {
+            n_cdr3: best_event.cdr3.clone().unwrap().get_string(),
+            aa_cdr3: translated_cdr3,
+            likelihood: self.likelihood,
+            pgen: self.likelihood, // TODO: change
+            likelihood_ratio_best: best_event.likelihood / self.likelihood,
+            seq: best_event.sequence.clone().unwrap().get_string(),
+            full_seq: best_event.full_sequence.clone().unwrap().get_string(),
+            reconstructed_seq,
+            aligned_v,
+            aligned_j,
+            v_name: model.get_v_gene(&best_event),
+            j_name: model.get_j_gene(&best_event),
+        });
+    }
+
     fn impossible() -> ResultInference {
         ResultInference {
             likelihood: 0.,
             pgen: 0.,
             best_event: None,
             best_likelihood: 0.,
+            features: None,
         }
     }
     pub fn set_best_event(&mut self, ev: InfEvent, ip: &InferenceParameters) {
@@ -230,33 +330,35 @@ impl Features {
             }
         }
 
-        // disaggregate the insertion features
-        ins_vd.disaggregate(&sequence.sequence, self, ip);
-        ins_dj.disaggregate(&sequence.sequence, self, ip);
+        if ip.infer {
+            // disaggregate the insertion features
+            ins_vd.disaggregate(&sequence.sequence, self, ip);
+            ins_dj.disaggregate(&sequence.sequence, self, ip);
 
-        // disaggregate the v/d/j features
-        for (val, v) in sequence.j_genes.iter().zip(features_v.iter_mut()) {
-            match v {
-                Some(f) => f.disaggregate(val, self, ip),
-                None => continue,
+            // disaggregate the v/d/j features
+            for (val, v) in sequence.j_genes.iter().zip(features_v.iter_mut()) {
+                match v {
+                    Some(f) => f.disaggregate(val, self, ip),
+                    None => continue,
+                }
             }
-        }
-        for (jal, j) in sequence.j_genes.iter().zip(features_j.iter_mut()) {
-            match j {
-                Some(f) => f.disaggregate(jal, self, ip),
-                None => continue,
+            for (jal, j) in sequence.j_genes.iter().zip(features_j.iter_mut()) {
+                match j {
+                    Some(f) => f.disaggregate(jal, self, ip),
+                    None => continue,
+                }
             }
-        }
 
-        for (d_idx, d) in features_d.iter_mut().enumerate() {
-            match d {
-                Some(f) => f.disaggregate(&sequence.get_specific_dgene(d_idx), self, ip),
-                None => continue,
+            for (d_idx, d) in features_d.iter_mut().enumerate() {
+                match d {
+                    Some(f) => f.disaggregate(&sequence.get_specific_dgene(d_idx), self, ip),
+                    None => continue,
+                }
             }
-        }
 
-        // Move the dirty proba for the next cycle, normalize everything
-        self.cleanup()?;
+            // Move the dirty proba for the next cycle, normalize everything
+            self.cleanup()?;
+        }
 
         // Return the result
         Ok(result)
@@ -346,15 +448,17 @@ impl Features {
                                     current_result.set_best_event(event, ip);
                                 }
                             }
-                            feature_v.dirty_update(ev, likelihood);
-                            feature_j.dirty_update(sj, likelihood);
-                            feature_d.dirty_update(sd, ed, likelihood);
-                            ins_vd.dirty_update(ev, sd, likelihood);
-                            ins_dj.dirty_update(ed, sj, likelihood);
-                            self.vdj.dirty_update(
-                                (feature_v.index, feature_d.index, feature_j.index),
-                                likelihood,
-                            );
+                            if ip.infer {
+                                feature_v.dirty_update(ev, likelihood);
+                                feature_j.dirty_update(sj, likelihood);
+                                feature_d.dirty_update(sd, ed, likelihood);
+                                ins_vd.dirty_update(ev, sd, likelihood);
+                                ins_dj.dirty_update(ed, sj, likelihood);
+                                self.vdj.dirty_update(
+                                    (feature_v.index, feature_d.index, feature_j.index),
+                                    likelihood,
+                                );
+                            }
                         }
                     }
                 }

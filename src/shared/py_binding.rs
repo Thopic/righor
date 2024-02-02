@@ -1,7 +1,7 @@
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::shared::feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
-    InsertionFeature,
+    CategoricalFeature3, InsertionFeature,
 };
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::shared::utils::calc_steady_state_dist;
@@ -37,6 +37,20 @@ impl CategoricalFeature2 {
     }
     #[setter]
     fn set_probas(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
+        self.probas = value.as_ref(py).to_owned_array();
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl CategoricalFeature3 {
+    #[getter]
+    fn get_probas(&self, py: Python) -> Py<PyArray3<f64>> {
+        self.probas.to_owned().into_pyarray(py).to_owned()
+    }
+    #[setter]
+    fn set_probas(&mut self, py: Python, value: Py<PyArray3<f64>>) -> PyResult<()> {
         self.probas = value.as_ref(py).to_owned_array();
         Ok(())
     }

@@ -12,7 +12,7 @@ pub use self::event::{Event, StaticEvent};
 use self::feature::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
 };
-pub use self::inference::{Features, InfEvent};
+pub use self::inference::{Features, InfEvent, ResultHuman};
 pub use self::model::Model;
 pub use self::py_bindings::GenerationResult;
 pub use self::py_bindings::Generator;

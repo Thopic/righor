@@ -85,6 +85,8 @@ Things to do:
 - deal with having a specific V gene (or a specific set of V gene) in the model
 - support for VJ
 - StaticEvent / GenEvent
+- add an easier way to load the model (with just a keyword)
+- fix the CDR3 problem
 
 Bug:
 - having spaces in the marginal file mess up the parsing silently, needs to be fixed
