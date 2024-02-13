@@ -322,7 +322,7 @@ impl Features {
             ins_dj.disaggregate(&sequence.sequence, self, ip);
 
             // disaggregate the v/d/j features
-            for (val, v) in sequence.j_genes.iter().zip(features_v.iter_mut()) {
+            for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
                 match v {
                     Some(f) => f.disaggregate(val, self, ip),
                     None => continue,

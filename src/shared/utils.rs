@@ -97,7 +97,6 @@ impl MarkovDNA {
     pub fn new(transition_probs: Array2<f64>) -> Result<Self> {
         let mut transition_matrix = Vec::with_capacity(transition_probs.dim().0);
         for probs in transition_probs.axis_iter(Axis(0)) {
-            println!("{:?}", probs.to_vec());
             transition_matrix.push(DiscreteDistribution::new(probs.to_vec())?);
         }
         // let initial_distribution = match initial_probs {

@@ -638,8 +638,6 @@ impl Model {
             .max()
             .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
 
-        // println!("pdeld3deld5 {:?}", self.p_del_d3_del_d5.dim());
-        // println!("{} {}", left_bound, right_bound);
         // initialize all the d genes positions
         seq.d_genes = align_all_dgenes(&dna_seq, self, left_bound, right_bound, align_params);
         Ok(seq)
