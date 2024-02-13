@@ -11,6 +11,7 @@ use crate::vdj::{Features, InfEvent, Sequence, StaticEvent};
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array1, Array2, Array3, Axis};
 use rand::Rng;
+use rayon::prelude::*;
 use std::path::Path;
 use std::{cmp, fs::File};
 
@@ -393,8 +394,8 @@ impl Model {
                 .push(DiscreteDistribution::new(d5d3)?);
         }
 
-        self.gen.markov_vd = MarkovDNA::new(self.markov_coefficients_vd.t().to_owned())?;
-        self.gen.markov_dj = MarkovDNA::new(self.markov_coefficients_dj.t().to_owned())?;
+        self.gen.markov_vd = MarkovDNA::new(self.markov_coefficients_vd.to_owned())?;
+        self.gen.markov_dj = MarkovDNA::new(self.markov_coefficients_dj.to_owned())?;
         Ok(())
     }
 
@@ -565,12 +566,15 @@ impl Model {
     ) -> Result<()> {
         let mut ip = inference_params.clone();
         ip.infer = true;
-        let mut features = Vec::new();
-        for sequence in sequences {
-            let mut feature = Features::new(self)?;
-            let _ = feature.infer(sequence, &ip)?;
-            features.push(feature);
-        }
+        let features = sequences
+            .par_iter()
+            .map(|sequence| {
+                let mut feature = Features::new(self)?;
+                let _ = feature.infer(sequence, &ip)?;
+                Ok(feature)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         let avg_features = Features::average(features)?;
         self.update(&avg_features)?;
         Ok(())

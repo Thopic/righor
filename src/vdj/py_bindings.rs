@@ -175,21 +175,25 @@ impl Model {
     fn get_p_v(&self, py: Python) -> Py<PyArray1<f64>> {
         self.p_v.to_owned().into_pyarray(py).to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_v(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
-        self.p_v = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
+
+    /// Return the marginal on (D, J)
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_p_dj(&self, py: Python) -> Py<PyArray2<f64>> {
         self.p_dj.to_owned().into_pyarray(py).to_owned()
     }
+
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_p_dj(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
-        self.p_dj = value.as_ref(py).to_owned_array();
+    #[getter(p_vdj)]
+    fn py_get_p_vdj(&self, py: Python) -> Py<PyArray3<f64>> {
+        self.p_vdj.to_owned().into_pyarray(py).to_owned()
+    }
+
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    #[setter(p_vdj)]
+    fn py_set_p_vdj(&mut self, py: Python, value: Py<PyArray3<f64>>) -> PyResult<()> {
+        self.p_vdj = value.as_ref(py).to_owned_array();
+        self.set_p_vdj(&self.p_vdj.clone())?;
         Ok(())
     }
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -283,12 +287,7 @@ impl Model {
             .into_pyarray(py)
             .to_owned()
     }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_first_nt_bias_ins_vd(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
-        self.first_nt_bias_ins_vd = value.as_ref(py).to_owned_array();
-        Ok(())
-    }
+
     #[cfg(all(feature = "py_binds", feature = "pyo3"))]
     #[getter]
     fn get_first_nt_bias_ins_dj(&self, py: Python) -> Py<PyArray1<f64>> {
@@ -296,12 +295,6 @@ impl Model {
             .to_owned()
             .into_pyarray(py)
             .to_owned()
-    }
-    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-    #[setter]
-    fn set_first_nt_bias_ins_dj(&mut self, py: Python, value: Py<PyArray1<f64>>) -> PyResult<()> {
-        self.first_nt_bias_ins_dj = value.as_ref(py).to_owned_array();
-        Ok(())
     }
 }
 

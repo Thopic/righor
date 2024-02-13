@@ -7,22 +7,8 @@ use crate::vdj::{
 };
 use anyhow::{anyhow, Result};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use pyo3::{pyclass, pymethods, PyResult};
+use pyo3::{pyclass, pymethods};
 use std::cmp;
-
-// pub struct BranchCut {
-//     current_likelihood: f64,
-//     ip: InferenceParameters,
-// }
-
-// impl BranchCut {
-//     fn new(ip: InferenceParameters) -> BranchCut {
-//         BranchCut {
-//             ip,
-//             current_likelihood: 0.,
-//         }
-//     }
-// }
 
 #[cfg_attr(
     all(feature = "py_binds", feature = "pyo3"),

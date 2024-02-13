@@ -34,6 +34,7 @@ anyhow = "1.0.76"
 wasm-bindgen = "0.2.88"
 getrandom = { version = "0.2", features = ["js"] }
 fast-math = "0.1"
+rayon = "1.8.1"
 
 [features]
 default = ["kdam"]
