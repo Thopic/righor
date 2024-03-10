@@ -3,18 +3,6 @@ use crate::vdj::Model;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
-//use anyhow::{anyhow, Result};
-
-// pub struct Event<'a> {
-//     pub v: Option<&'a VJAlignment>,
-//     pub j: Option<&'a VJAlignment>,
-//     pub d: Option<&'a DAlignment>,
-//     pub delv: usize,
-//     pub delj: usize,
-//     pub deld3: usize,
-//     pub deld5: usize,
-// }
-
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct StaticEvent {
@@ -48,53 +36,3 @@ impl StaticEvent {
         seq
     }
 }
-
-// impl Event<'_> {
-//     pub fn to_static(&self, insvd: Dna, insdj: Dna) -> Result<StaticEvent> {
-//         Ok(StaticEvent {
-//             v_index: self
-//                 .v
-//                 .ok_or(anyhow!("Can't move that event to static"))?
-//                 .index,
-//             v_start_gene: self
-//                 .v
-//                 .ok_or(anyhow!("Can't move that event to static"))?
-//                 .start_gene,
-//             delv: self.delv,
-//             j_index: self
-//                 .j
-//                 .ok_or(anyhow!("Can't move that event to static"))?
-//                 .index,
-//             j_start_seq: self
-//                 .j
-//                 .ok_or(anyhow!("Can't move that event to static"))?
-//                 .start_seq,
-//             delj: self.delj,
-//             d_index: self
-//                 .d
-//                 .ok_or(anyhow!("Can't move that event to static"))?
-//                 .index,
-//             d_start_seq: self
-//                 .d
-//                 .ok_or(anyhow!("Can't move that event to static"))?
-//                 .pos,
-//             deld3: self.deld3,
-//             deld5: self.deld5,
-//             insvd,
-//             insdj,
-//         })
-//     }
-// }
-// impl Default for Event<'_> {
-//     fn default() -> Self {
-//         Event {
-//             v: None,
-//             j: None,
-//             d: None,
-//             delv: 0,
-//             delj: 0,
-//             deld3: 0,
-//             deld5: 0,
-//         }
-//     }
-// }
