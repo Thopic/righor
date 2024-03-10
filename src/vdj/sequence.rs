@@ -1,13 +1,12 @@
 use crate::sequence::utils::{count_differences, difference_as_i64, AlignmentParameters};
 use crate::sequence::{DAlignment, Dna, VJAlignment};
 use crate::vdj::{Event, Model};
-use std::cmp;
-
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use pyo3::pyclass;
+use pyo3::prelude::*;
+use std::sync::Arc;
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Sequence {
     pub sequence: Dna,
     // subset of reasonable v_genes, j_genes
@@ -203,26 +202,15 @@ pub fn align_all_dgenes(
     //    DDDDDDDDDDDDDD
     // SSSSSSSSSSSSSSSSSSSSSS
 
+    let seq_ref = Arc::new(seq.clone());
     let mut daligns: Vec<DAlignment> = Vec::new();
     for (indexd, d) in model.seg_ds.iter().enumerate() {
         let dpal = d.seq_with_pal.as_ref().unwrap();
-        let max_del_d5 = cmp::max(model.p_del_d5_del_d3.dim().0, dpal.len());
-        let max_del_d3 = cmp::max(model.p_del_d5_del_d3.dim().1, dpal.len());
+        let dpal_ref = Arc::new(d.seq_with_pal.clone().unwrap());
         for pos in limit_5side..=limit_3side - dpal.len() {
-            let mut errors = vec![vec![0; max_del_d3]; max_del_d5];
-            for del_d5 in 0..max_del_d5 {
-                for del_d3 in 0..max_del_d3 {
-                    if del_d5 + del_d3 >= dpal.len() {
-                        errors[del_d5][del_d3] = 0;
-                    } else {
-                        errors[del_d5][del_d3] = count_differences(
-                            &seq.seq[pos + del_d5..pos + dpal.len() - del_d3],
-                            &dpal.seq[del_d5..dpal.len() - del_d3],
-                        );
-                    }
-                }
-            }
-            if (!errors.is_empty()) & (errors[0][0] > align_params.max_error_d) {
+            if count_differences(&seq.seq[pos..pos + dpal.len()], &dpal.seq[0..dpal.len()])
+                > align_params.max_error_d
+            {
                 continue;
             }
 
@@ -230,7 +218,8 @@ pub fn align_all_dgenes(
                 index: indexd,
                 pos,
                 len_d: dpal.len(),
-                errors,
+                dseq: dpal_ref.clone(),
+                sequence: seq_ref.clone(),
             });
         }
     }

@@ -6,14 +6,14 @@ use crate::vdj::{
     Model, Sequence,
 };
 use anyhow::{anyhow, Result};
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use pyo3::{pyclass, pymethods};
 use std::cmp;
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "pyo3"),
-    pyclass(name = "InfEvent", get_all, set_all)
-)]
+//#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+//use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use pyo3::prelude::*;
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct InfEvent {
     pub v_index: usize,
@@ -40,8 +40,8 @@ pub struct InfEvent {
     pub likelihood: f64,
 }
 
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct ResultInference {
     pub likelihood: f64,
     pub pgen: f64,
@@ -50,9 +50,31 @@ pub struct ResultInference {
     pub features: Option<Features>,
 }
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl ResultInference {
+    #[getter]
+    pub fn get_likelihood(&self) -> f64 {
+        self.likelihood
+    }
+    #[getter]
+    pub fn get_pgen(&self) -> f64 {
+        self.likelihood
+    }
+    #[getter]
+    #[pyo3(name = "best_event")]
+    pub fn py_get_best_event(&self) -> Option<InfEvent> {
+        self.get_best_event()
+    }
+    #[getter]
+    pub fn get_likelihood_best_event(&self) -> f64 {
+        self.best_likelihood
+    }
+}
+
 /// A Result class that's easily readable
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
+//#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct ResultHuman {
     pub n_cdr3: String,
     pub aa_cdr3: String,
@@ -243,7 +265,7 @@ impl ResultInference {
 }
 
 #[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
+//#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct Features {
     //    pub v: CategoricalFeature1,
     pub delv: CategoricalFeature1g1,
@@ -489,15 +511,5 @@ impl Features {
         self.insdj = self.insdj.normalize()?;
         self.error = self.error.clone();
         Ok(())
-    }
-}
-
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-#[pymethods]
-impl Features {
-    #[staticmethod]
-    #[pyo3(name = "average")]
-    pub fn py_average(features: Vec<Features>) -> Result<Features> {
-        Features::average(features)
     }
 }

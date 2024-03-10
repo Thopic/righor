@@ -20,27 +20,47 @@ static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
     "GGT" => b'G', "GGC" => b'G', "GGA" => b'G', "GGG" => b'G'
 };
 
+// static AMINO_TO_DNA: phf::Map<&'static str, u8> = phf_map! {
+//     b'A' => "GCN",
+//     b'C' => "TGY",
+//     b'D' => "GAY",
+//     b'E' => "GAR",
+//     b'F' => "TTY",
+//     b'G' => "GGN",
+//     b'H' => "CAY",
+//     b'I' => "ATH",
+//     b'L' => "CTN" & "TTR",
+//     b'K' => "AAR",
+//     b'M' => "ATG",
+//     b'N' => "AAY",
+//     b'P' => "CCN",
+//     b'Q' => "CAR",
+//     b'R' => "CGN" & "AGR",
+//     b'S' => "TCN" & "AGY",
+//     b'T' => "CAN",
+//     b'V' => "GTN",
+//     b'W' => "TGG",
+//     b'Y' => "TAY",
+//     b'*' => "TRA" & "TAG",
+// };
+
 // The standard ACGT nucleotides
-pub const NUCLEOTIDES: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
+pub const NUCLEOTIDES: [u8; 15] = [
+    b'A', b'C', b'G', b'T', b'N', b'R', b'Y', b'S', b'W', b'K', b'M', b'B', b'D', b'H', b'V',
+];
 pub static NUCLEOTIDES_INV: phf::Map<u8, usize> = phf_map! {
     b'A' => 0, b'T' => 3, b'G' => 2, b'C' => 1, b'N' => 4,
+    b'R' => 5, b'Y' => 6, b'S' => 7, b'W' => 8, b'K' => 9,
+    b'M' => 10, b'B' => 11, b'D' => 12, b'H' => 13, b'V' => 14,
 };
 
 static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
     b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G', b'N' => b'N',
+    b'R' => b'Y', b'Y' => b'R', b'S' => b'S', b'W' => b'W', b'K' => b'M',
+    b'M' => b'K', b'B' => b'A', b'D' => b'C', b'H' => b'G', b'V' => b'T',
+
 };
 
-// pub fn nucleotides_inv(n: u8) -> usize {
-//     match n {
-//         b'A' => 0,
-//         b'T' => 3,
-//         b'G' => 2,
-//         b'C' => 1,
-//         b'N' => 4,
-//         _ => panic!("Wrong nucleotide type"),
-//     }
-// }
-// potentially faster
 pub fn nucleotides_inv(n: u8) -> usize {
     static LOOKUP_TABLE: [usize; 256] = {
         let mut table = [0; 256];
@@ -49,6 +69,16 @@ pub fn nucleotides_inv(n: u8) -> usize {
         table[b'G' as usize] = 2;
         table[b'C' as usize] = 1;
         table[b'N' as usize] = 4;
+        table[b'R' as usize] = 5;
+        table[b'Y' as usize] = 6;
+        table[b'S' as usize] = 7;
+        table[b'W' as usize] = 8;
+        table[b'K' as usize] = 9;
+        table[b'M' as usize] = 10;
+        table[b'B' as usize] = 11;
+        table[b'D' as usize] = 12;
+        table[b'H' as usize] = 13;
+        table[b'V' as usize] = 14;
         table
     };
 
@@ -72,26 +102,6 @@ impl Default for AlignmentParameters {
             max_error_d: 100,
             left_v_cutoff: 40,
         }
-    }
-}
-
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-#[pymethods]
-impl AlignmentParameters {
-    #[new]
-    pub fn py_new() -> Self {
-        Self::new(0, 0, 100, 40)
-    }
-    fn __repr__(&self) -> PyResult<String> {
-        Ok(format!(
-            "AlignmentParameters(min_score_v={}, min_score_j={}, max_error_d={}. left_v_cutoff={})",
-            self.min_score_v, self.min_score_j, self.max_error_d, self.left_v_cutoff
-        ))
-    }
-
-    fn __str__(&self) -> PyResult<String> {
-        // This is what will be shown when you use print() in Python
-        self.__repr__()
     }
 }
 
@@ -167,13 +177,13 @@ impl AlignmentParameters {
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct Dna {
     pub seq: Vec<u8>,
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct AminoAcid {
     pub seq: Vec<u8>,
 }

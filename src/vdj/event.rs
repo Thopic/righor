@@ -14,11 +14,8 @@ pub struct Event<'a> {
     pub deld5: usize,
 }
 
-#[cfg_attr(
-    all(feature = "py_binds", feature = "pyo3"),
-    pyclass(name = "Event", get_all, set_all)
-)]
-#[derive(Default, Clone, Debug, PartialEq)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct StaticEvent {
     pub v_index: usize,
     pub v_start_gene: usize, // start of the sequence in the V gene
@@ -47,18 +44,26 @@ impl StaticEvent {
         seq.extend(&seq_j.extract_subsequence(self.delj, seq_j.len()));
         seq
     }
-    pub fn to_cdr3(&self, m: &Model) -> Dna {
+    pub fn to_cdr3(&self, m: &Model) -> Option<Dna> {
         let seq_v_cdr3: &Dna = &m.seg_vs_sanitized[self.v_index];
         let seq_j_cdr3: &Dna = &m.seg_js_sanitized[self.j_index];
         let seq_d: &Dna = m.seg_ds[self.d_index].seq_with_pal.as_ref().unwrap();
         let mut seq: Dna = Dna::new();
 
+        if self.delv > seq_v_cdr3.len() {
+            // this should go to None, CDR3 is badly defined
+            return None;
+        }
+        if self.delj > seq_j_cdr3.len() {
+            return None;
+        }
+
         seq.extend(&seq_v_cdr3.extract_subsequence(0, seq_v_cdr3.len() - self.delv));
         seq.extend(&self.insvd);
         seq.extend(&seq_d.extract_subsequence(self.deld5, seq_d.len() - self.deld3));
         seq.extend(&self.insdj);
-        seq.extend(&seq_j_cdr3.extract_subsequence(self.delj, seq_j_cdr3.len()));
-        seq
+
+        Some(seq)
     }
 }
 

@@ -4,7 +4,7 @@
 mod sequence;
 mod shared;
 pub mod vdj;
-//pub mod vj;
+pub mod vj;
 
 use anyhow::{anyhow, Result};
 use kdam::tqdm;
@@ -15,36 +15,42 @@ use std::io::{self, BufRead};
 use std::path::Path;
 
 fn main() -> Result<()> {
-    let mut igor_model = ihor::vdj::Model::load_from_files(
-        Path::new("demo/models/human/tcr_beta/models/model_parms.txt"),
-        Path::new("demo/models/human/tcr_beta/models/model_marginals.txt"),
-        Path::new("demo/models/human/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
-        Path::new("demo/models/human/tcr_beta/ref_genome/J_gene_CDR3_anchors.csv"),
+    // let mut igor_model = ihor::vdj::Model::load_from_files(
+    //     Path::new("models/human_T_beta/model_params.txt"),
+    //     Path::new("models/human_T_beta/model_marginals.txt"),
+    //     Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
+    //     Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
+    // )?;
+
+    //TODO: modify before release
+    let mut igor_model = ihor::vj::Model::load_from_name(
+        "human",
+        "tra",
+        None,
+        Path::new("/home/thomas/Downloads/righor-py/models"),
     )?;
+
     igor_model.error_rate = 0.;
 
+    let mut generator = ihor::vj::Generator::new(igor_model.clone(), Some(42), None, None)?;
+    let mut uniform_model = igor_model.uniform()?;
     let align_params = ihor::AlignmentParameters::default();
     let inference_params = ihor::InferenceParameters::default();
 
-    let path = Path::new("../igor_1-4-0/demo/generated.txt"); //"murugan_naive1_noncoding_demo_seqs.txt");
-    let file = File::open(&path)?;
-    let lines = io::BufReader::new(file).lines();
-
     let mut seq = Vec::new();
-    for line in tqdm!(lines) {
-        let l = line?;
-        let s = ihor::Dna::from_string(l.trim())?;
-        let als = igor_model.align_sequence(s.clone(), &align_params)?;
+    for _ in tqdm!(0..10) {
+        let s = ihor::Dna::from_string(&generator.generate(false).full_seq)?;
+        let als = uniform_model.align_sequence(s.clone(), &align_params)?;
         if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
             seq.push(als);
         }
     }
-    for _ in 0..1 {
-        for s in tqdm!(seq.clone().iter(), total = seq.len()) {
-            let result = igor_model.evaluate(&s, &inference_params).unwrap();
-            //println!("{:?}", result);
-        }
+    for ii in 0..5 {
+        let _ = uniform_model.infer(&seq, &inference_params);
+        println!("{:?}", ii);
     }
+
+    println!("{:?}", uniform_model.p_ins_vj);
 
     Ok(())
 }

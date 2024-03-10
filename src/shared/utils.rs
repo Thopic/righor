@@ -9,6 +9,20 @@ use rand_distr::WeightedAliasIndex;
 
 const EPSILON: f64 = 1e-10;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RecordModel {
+    pub species: Vec<String>,
+    pub chain: Vec<String>,
+    pub id: String,
+    pub filename_params: String,
+    pub filename_marginals: String,
+    pub filename_v_gene_cdr3_anchors: String,
+    pub filename_j_gene_cdr3_anchors: String,
+    pub description: String,
+}
+
 fn max_vector(arr: &Vec<f64>) -> Option<f64> {
     arr.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied()
 }
@@ -16,7 +30,7 @@ fn max_vector(arr: &Vec<f64>) -> Option<f64> {
 // Define some storage wrapper for the V/D/J genes
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct Gene {
     pub name: String,
     pub seq: Dna,

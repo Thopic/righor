@@ -1,8 +1,10 @@
 // Align the sequence to V & J genes
+use crate::sequence::utils::count_differences;
 use crate::sequence::Dna;
 use crate::vdj::model::Model as ModelVDJ;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
+use std::sync::Arc;
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
@@ -53,8 +55,8 @@ impl VJAlignment {
     }
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
+#[derive(Clone, Debug)]
 pub struct DAlignment {
     // Structure containing the alignment between a D gene and the sequence
     // Similarly to VJaligment the gene include the palindromic insertion
@@ -70,15 +72,24 @@ pub struct DAlignment {
     // errors_right: [4,3,3,2,2,2,1,1,1,1,0]
     // "pos" represents the start of the sequence *with palindromes added*
     pub index: usize,
-    pub len_d: usize,            // length of the D gene (with palindromic inserts)
-    pub pos: usize,              // begining of the D-gene in the sequence (can't be < 0)
-    pub errors: Vec<Vec<usize>>, // errors[deld5][deld3] = #number of errors left with deld5, deld3
+    pub len_d: usize, // length of the D gene (with palindromic inserts)
+    pub pos: usize,   // begining of the D-gene in the sequence (can't be < 0)
+
+    pub dseq: Arc<Dna>,     // the sequence of the D gene
+    pub sequence: Arc<Dna>, // the complete sequence aligned
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
+//#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl DAlignment {
     pub fn nb_errors(&self, deld5: usize, deld3: usize) -> usize {
-        self.errors[deld5][deld3]
+        if deld5 + deld3 > self.len_d {
+            return 0;
+        }
+
+        count_differences(
+            &self.sequence.seq[self.pos + deld5..self.pos + self.dseq.len() - deld3],
+            &self.dseq.seq[deld5..self.dseq.len() - deld3],
+        )
     }
     pub fn length_with_deletion(&self, deld5: usize, deld3: usize) -> usize {
         self.len() - deld5 - deld3
@@ -112,9 +123,5 @@ impl DAlignment {
             }
         }
         format!("{line1}\n{line2}\n{line3}\n")
-    }
-
-    pub fn total_error(&self) -> usize {
-        self.errors[0][0]
     }
 }

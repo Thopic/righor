@@ -303,11 +303,11 @@ impl AggregatedFeatureSpanD {
                 if d_start > d_end {
                     continue;
                 }
+                let nb_err = d.nb_errors(deld5, deld3);
                 let likelihood = feat.deld.likelihood((deld5, deld3, d.index))
-                    * feat.error.likelihood((
-                        d.nb_errors(deld5, deld3),
-                        d.length_with_deletion(deld5, deld3),
-                    ));
+                    * feat
+                        .error
+                        .likelihood((nb_err, d.length_with_deletion(deld5, deld3)));
 
                 if likelihood > ip.min_likelihood {
                     let proba_params_given_dspan = likelihood / self.total_likelihood;
@@ -319,10 +319,7 @@ impl AggregatedFeatureSpanD {
                         );
 
                         feat.error.dirty_update(
-                            (
-                                d.nb_errors(deld5, deld3),
-                                d.length_with_deletion(deld5, deld3),
-                            ),
+                            (nb_err, d.length_with_deletion(deld5, deld3)),
                             dirty_proba * proba_params_given_dspan,
                         );
                     }

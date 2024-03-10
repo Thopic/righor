@@ -71,29 +71,34 @@ Limitations (I think also true for IGoR but not clear):
 - The reads need to be long enough to fully cover the CDR3 (even when it's particularly long)
 - still not sure if I should use initial_distribution for the insertion model
 
-
 Programming stuff:
-- Compile for python: `maturin develop --release -F py_binds,pyo3`
 - I'm working on the web version on a different crate, importing the library, need to push that on git.
+- python version: also a different crate now (will maybe loop it back in)
+- when adding a model, add it to "models.json". First model in a category is the default model. Each field is one independant model. The elements in chain and species should always be lower-case.
+
 
 Things to do:
-- test the inference
+- test the inference in detail
 - add more tests
 - deal with the "pgen with errors"
 - deal with potential insertion in V/J alignment, remove the sequence from the inference if the insertion overlap with the delv range.
+- test the restricted V gene option for generation.
 - write igor file, offer a json export
-- deal with having a specific V gene (or a specific set of V gene) in the model
-- support for VJ
 - StaticEvent / GenEvent
-- add an easier way to load the model (with just a keyword)
-- fix the CDR3 problem
-- add default parallelisation
+- deal with amino-acid and generic "undefined" stuff.
+Strat: define an extended Dna object that the alignment can deal with +
+define the insertion thing so that it can deal with that
+This second one is slightly a pain (the first one too ? No it's fine, just a bit longer to deal with).
+I would need to add sums here and there, nothing impossible, but slightly more a pain. In short some position must be linked, this will complexify quite a bit the definition of Dna (more precisely this will be a new class). So
+UndefinedDna would contains for each position a vec/array of bytes and a int giving the positions they're connected with  (just need two options for everything). This is very specific to the aa case, but why should I care. A bit complicated rn, leaving it for later.
+
+
 
 Bug:
 - having spaces in the marginal file mess up the parsing silently, needs to be fixed
 - if range_j / range_v / range_d doesn't match p_deld/p_delv/ p_delj in length, should complain
 - generally should complain if the file is not exactly what is expected
-- speed is way slower when compiled with python
+
 
 Current status:
 - speed is ok (50 seqs/s roughly ?). Could be slightly faster. I think some range should be replaced by iterator. Another big improvement would be to consider shorter V segment during the alignment.

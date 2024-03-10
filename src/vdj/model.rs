@@ -3,20 +3,75 @@ use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
 use crate::shared::utils::{
     add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
-    DiscreteDistribution, Gene, InferenceParameters, MarkovDNA, Normalize,
+    DiscreteDistribution, Gene, InferenceParameters, MarkovDNA, Normalize, RecordModel,
 };
 use crate::vdj::inference::ResultInference;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
 use crate::vdj::{Features, InfEvent, Sequence, StaticEvent};
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array1, Array2, Array3, Axis};
-use rand::Rng;
-use rayon::prelude::*;
-use std::path::Path;
-use std::{cmp, fs::File};
-
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
+use rand::rngs::SmallRng;
+use rand::Rng;
+use rand::SeedableRng;
+use rayon::prelude::*;
+
+use std::path::Path;
+use std::{cmp, fs::read_to_string, fs::File};
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
+pub struct Generator {
+    model: Model,
+    rng: SmallRng,
+}
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct GenerationResult {
+    pub cdr3_nt: Option<String>,
+    pub cdr3_aa: Option<String>,
+    pub full_seq: String,
+    pub v_gene: String,
+    pub j_gene: String,
+    pub recombination_event: StaticEvent,
+}
+
+impl Generator {
+    /// available_v, available_j: set of v,j genes to choose from
+    pub fn new(
+        model: Model,
+        seed: Option<u64>,
+        available_v: Option<Vec<Gene>>,
+        available_j: Option<Vec<Gene>>,
+    ) -> Result<Generator> {
+        let rng = match seed {
+            Some(s) => SmallRng::seed_from_u64(s),
+            None => SmallRng::from_entropy(),
+        };
+
+        // create an internal model in case we need to restrict the V/J genes.
+        let mut internal_model = model.clone();
+
+        if !available_v.is_none() {
+            internal_model = internal_model.filter_vs(available_v.unwrap())?;
+        }
+        if !available_j.is_none() {
+            internal_model = internal_model.filter_js(available_j.unwrap())?;
+        }
+        Ok(Generator {
+            model: internal_model,
+            rng,
+        })
+    }
+}
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
+impl Generator {
+    pub fn generate(&mut self, functional: bool) -> GenerationResult {
+        self.model.generate(functional, &mut self.rng)
+    }
+}
 
 #[derive(Default, Clone, Debug)]
 pub struct Generative {
@@ -31,7 +86,6 @@ pub struct Generative {
     markov_dj: MarkovDNA,
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 #[derive(Default, Clone, Debug)]
 pub struct Model {
     // Sequence information
@@ -45,9 +99,7 @@ pub struct Model {
     pub seg_js_sanitized: Vec<Dna>,
 
     // Probabilities of the different events
-    pub p_d_given_vj: Array3<f64>,
-    pub p_j_given_v: Array2<f64>,
-    pub p_v: Array1<f64>,
+    pub p_vdj: Array3<f64>,
     pub p_ins_vd: Array1<f64>,
     pub p_ins_dj: Array1<f64>,
     pub p_del_v_given_v: Array2<f64>,
@@ -64,14 +116,55 @@ pub struct Model {
 
     // Not directly useful for the model but useful for integration with other soft
     // TODO: transform these in "getter" in the python bindings, they don't need to be precomputed
+    pub p_v: Array1<f64>,
     pub p_dj: Array2<f64>,
-    pub p_vdj: Array3<f64>,
+    pub p_d_given_vj: Array3<f64>,
+    pub p_j_given_v: Array2<f64>,
     pub first_nt_bias_ins_vd: Array1<f64>,
     pub first_nt_bias_ins_dj: Array1<f64>,
     pub thymic_q: f64,
 }
 
 impl Model {
+    pub fn load_from_name(
+        species: &str,
+        chain: &str,
+        id: Option<String>,
+        model_dir: &Path,
+    ) -> Result<Model> {
+        let content = read_to_string(model_dir.join("models.json"))?;
+        let records: Vec<RecordModel> = serde_json::from_str(&content)?;
+
+        for record in records {
+            if record.species.contains(&species.to_string().to_lowercase())
+                && record.chain.contains(&chain.to_string().to_lowercase())
+                && id.as_ref().map_or(true, |i| &record.id == i)
+            {
+                return Self::load_from_files(
+                    &model_dir.join(Path::new(&record.filename_params)),
+                    &model_dir.join(Path::new(&record.filename_marginals)),
+                    &model_dir.join(Path::new(&record.filename_v_gene_cdr3_anchors)),
+                    &model_dir.join(Path::new(&record.filename_j_gene_cdr3_anchors)),
+                );
+            }
+        }
+
+        if id.is_none() {
+            Err(anyhow!(
+                "The given species ({}) / chain ({}) don't match any model",
+                species,
+                chain
+            ))
+        } else {
+            Err(anyhow!(
+                "The given species ({}) / chain ({}) / id ({}) don't match any model",
+                species,
+                chain,
+                id.unwrap()
+            ))
+        }
+    }
+
     pub fn load_from_files(
         path_params: &Path,
         path_marginals: &Path,
@@ -399,11 +492,12 @@ impl Model {
         Ok(())
     }
 
-    pub fn generate_cdr3_no_error<R: Rng>(
+    /// Return (full_seq, cdr3_seq, aa_seq, event)
+    pub fn generate_no_error<R: Rng>(
         &mut self,
         functional: bool,
         rng: &mut R,
-    ) -> (Dna, Option<AminoAcid>, StaticEvent) {
+    ) -> (Dna, Option<Dna>, Option<AminoAcid>, StaticEvent) {
         // loop until we find a valid sequence (if generating functional alone)
         loop {
             let mut event = StaticEvent {
@@ -432,14 +526,14 @@ impl Model {
             let ins_vd: usize = self.gen.d_ins_vd.generate(rng);
             let ins_dj: usize = self.gen.d_ins_dj.generate(rng);
 
-            let out_of_frame =
-                (seq_v_cdr3.len() - event.delv + seq_d.len() - event.deld5 - event.deld3
-                    + seq_j_cdr3.len()
-                    - event.delj
-                    + ins_vd
-                    + ins_dj)
-                    % 3
-                    != 0;
+            let out_of_frame = (seq_v_cdr3.len() + seq_j_cdr3.len() - event.delv + seq_d.len()
+                - event.deld5
+                - event.deld3
+                - event.delj
+                + ins_vd
+                + ins_dj)
+                % 3
+                != 0;
             if functional && out_of_frame {
                 continue;
             }
@@ -462,13 +556,22 @@ impl Model {
                 - event.deld3
                 - event.delj;
 
+            // create the complete sequence:
+            let full_seq = event.to_sequence(self);
+
             // create the complete CDR3 sequence
-            let seq = event.to_cdr3(self);
+            let cdr3_seq = event.to_cdr3(self);
+            if cdr3_seq.is_none() {
+                if functional {
+                    continue;
+                }
+                return (full_seq, None, None, event);
+            };
 
             // translate
-            let seq_aa: Option<AminoAcid> = seq.translate().ok();
+            let cdr3_seq_aa: Option<AminoAcid> = cdr3_seq.clone().unwrap().translate().ok();
 
-            match seq_aa {
+            match cdr3_seq_aa {
                 Some(saa) => {
                     // check for stop codon
                     if functional && saa.seq.contains(&b'*') {
@@ -479,32 +582,51 @@ impl Model {
                     if functional && (saa.seq[0] != b'C') {
                         continue;
                     }
-                    return (seq, Some(saa), event);
+                    return (full_seq, cdr3_seq, Some(saa), event);
                 }
                 None => {
                     if functional {
                         continue;
                     }
-                    return (seq, None, event);
+                    return (full_seq, cdr3_seq, None, event);
                 }
             }
         }
     }
 
     /// Return (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname)
-    pub fn generate<R: Rng>(
-        &mut self,
-        functional: bool,
-        rng: &mut R,
-    ) -> (Dna, Option<AminoAcid>, Dna, StaticEvent, String, String) {
-        let (cdr3_nt, _, event) = self.generate_cdr3_no_error(functional, rng);
-        let (mut full_seq, vname, jname, start_cdr3) =
-            self.recreate_full_sequence(&cdr3_nt, event.v_index, event.j_index);
-        // add potential sequencing error
+    pub fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
+        let (mut full_seq, cdr3_nt, _, event) = self.generate_no_error(functional, rng);
+        let vgene = self.seg_vs[event.v_index].clone();
+        let jgene = self.seg_js[event.j_index].clone();
+        let cdr3_start = vgene.cdr3_pos.unwrap();
         add_errors(&mut full_seq, self.error_rate, rng);
-        let cdr3_err = full_seq.extract_subsequence(start_cdr3, start_cdr3 + cdr3_nt.len());
-        let seq_aa: Option<AminoAcid> = cdr3_err.translate().ok();
-        (cdr3_err, seq_aa, full_seq, event, vname, jname)
+        let err_cdr3_nt = match cdr3_nt {
+            Some(_) => Some(
+                full_seq
+                    .extract_subsequence(cdr3_start, full_seq.len() - jgene.cdr3_pos.unwrap() + 3),
+            ),
+            None => None,
+        };
+        let err_cdr3_aa: Option<AminoAcid> = match err_cdr3_nt {
+            Some(ref s) => s.translate().ok(),
+            None => None,
+        };
+
+        GenerationResult {
+            v_gene: vgene.name,
+            j_gene: jgene.name,
+            recombination_event: event,
+            full_seq: full_seq.get_string(),
+            cdr3_nt: match err_cdr3_nt {
+                None => None,
+                Some(ref x) => Some(x.get_string()),
+            },
+            cdr3_aa: match err_cdr3_aa {
+                None => None,
+                Some(ref x) => Some(x.to_string()),
+            },
+        }
     }
 
     pub fn uniform(&self) -> Result<Model> {
@@ -517,7 +639,6 @@ impl Model {
             range_del_v: self.range_del_v,
             range_del_j: self.range_del_j,
             range_del_d5: self.range_del_d5,
-            p_v: Array1::<f64>::ones(self.p_v.dim()),
             p_vdj: Array3::<f64>::ones(self.p_vdj.dim()),
             p_j_given_v: Array2::<f64>::ones(self.p_j_given_v.dim()),
             p_d_given_vj: Array3::<f64>::ones(self.p_d_given_vj.dim()),
@@ -578,6 +699,62 @@ impl Model {
         let avg_features = Features::average(features)?;
         self.update(&avg_features)?;
         Ok(())
+    }
+
+    pub fn filter_vs(&self, vs: Vec<Gene>) -> Result<Model> {
+        let mut m = self.clone();
+
+        let dim = self.p_vdj.dim();
+        m.p_vdj = Array3::<f64>::zeros((vs.len(), dim.1, dim.2));
+        m.seg_vs = Vec::new();
+        m.p_del_v_given_v = Array2::<f64>::zeros((self.p_del_v_given_v.dim().0, vs.len()));
+
+        let mut iv_restr = 0;
+        for iv in 0..dim.0 {
+            let vgene = self.seg_vs[iv].clone();
+            if vs.contains(&vgene) {
+                m.seg_vs.push(vgene);
+                for id in 0..dim.1 {
+                    for ij in 0..dim.2 {
+                        m.p_vdj[[iv_restr, id, ij]] = self.p_vdj[[iv, id, ij]];
+                    }
+                }
+                for idelv in 0..self.p_del_v_given_v.dim().0 {
+                    m.p_del_v_given_v[[idelv, iv_restr]] = self.p_del_v_given_v[[idelv, iv]];
+                }
+                iv_restr += 1;
+            }
+        }
+        m.initialize()?;
+        Ok(m)
+    }
+
+    pub fn filter_js(&self, js: Vec<Gene>) -> Result<Model> {
+        let mut m = self.clone();
+        let dim = self.p_vdj.dim();
+
+        m.p_vdj = Array3::<f64>::zeros((dim.0, dim.1, js.len()));
+        m.seg_js = Vec::new();
+        m.p_del_j_given_j = Array2::<f64>::zeros((self.p_del_j_given_j.dim().0, js.len()));
+
+        let mut ij_restr = 0;
+        for ij in 0..dim.2 {
+            let jgene = self.seg_js[ij].clone();
+            if js.contains(&jgene) {
+                m.seg_js.push(jgene);
+                for id in 0..dim.1 {
+                    for iv in 0..dim.0 {
+                        m.p_vdj[[iv, id, ij_restr]] = self.p_vdj[[iv, id, ij]];
+                    }
+                }
+                for idelj in 0..self.p_del_j_given_j.dim().0 {
+                    m.p_del_j_given_j[[idelj, ij_restr]] = self.p_del_j_given_j[[idelj, ij]];
+                }
+                ij_restr += 1;
+            }
+        }
+        m.initialize()?;
+        Ok(m)
     }
 
     pub fn get_v_gene(&self, event: &InfEvent) -> String {
@@ -682,6 +859,12 @@ impl Model {
         self.load_features(feature)?;
         self.initialize()?;
         Ok(())
+    }
+
+    pub fn from_features(&self, feature: &Features) -> Result<Model> {
+        let mut m = self.clone();
+        m.update(feature)?;
+        Ok(m)
     }
 
     pub fn set_p_vdj(&mut self, p_vdj: &Array3<f64>) -> Result<()> {
