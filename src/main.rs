@@ -23,22 +23,22 @@ fn main() -> Result<()> {
     // )?;
 
     //TODO: modify before release
-    let mut igor_model = ihor::vj::Model::load_from_name(
+    let mut igor_model = ihor::vdj::Model::load_from_name(
         "human",
-        "tra",
+        "trb",
         None,
         Path::new("/home/thomas/Downloads/righor-py/models"),
     )?;
 
     igor_model.error_rate = 0.;
 
-    let mut generator = ihor::vj::Generator::new(igor_model.clone(), Some(42), None, None)?;
+    let mut generator = ihor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
     let mut uniform_model = igor_model.uniform()?;
     let align_params = ihor::AlignmentParameters::default();
     let inference_params = ihor::InferenceParameters::default();
 
     let mut seq = Vec::new();
-    for _ in tqdm!(0..10) {
+    for _ in tqdm!(0..1) {
         let s = ihor::Dna::from_string(&generator.generate(false).full_seq)?;
         let als = uniform_model.align_sequence(s.clone(), &align_params)?;
         if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
@@ -50,7 +50,7 @@ fn main() -> Result<()> {
         println!("{:?}", ii);
     }
 
-    println!("{:?}", uniform_model.p_ins_vj);
+    println!("{:?}", uniform_model.p_ins_vd);
 
     Ok(())
 }

@@ -3,9 +3,9 @@ use anyhow::{anyhow, Result};
 use ndarray::{s, Array, Array1, Array2, Array3, Axis, Dimension};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
-use rand::distributions::{Distribution, Uniform};
+use rand::distributions::Distribution;
 use rand::Rng;
-use rand_distr::WeightedAliasIndex;
+use rand_distr::{Uniform, WeightedAliasIndex};
 
 const EPSILON: f64 = 1e-10;
 
@@ -100,6 +100,22 @@ impl Default for DiscreteDistribution {
     }
 }
 
+// Error model
+#[derive(Clone, Debug)]
+pub struct ErrorDistribution {
+    pub is_error: Uniform<f64>,
+    pub nucleotide: Uniform<usize>,
+}
+
+impl Default for ErrorDistribution {
+    fn default() -> Self {
+        ErrorDistribution {
+            is_error: Uniform::new(0.0, 1.0),
+            nucleotide: Uniform::new_inclusive(0, 3),
+        }
+    }
+}
+
 // Markov chain structure (for the insertion process)
 #[derive(Default, Clone, Debug)]
 pub struct MarkovDNA {
@@ -163,18 +179,6 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
         vec = vec_next;
     }
     Err(anyhow!("No suitable eigenvector found"))?
-}
-
-pub fn add_errors<R: Rng>(dna: &mut Dna, error_rate: f64, rng: &mut R) {
-    let effective_error_rate = error_rate * 4. / 3.;
-    let uniform = Uniform::new(0.0, 1.0);
-    let random_nucleotide = Uniform::new_inclusive(0, 3);
-
-    for nucleotide in dna.seq.iter_mut() {
-        if uniform.sample(rng) < effective_error_rate {
-            *nucleotide = NUCLEOTIDES[random_nucleotide.sample(rng)];
-        }
-    }
 }
 
 /// Normalize the distribution on the first three axis
@@ -429,6 +433,22 @@ pub struct InferenceParameters {
     pub store_best_event: bool,
 }
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl InferenceParameters {
+    #[new]
+    pub fn py_new() -> Self {
+        InferenceParameters::default()
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}. store_best_event={})", self.min_likelihood, self.min_ratio_likelihood, self.infer, self.store_best_event))
+    }
+    fn __str__(&self) -> PyResult<String> {
+        // This is what will be shown when you use print() in Python
+        self.__repr__()
+    }
+}
+
 impl Default for InferenceParameters {
     fn default() -> InferenceParameters {
         InferenceParameters {
@@ -437,23 +457,6 @@ impl Default for InferenceParameters {
             infer: true,
             store_best_event: true,
         }
-    }
-}
-
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-#[pymethods]
-impl InferenceParameters {
-    #[new]
-    pub fn py_new() -> Self {
-        Self::new(0.)
-    }
-    fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}. store_best_event={})", self.min_likelihood, self.min_ratio_likelihood, self.infer, self.store_best_event))
-    }
-
-    fn __str__(&self) -> PyResult<String> {
-        // This is what will be shown when you use print() in Python
-        self.__repr__()
     }
 }
 

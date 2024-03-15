@@ -62,7 +62,7 @@ impl Generator {
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct GenerationResult {
-    pub cdr3_nt: Option<String>,
+    pub cdr3_nt: String,
     pub cdr3_aa: Option<String>,
     pub full_seq: String,
     pub v_gene: String,

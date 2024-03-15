@@ -32,8 +32,8 @@ fn ihor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<AminoAcid>()?;
     m.add_class::<VJAlignment>()?;
     m.add_class::<DAlignment>()?;
-    m.add_class::<InferenceParameters>()?;
-    m.add_class::<AlignmentParameters>()?;
+    // m.add_class::<InferenceParameters>()?;
+    // m.add_class::<AlignmentParameters>()?;
     m.add_class::<CategoricalFeature1>()?;
     m.add_class::<CategoricalFeature1g1>()?;
     m.add_class::<CategoricalFeature2>()?;

@@ -100,8 +100,28 @@ impl Default for AlignmentParameters {
             min_score_v: 0,
             min_score_j: 0,
             max_error_d: 100,
-            left_v_cutoff: 40,
+            left_v_cutoff: 60,
         }
+    }
+}
+
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl AlignmentParameters {
+    #[new]
+    pub fn py_new() -> Self {
+        AlignmentParameters::default()
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!(
+            "AlignmentParameters(min_score_v={}, min_score_j={}, max_error_d={}. left_v_cutoff={})",
+            self.min_score_v, self.min_score_j, self.max_error_d, self.left_v_cutoff
+        ))
+    }
+
+    fn __str__(&self) -> PyResult<String> {
+        // This is what will be shown when you use print() in Python
+        self.__repr__()
     }
 }
 

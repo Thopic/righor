@@ -29,6 +29,7 @@ pub struct StaticEvent {
     pub deld5: usize,
     pub insvd: Dna,
     pub insdj: Dna,
+    pub errors: Vec<(usize, u8)>,
 }
 
 impl StaticEvent {
@@ -42,8 +43,22 @@ impl StaticEvent {
         seq.extend(&seq_d.extract_subsequence(self.deld5, seq_d.len() - self.deld3));
         seq.extend(&self.insdj);
         seq.extend(&seq_j.extract_subsequence(self.delj, seq_j.len()));
+
+        // add errors
+        for (ii, nuc) in &self.errors {
+            seq.seq[*ii] = *nuc
+        }
+
         seq
     }
+
+    pub fn extract_cdr3(&self, full_sequence: &Dna, m: &Model) -> Dna {
+        let vg = &m.seg_vs[self.v_index];
+        let jg = &m.seg_js[self.j_index];
+        let end_cdr3 = full_sequence.len() - jg.seq.len() + jg.cdr3_pos.unwrap() + 3;
+        full_sequence.extract_subsequence(vg.cdr3_pos.unwrap(), end_cdr3)
+    }
+
     pub fn to_cdr3(&self, m: &Model) -> Option<Dna> {
         let seq_v_cdr3: &Dna = &m.seg_vs_sanitized[self.v_index];
         let seq_j_cdr3: &Dna = &m.seg_js_sanitized[self.j_index];
@@ -58,10 +73,28 @@ impl StaticEvent {
             return None;
         }
 
+        // println!(
+        //     "{:?}",
+        //     (
+        //         seq_v_cdr3
+        //             .extract_subsequence(0, seq_v_cdr3.len() - self.delv)
+        //             .get_string(),
+        //         self.insvd.get_string(),
+        //         seq_d
+        //             .extract_subsequence(self.deld5, seq_d.len() - self.deld3)
+        //             .get_string(),
+        //         self.insdj.get_string(),
+        //         seq_j_cdr3
+        //             .extract_subsequence(self.delj, seq_j_cdr3.len())
+        //             .get_string()
+        //     )
+        // );
+
         seq.extend(&seq_v_cdr3.extract_subsequence(0, seq_v_cdr3.len() - self.delv));
         seq.extend(&self.insvd);
         seq.extend(&seq_d.extract_subsequence(self.deld5, seq_d.len() - self.deld3));
         seq.extend(&self.insdj);
+        seq.extend(&seq_j_cdr3.extract_subsequence(self.delj, seq_j_cdr3.len()));
 
         Some(seq)
     }
@@ -100,6 +133,7 @@ impl Event<'_> {
             deld5: self.deld5,
             insvd,
             insdj,
+            ..Default::default()
         })
     }
 }

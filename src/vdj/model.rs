@@ -1,9 +1,9 @@
-use crate::sequence::{AlignmentParameters, AminoAcid, Dna};
+use crate::sequence::{utils::NUCLEOTIDES, AlignmentParameters, AminoAcid, Dna};
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
 use crate::shared::utils::{
-    add_errors, calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start,
-    DiscreteDistribution, Gene, InferenceParameters, MarkovDNA, Normalize, RecordModel,
+    calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start, DiscreteDistribution,
+    ErrorDistribution, Gene, InferenceParameters, MarkovDNA, Normalize, RecordModel,
 };
 use crate::vdj::inference::ResultInference;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
@@ -12,11 +12,12 @@ use anyhow::{anyhow, Result};
 use ndarray::{s, Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
+
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand_distr::Distribution;
 use rayon::prelude::*;
-
 use std::path::Path;
 use std::{cmp, fs::read_to_string, fs::File};
 
@@ -29,7 +30,7 @@ pub struct Generator {
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct GenerationResult {
-    pub cdr3_nt: Option<String>,
+    pub cdr3_nt: String,
     pub cdr3_aa: Option<String>,
     pub full_seq: String,
     pub v_gene: String,
@@ -84,6 +85,7 @@ pub struct Generative {
     d_del_d5_del_d3: Vec<DiscreteDistribution>,
     markov_vd: MarkovDNA,
     markov_dj: MarkovDNA,
+    error: ErrorDistribution,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -489,6 +491,9 @@ impl Model {
 
         self.gen.markov_vd = MarkovDNA::new(self.markov_coefficients_vd.to_owned())?;
         self.gen.markov_dj = MarkovDNA::new(self.markov_coefficients_dj.to_owned())?;
+
+        self.gen.error = Default::default();
+
         Ok(())
     }
 
@@ -526,6 +531,21 @@ impl Model {
             let ins_vd: usize = self.gen.d_ins_vd.generate(rng);
             let ins_dj: usize = self.gen.d_ins_dj.generate(rng);
 
+            // println!(
+            //     "{:?}",
+            //     (
+            //         seq_v_cdr3.get_string(),
+            //         seq_j_cdr3.get_string(),
+            //         event.delv,
+            //         seq_d.get_string(),
+            //         event.deld5,
+            //         event.deld3,
+            //         event.delj,
+            //         ins_vd,
+            //         ins_dj,
+            //     ),
+            // );
+
             let out_of_frame = (seq_v_cdr3.len() + seq_j_cdr3.len() - event.delv + seq_d.len()
                 - event.deld5
                 - event.deld3
@@ -558,6 +578,8 @@ impl Model {
 
             // create the complete sequence:
             let full_seq = event.to_sequence(self);
+
+            // println!("{:?}", full_seq.get_string());
 
             // create the complete CDR3 sequence
             let cdr3_seq = event.to_cdr3(self);
@@ -596,36 +618,33 @@ impl Model {
 
     /// Return (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname)
     pub fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
-        let (mut full_seq, cdr3_nt, _, event) = self.generate_no_error(functional, rng);
-        let vgene = self.seg_vs[event.v_index].clone();
-        let jgene = self.seg_js[event.j_index].clone();
-        let cdr3_start = vgene.cdr3_pos.unwrap();
-        add_errors(&mut full_seq, self.error_rate, rng);
-        let err_cdr3_nt = match cdr3_nt {
-            Some(_) => Some(
-                full_seq
-                    .extract_subsequence(cdr3_start, full_seq.len() - jgene.cdr3_pos.unwrap() + 3),
-            ),
-            None => None,
-        };
-        let err_cdr3_aa: Option<AminoAcid> = match err_cdr3_nt {
-            Some(ref s) => s.translate().ok(),
-            None => None,
-        };
+        let (full_seq, _, _, mut event) = self.generate_no_error(functional, rng);
+
+        // add errors
+        let effective_error_rate = self.error_rate * 4. / 3.;
+        event.errors =
+            Vec::with_capacity((effective_error_rate * full_seq.len() as f64).ceil() as usize);
+
+        for (idx, nucleotide) in full_seq.seq.iter().enumerate() {
+            if self.gen.error.is_error.sample(rng) < effective_error_rate {
+                let a = NUCLEOTIDES[self.gen.error.nucleotide.sample(rng)];
+                if a != *nucleotide {
+                    event.errors.push((idx, a));
+                }
+            }
+        }
+
+        let full_seq = event.to_sequence(&self);
+        let cdr3_nt = event.extract_cdr3(&full_seq, &self);
+        let cdr3_aa = cdr3_nt.translate().ok();
 
         GenerationResult {
-            v_gene: vgene.name,
-            j_gene: jgene.name,
+            v_gene: self.seg_vs[event.v_index].name.clone(),
+            j_gene: self.seg_js[event.j_index].name.clone(),
             recombination_event: event,
             full_seq: full_seq.get_string(),
-            cdr3_nt: match err_cdr3_nt {
-                None => None,
-                Some(ref x) => Some(x.get_string()),
-            },
-            cdr3_aa: match err_cdr3_aa {
-                None => None,
-                Some(ref x) => Some(x.to_string()),
-            },
+            cdr3_nt: cdr3_nt.get_string(),
+            cdr3_aa: cdr3_aa.map(|x| x.to_string()),
         }
     }
 
