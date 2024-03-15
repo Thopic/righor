@@ -97,10 +97,10 @@ pub struct AlignmentParameters {
 impl Default for AlignmentParameters {
     fn default() -> AlignmentParameters {
         AlignmentParameters {
-            min_score_v: 0,
+            min_score_v: -20,
             min_score_j: 0,
             max_error_d: 100,
-            left_v_cutoff: 60,
+            left_v_cutoff: 40,
         }
     }
 }
