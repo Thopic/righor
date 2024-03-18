@@ -468,6 +468,7 @@ impl Model {
             (*arrdelv.iter().min().ok_or(anyhow!("Empty v_3_del"))?),
             (*arrdelv.iter().max().ok_or(anyhow!("Empty v_3_del"))?),
         );
+
         let arrdelj = pp
             .params
             .get("j_5_del")
@@ -607,6 +608,10 @@ impl Model {
             .unwrap()
             .t()
             .to_owned();
+        if (model.range_del_v.1 - model.range_del_v.0 + 1) != (model.p_del_v_given_v.dim().0 as i64)
+        {
+            return Err(anyhow!("Wrong format for V deletions"));
+        }
         model.p_del_j_given_j = pm
             .marginals
             .get("j_5_del")
@@ -617,6 +622,12 @@ impl Model {
             .unwrap()
             .t()
             .to_owned();
+
+        if (model.range_del_j.1 - model.range_del_j.0 + 1) != (model.p_del_j_given_j.dim().0 as i64)
+        {
+            return Err(anyhow!("Wrong format for J deletions"));
+        }
+
         // compute the joint probability P(delD3, delD5 | D)
         // P(delD3, delD5 | D) = P(delD3 | delD5, D) * P(delD5 | D)
         let pdeld3 = pm.marginals.get("d_3_del").unwrap().probabilities.clone(); // P(deld3| delD5, D)
@@ -631,6 +642,18 @@ impl Model {
                     model.p_del_d5_del_d3[[d5, d3, dd]] = pdeld3[[dd, d5, d3]] * pdeld5[[dd, d5]]
                 }
             }
+        }
+
+        if (model.range_del_d5.1 - model.range_del_d5.0 + 1)
+            != (model.p_del_d5_del_d3.dim().0 as i64)
+        {
+            return Err(anyhow!("Wrong format for D5 deletions"));
+        }
+
+        if (model.range_del_d3.1 - model.range_del_d3.0 + 1)
+            != (model.p_del_d5_del_d3.dim().1 as i64)
+        {
+            return Err(anyhow!("Wrong format for D3 deletions"));
         }
 
         // Markov coefficients

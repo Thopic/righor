@@ -226,8 +226,8 @@ fn parse_numbers(str_data: &Vec<String>) -> Result<EventType> {
         if data.len() != 2 {
             Err(anyhow!(format!("Invalid format for gene event {}", line)))?;
         } else {
-            let value = i64::from_str(&data[0][1..])?;
-            let index = usize::from_str(&data[1])?;
+            let value = i64::from_str(&data[0][1..].trim())?;
+            let index = usize::from_str(&data[1].trim())?;
             events[index] = value;
         }
     }
@@ -406,6 +406,7 @@ fn parse_dim(s: &str) -> Result<Vec<usize>> {
             .unwrap()
             .as_str()
             .split(',')
+            .map(|num_str| num_str.trim()) // Trim whitespace around the numbers
             .filter_map(|num| usize::from_str(num).ok())
             .collect())
     } else {
@@ -418,7 +419,7 @@ fn parse_dependence(s: &str) -> Result<(Vec<String>, Vec<usize>)> {
     if s == "#" {
         return Ok((Vec::new(), Vec::new()));
     }
-    let re = Regex::new(r"^(?<text>\w+),(?<number>\d+)\]").unwrap();
+    let re = Regex::new(r"^(?<text>\w+),\s*(?<number>\d+)\]").unwrap();
     let mut texts = Vec::new();
     let mut numbers = Vec::new();
 
@@ -437,6 +438,7 @@ fn parse_dependence(s: &str) -> Result<(Vec<String>, Vec<usize>)> {
 fn parse_values(s: &str) -> Result<Vec<f64>> {
     Ok(s.trim_start_matches('%')
         .split(',')
+        .map(|num_str| num_str.trim()) // Trim whitespace around the numbers
         .filter_map(|num_str| num_str.parse::<f64>().ok())
         .collect())
 }

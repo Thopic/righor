@@ -94,29 +94,27 @@ I would need to add sums here and there, nothing impossible, but slightly more a
 UndefinedDna would contains for each position a vec/array of bytes and a int giving the positions they're connected with  (just need two options for everything). This is very specific to the aa case, but why should I care. A bit complicated rn, leaving it for later.
 - improve alignment so that it can deal with potential indels.
 - add simpler inference (without full VDJ, without V-J...)
+- publish cargo package
+- json export and loading
 
 
 TODO before v0.2:
 - change name
 - publish pip package
-- publish cargo package
 - clean up gen event / static event if possible. <- long
-- make the pgen with error [v]
-- check the sequences for which the inference doesn't work [v]
-- write igor file + offer a json export <- long
 - general cleanup
-- fix the 3 bugs below
+- make it work with CDR3 + V gene + J gene
 - make a python notebook for example with: load model, align sequences, display aligned sequences, evaluate, display evaluate (incl. features), infer model, display inferred model.
 - implement resulthuman in python
 - use pgen for the online version
 
 
-Bug:
-- having spaces in the marginal file mess up the parsing silently, needs to be fixed
-- if range_j / range_v / range_d doesn't match p_deld/p_delv/ p_delj in length, should complain
-- generally should complain if the file is not exactly what is expected
+
+
+
+
 
 
 Current status:
-- speed is ok (50 seqs/s roughly ?). Could be slightly faster. I think some range should be replaced by iterator. Another big improvement would be to consider shorter V segment during the alignment.
+- speed is ok (50 seqs/s roughly ?). Could be slightly faster. I think some range should be replaced by iterator.
 - pgen works, but because I consider way more D gene alignment than Quentin some issue when endD and startD are really close to each other.
