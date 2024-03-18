@@ -5,3 +5,7 @@ perf.data
 perf.data.old
 target/
 *rustfmt*
+\#*\#
+.ipynb_checkpoints/
+demo/
+python/
