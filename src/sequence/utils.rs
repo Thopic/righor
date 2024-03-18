@@ -300,8 +300,8 @@ impl Dna {
 
     /// Return dna[start:end] but padded with N if start < 0 or end >= dna.len()
     ///```
-    /// use ihor;
-    ///let a = ihor::Dna::from_string("ACCAAATGC").unwrap();
+    /// use righor;
+    ///let a = righor::Dna::from_string("ACCAAATGC").unwrap();
     ///assert!(a.extract_padded_subsequence(2, 5).get_string() == "CAA".to_string());
     ///assert!(a.extract_padded_subsequence(-1, 5).get_string() == "NACCAA".to_string());
     ///assert!(a.extract_padded_subsequence(5, 10).get_string() == "ATGCN".to_string());

@@ -1,23 +1,23 @@
 use anyhow::Result;
-use ihor::shared::utils::Normalize;
-use ihor::{self, AlignmentParameters};
+use righor::shared::utils::Normalize;
+use righor::{self, AlignmentParameters};
 use ndarray::{array, Array2};
 use std::path::Path;
 
 mod common;
 
 // fn generate_and_infer(
-//     model: &ihor::vdj::Model,
-//     al_params: &ihor::AlignmentParameters,
-//     if_params: &ihor::InferenceParameters,
+//     model: &righor::vdj::Model,
+//     al_params: &righor::AlignmentParameters,
+//     if_params: &righor::InferenceParameters,
 //     nb_generations: usize,
 // ) -> () {
-//     let mut gen = ihor::vdj::Generator::new(model.clone(), Some(42));
+//     let mut gen = righor::vdj::Generator::new(model.clone(), Some(42));
 //     for _ in 0..100 {
 //         let gr = gen.generate(false);
-//         let myseq = ihor::Dna::from_string(&gr.full_seq).unwrap();
+//         let myseq = righor::Dna::from_string(&gr.full_seq).unwrap();
 //         let seq_aligned = model.align_sequence(myseq, al_params);
-//         let result: Vec<ihor::vdj::StaticEvent> = model
+//         let result: Vec<righor::vdj::StaticEvent> = model
 //             .most_likely_recombinations(&seq_aligned.unwrap(), 20, if_params)
 //             .unwrap()
 //             .iter()
@@ -44,7 +44,7 @@ mod common;
 //                                       CA
 #[test]
 fn match_igor() -> Result<()> {
-    let mut igor_model = ihor::vdj::Model::load_from_files(
+    let mut igor_model = righor::vdj::Model::load_from_files(
         Path::new("demo/models/human/tcr_beta/models/model_parms.txt"),
         Path::new("demo/models/human/tcr_beta/models/model_marginals.txt"),
         Path::new("demo/models/human/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
@@ -55,7 +55,7 @@ fn match_igor() -> Result<()> {
     igor_model.error_rate = 0.;
     let s = "GAAGCTGGAGTGGTTCAGTCTCCCAGATATAAGATTATAGAGAAAAAACAGCCTGTGGCTTTTTGGTGCAATCCTATTTCTGGCCACAATACCCTTTACTGGTACCTGCAGAACTTGGGACAGGGCCCGGAGCTTCTGATTCGATATGAGAATGAGGAAGCAGTAGACGATTCACAGTTGCCTAAGGATCGATTTTCTGCAGAGAGGCTCAAAGGAGTAGACTCCACTCTCAAGATCCAGCCTGCAGAGCTTGGGGACTCGGCCGTGTATCTCTGTGCCAGCAGCCACGCGGGGGGATGAGCAGTTCTTCGGGCCAGGGACACGGCTCACCGTGCTAG";
     let seq_aligned = igor_model
-        .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
+        .align_sequence(righor::Dna::from_string(s).unwrap(), &alp)
         .unwrap();
     let feat = igor_model.infer_features(&seq_aligned, &ifp).unwrap();
     let result = igor_model.infer(&seq_aligned, &ifp).unwrap();
@@ -66,7 +66,7 @@ fn match_igor() -> Result<()> {
 
 #[test]
 fn infer_real_model() -> Result<()> {
-    let mut original_model = ihor::vdj::Model::load_from_files(
+    let mut original_model = righor::vdj::Model::load_from_files(
         Path::new("models/human_T_beta/model_params.txt"),
         Path::new("models/human_T_beta/model_marginals.txt"),
         Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
@@ -84,7 +84,7 @@ fn infer_real_model() -> Result<()> {
 
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
-    let mut gen = ihor::vdj::Generator::new(original_model.clone(), Some(0));
+    let mut gen = righor::vdj::Generator::new(original_model.clone(), Some(0));
     let mut sequences = Vec::new();
     for _ in 0..100 {
         sequences.push(gen.generate(false).cdr3_nt);
@@ -95,7 +95,7 @@ fn infer_real_model() -> Result<()> {
     let mut sequences_aligned = Vec::new();
     for s in sequences.clone().iter() {
         let seq_aligned = model
-            .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
+            .align_sequence(righor::Dna::from_string(s).unwrap(), &alp)
             .unwrap();
         if seq_aligned.valid_alignment {
             sequences_aligned.push(seq_aligned);
@@ -110,7 +110,7 @@ fn infer_real_model() -> Result<()> {
             features.push(feat.clone());
         }
 
-        let new_features = ihor::vdj::Features::average(features).unwrap();
+        let new_features = righor::vdj::Features::average(features).unwrap();
         model.update(&new_features).unwrap();
         println!("{:?}", model.error_rate);
         println!("{:?}", original_model.error_rate);
@@ -132,7 +132,7 @@ fn infer_simple_model_vdj() -> () {
     model.error_rate = 0.1;
     let ifp = common::inference_parameters_default();
     let alp = common::alignment_parameters_default();
-    let mut gen = ihor::vdj::Generator::new(model.clone(), Some(0));
+    let mut gen = righor::vdj::Generator::new(model.clone(), Some(0));
     let mut sequences = Vec::new();
     for _ in 0..1000 {
         sequences.push(gen.generate(false).full_seq);
@@ -146,7 +146,7 @@ fn infer_simple_model_vdj() -> () {
     for s in sequences.clone().iter() {
         //        let s = "TGCTCATGCAAAAAAAATTTTTCGCTTTTGGGGGGCAGTCAGT";
         let seq_aligned = model
-            .align_sequence(ihor::Dna::from_string(s).unwrap(), &alp)
+            .align_sequence(righor::Dna::from_string(s).unwrap(), &alp)
             .unwrap();
         if seq_aligned.valid_alignment {
             sequences_aligned.push(seq_aligned);
@@ -166,7 +166,7 @@ fn infer_simple_model_vdj() -> () {
             features.push(feat.clone());
         }
 
-        let new_features = ihor::vdj::Features::average(features).unwrap();
+        let new_features = righor::vdj::Features::average(features).unwrap();
         model.update(&new_features).unwrap();
         println!("{:?}", model.error_rate);
         println!("{:?}", original_model.error_rate);
@@ -183,29 +183,29 @@ fn infer_simple_model_vdj() -> () {
 // #[test]
 // fn test_most_likely_no_del() {
 //     // all the tests that relate to the inference of the most likely recombination scenario.
-//     let gv = ihor::Gene {
+//     let gv = righor::Gene {
 //         name: "V1".to_string(),
-//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 //         seq_with_pal: None,
 //         functional: "(F)".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gj = ihor::Gene {
+//     let gj = righor::Gene {
 //         name: "J1".to_string(),
-//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "(F)".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gd = ihor::Gene {
+//     let gd = righor::Gene {
 //         name: "D1".to_string(),
-//         seq: ihor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
+//         seq: righor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "(F)".to_string(),
 //         cdr3_pos: Some(0),
 //     };
 
-//     let mut model = ihor::vdj::Model {
+//     let mut model = righor::vdj::Model {
 //         seg_vs: vec![gv],
 //         seg_js: vec![gj],
 //         seg_ds: vec![gd],
@@ -241,85 +241,85 @@ fn infer_simple_model_vdj() -> () {
 
 //     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
 //         .unwrap();
 //     assert!(result.clone()[0].1.deld3 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
 
 //     // Add an insertion (VD)
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAACTTTTTTTTTTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAACTTTTTTTTTTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
 //         .unwrap();
 //     assert!(result.clone()[0].1.deld3 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("C").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("C").unwrap());
 
 //     // Add an insertion (DJ)
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTAGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTAGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
 //         .unwrap();
 //     assert!(result.clone()[0].1.deld3 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("A").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("A").unwrap());
 
 //     // Add two insertions (VD/DJ)
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGCTTTTTTTTTTTTCGGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAAGCTTTTTTTTTTTTCGGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
 //         .unwrap();
 //     assert!(result.clone()[0].1.deld3 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("GC").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("CG").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("GC").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("CG").unwrap());
 
 //     // Add two insertions. Could be GT-TT or GTT-T or G-TTT. 2 and 3 are more likely (with
 //     // the first one having an edge because G->T is more likely than T->T)
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGTTTTTTTTTTTTTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAAGTTTTTTTTTTTTTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
 //         .unwrap();
 //     println!("{:?}", result);
-//     assert!(result.clone()[2].1.insvd == ihor::Dna::from_string("GT").unwrap());
-//     assert!(result.clone()[2].1.insdj == ihor::Dna::from_string("TT").unwrap());
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("GTT").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("T").unwrap());
-//     assert!(result.clone()[1].1.insvd == ihor::Dna::from_string("G").unwrap());
-//     assert!(result.clone()[1].1.insdj == ihor::Dna::from_string("TTT").unwrap());
+//     assert!(result.clone()[2].1.insvd == righor::Dna::from_string("GT").unwrap());
+//     assert!(result.clone()[2].1.insdj == righor::Dna::from_string("TT").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("GTT").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("T").unwrap());
+//     assert!(result.clone()[1].1.insvd == righor::Dna::from_string("G").unwrap());
+//     assert!(result.clone()[1].1.insdj == righor::Dna::from_string("TTT").unwrap());
 // }
 
 // #[test]
 // fn test_most_likely_no_ins() {
 //     // all the tests that relate to the inference of the most likely recombination scenario.
-//     let gv = ihor::Gene {
+//     let gv = righor::Gene {
 //         name: "V1".to_string(),
-//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gj = ihor::Gene {
+//     let gj = righor::Gene {
 //         name: "J1".to_string(),
-//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gd = ihor::Gene {
+//     let gd = righor::Gene {
 //         name: "D1".to_string(),
-//         seq: ihor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
+//         seq: righor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
 
-//     let mut model = ihor::vdj::Model {
+//     let mut model = righor::vdj::Model {
 //         seg_vs: vec![gv],
 //         seg_js: vec![gj],
 //         seg_ds: vec![gd],
@@ -355,63 +355,63 @@ fn infer_simple_model_vdj() -> () {
 
 //     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
 //         .unwrap();
 //     assert!(result.clone()[0].1.delv == 1);
 //     assert!(result.clone()[0].1.delj == 1);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
 
 //     // 1 palindromic insertion on V
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
 //         .unwrap();
 //     assert!(result.clone()[0].1.delv == 0);
 //     assert!(result.clone()[0].1.delj == 1);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
 
 //     // 2 deletion on V, one palindromic insert on J
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAATTTTTTTTTTTTCGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAATTTTTTTTTTTTCGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
 //         .unwrap();
 //     assert!(result.clone()[0].1.delv == 3);
 //     assert!(result.clone()[0].1.delj == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
 // }
 
 // /// Test if the insertion / deletion are interacting like expected (VDJ)
 // #[test]
 // fn test_most_likely_ins_del() {
 //     // all the tests that relate to the inference of the most likely recombination scenario.
-//     let gv = ihor::Gene {
+//     let gv = righor::Gene {
 //         name: "V1".to_string(),
-//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gj = ihor::Gene {
+//     let gj = righor::Gene {
 //         name: "J1".to_string(),
-//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gd = ihor::Gene {
+//     let gd = righor::Gene {
 //         name: "D1".to_string(),
-//         seq: ihor::Dna::from_string("TTTTATTATTTT").unwrap(),
+//         seq: righor::Dna::from_string("TTTTATTATTTT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
 
-//     let mut model = ihor::vdj::Model {
+//     let mut model = righor::vdj::Model {
 //         seg_vs: vec![gv],
 //         seg_js: vec![gj],
 //         seg_ds: vec![gd],
@@ -447,20 +447,20 @@ fn infer_simple_model_vdj() -> () {
 
 //     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTATTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTATTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
 //         .unwrap();
 //     assert!(result.clone()[0].1.delv == 1);
 //     assert!(result.clone()[0].1.delj == 1);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 
 //     // Most likely scenario:
 //     //  no insertion on VD but one "negative deletion"
 //     // Two insertions on DJ (CG) and one deletion ()
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTATTATTTTCGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTATTATTTTCGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
@@ -468,30 +468,30 @@ fn infer_simple_model_vdj() -> () {
 
 //     assert!(result.clone()[0].1.delv == 0);
 //     assert!(result.clone()[0].1.delj == 2);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("CG").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("CG").unwrap());
 // }
 
 // // /// Test if the insertion / deletion are interacting like expected (VJ)
 // // #[test]
 // // fn test_most_likely_ins_del_vj() {
 // //     // all the tests that relate to the inference of the most likely recombination scenario.
-// //     let gv = ihor::Gene {
+// //     let gv = righor::Gene {
 // //         name: "V1".to_string(),
-// //         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+// //         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 // //         seq_with_pal: None,
 // //         functional: "".to_string(),
 // //         cdr3_pos: Some(0),
 // //     };
-// //     let gj = ihor::Gene {
+// //     let gj = righor::Gene {
 // //         name: "J1".to_string(),
-// //         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+// //         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 // //         seq_with_pal: None,
 // //         functional: "".to_string(),
 // //         cdr3_pos: Some(0),
 // //     };
 
-// //     let mut model = ihor::vj::Model {
+// //     let mut model = righor::vj::Model {
 // //         seg_vs: vec![gv],
 // //         seg_js: vec![gj],
 // //         p_v: array![1.],
@@ -515,19 +515,19 @@ fn infer_simple_model_vdj() -> () {
 
 // //     let al_params = common::alignment_parameters_default();
 // //     // No insertions or deletions
-// //     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGGGGGGCAGTCAGT");
+// //     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAAGGGGGGCAGTCAGT");
 // //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 // //     let result = model
 // //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
 // //         .unwrap();
 // //     assert!(result.clone()[0].1.delv == 1);
 // //     assert!(result.clone()[0].1.delj == 1);
-// //     assert!(result.clone()[0].1.insvj == ihor::Dna::from_string("").unwrap());
+// //     assert!(result.clone()[0].1.insvj == righor::Dna::from_string("").unwrap());
 
 // //     // Most likely scenario:
 // //     // one "negative deletion" pm V
 // //     // Two insertions on VJ (CG) and one deletion on J
-// //     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTCGGGGGCAGTCAGT");
+// //     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTCGGGGGCAGTCAGT");
 // //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 // //     let result = model
 // //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
@@ -537,35 +537,35 @@ fn infer_simple_model_vdj() -> () {
 // //     println!("{:?}", result.clone()[0]);
 // //     assert!(result.clone()[0].1.delv == 0);
 // //     assert!(result.clone()[0].1.delj == 2);
-// //     assert!(result.clone()[0].1.insvj == ihor::Dna::from_string("TC").unwrap());
+// //     assert!(result.clone()[0].1.insvj == righor::Dna::from_string("TC").unwrap());
 // // }
 
 // /// Test D deletions
 // #[test]
 // fn test_most_likely_del_dgene() {
-//     let gv = ihor::Gene {
+//     let gv = righor::Gene {
 //         name: "V1".to_string(),
-//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gj = ihor::Gene {
+//     let gj = righor::Gene {
 //         name: "J1".to_string(),
-//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gd = ihor::Gene {
+//     let gd = righor::Gene {
 //         name: "D1".to_string(),
-//         seq: ihor::Dna::from_string("TTTTATTGTTTT").unwrap(),
+//         seq: righor::Dna::from_string("TTTTATTGTTTT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
 
-//     let mut model = ihor::vdj::Model {
+//     let mut model = righor::vdj::Model {
 //         seg_vs: vec![gv],
 //         seg_js: vec![gj],
 //         seg_ds: vec![gd],
@@ -601,7 +601,7 @@ fn infer_simple_model_vdj() -> () {
 
 //     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
@@ -610,11 +610,11 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 0);
 //     assert!(result.clone()[0].1.deld5 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 
 //     // Two deletion on d5, 1 on d3
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTATTGTTTGGGGGGCAGTCAGT").unwrap();
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTATTGTTTGGGGGGCAGTCAGT").unwrap();
 //     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
 //     println!("{:?}", seq_aligned.d_genes);
 //     for d in &seq_aligned.d_genes {
@@ -629,36 +629,36 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 1);
 //     assert!(result.clone()[0].1.deld5 == 2);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 // }
 
 // /// Test D deletions with insertions
 // #[test]
 // fn test_most_likely_del_pal_dgene_with_ins() {
-//     let gv = ihor::Gene {
+//     let gv = righor::Gene {
 //         name: "V1".to_string(),
-//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gj = ihor::Gene {
+//     let gj = righor::Gene {
 //         name: "J1".to_string(),
-//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gd = ihor::Gene {
+//     let gd = righor::Gene {
 //         name: "D1".to_string(),
-//         seq: ihor::Dna::from_string("TTTTATTGTTTT").unwrap(),
+//         seq: righor::Dna::from_string("TTTTATTGTTTT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
 
-//     let mut model = ihor::vdj::Model {
+//     let mut model = righor::vdj::Model {
 //         seg_vs: vec![gv],
 //         seg_js: vec![gj],
 //         seg_ds: vec![gd],
@@ -694,7 +694,7 @@ fn infer_simple_model_vdj() -> () {
 
 //     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
@@ -703,11 +703,11 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 0);
 //     assert!(result.clone()[0].1.deld5 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 
 //     // Two deletion on d5, 1 on d3, 1 insertion
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAGTTATTGTTTGGGGGGCAGTCAGT").unwrap();
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAAGTTATTGTTTGGGGGGCAGTCAGT").unwrap();
 //     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
 
 //     let result = model
@@ -718,36 +718,36 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 1);
 //     assert!(result.clone()[0].1.deld5 == 2);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("G").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("G").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 // }
 
 // /// Test D palindromic deletions with insertions
 // #[test]
 // fn test_most_likely_del_dgene_with_ins() {
-//     let gv = ihor::Gene {
+//     let gv = righor::Gene {
 //         name: "V1".to_string(),
-//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gj = ihor::Gene {
+//     let gj = righor::Gene {
 //         name: "J1".to_string(),
-//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gd = ihor::Gene {
+//     let gd = righor::Gene {
 //         name: "D1".to_string(),
-//         seq: ihor::Dna::from_string("TTTTATTGTTTT").unwrap(),
+//         seq: righor::Dna::from_string("TTTTATTGTTTT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
 
-//     let mut model = ihor::vdj::Model {
+//     let mut model = righor::vdj::Model {
 //         seg_vs: vec![gv],
 //         seg_js: vec![gj],
 //         seg_ds: vec![gd],
@@ -783,7 +783,7 @@ fn infer_simple_model_vdj() -> () {
 
 //     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
 //     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
@@ -794,11 +794,11 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 1);
 //     assert!(result.clone()[0].1.deld5 == 1);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 
 //     // -1 on D5, -1 on D3, no insertion
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAAATTTTATTGTTTTAGGGGGGCAGTCAGT").unwrap();
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAAATTTTATTGTTTTAGGGGGGCAGTCAGT").unwrap();
 //     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
 
 //     let result = model
@@ -808,36 +808,36 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 0);
 //     assert!(result.clone()[0].1.deld5 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 // }
 
 // /// Test D palindromic deletions with insertions
 // #[test]
 // fn test_most_likely_v_gene_with_errors() {
-//     let gv = ihor::Gene {
+//     let gv = righor::Gene {
 //         name: "V1".to_string(),
-//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gj = ihor::Gene {
+//     let gj = righor::Gene {
 //         name: "J1".to_string(),
-//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gd = ihor::Gene {
+//     let gd = righor::Gene {
 //         name: "D1".to_string(),
-//         seq: ihor::Dna::from_string("TTTTATTGTTTT").unwrap(),
+//         seq: righor::Dna::from_string("TTTTATTGTTTT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "".to_string(),
 //         cdr3_pos: Some(0),
 //     };
 
-//     let mut model = ihor::vdj::Model {
+//     let mut model = righor::vdj::Model {
 //         seg_vs: vec![gv],
 //         seg_js: vec![gj],
 //         seg_ds: vec![gd],
@@ -874,7 +874,7 @@ fn infer_simple_model_vdj() -> () {
 
 //     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions one far away error
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAGAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
+//     let myseq = righor::Dna::from_string("CAGTCAGTAGAAAAAAAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
 //     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned, 5, &if_params)
@@ -883,11 +883,11 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 0);
 //     assert!(result.clone()[0].1.deld5 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 
 //     // No insertions or deletions, one error close
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAGAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAGAATTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
 //     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
 
 //     let result = model
@@ -898,11 +898,11 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 0);
 //     assert!(result.clone()[0].1.deld5 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 
 //     // No error, two deletion, two insertion on VD side
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAACCTTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAACCTTTTATTGTTTTGGGGGGCAGTCAGT").unwrap();
 //     let seq_aligned = model.align_sequence(myseq.clone(), &al_params).unwrap();
 
 //     let result = model
@@ -914,36 +914,36 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.delj == 0);
 //     assert!(result.clone()[0].1.deld3 == 0);
 //     assert!(result.clone()[0].1.deld5 == 0);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("CC").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("CC").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 // }
 
 // #[test]
 // fn test_complete_model() {
 //     // basic model, deletion cost 0.1 each (pal ins 0.2), insertion cost 0.1 * 0.25
-//     let gv = ihor::Gene {
+//     let gv = righor::Gene {
 //         name: "V1".to_string(),
-//         seq: ihor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
+//         seq: righor::Dna::from_string("CAGTCAGTAAAAAAAAAA").unwrap(),
 //         seq_with_pal: None,
 //         functional: "(F)".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gj = ihor::Gene {
+//     let gj = righor::Gene {
 //         name: "J1".to_string(),
-//         seq: ihor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+//         seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "(F)".to_string(),
 //         cdr3_pos: Some(0),
 //     };
-//     let gd = ihor::Gene {
+//     let gd = righor::Gene {
 //         name: "D1".to_string(),
-//         seq: ihor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
+//         seq: righor::Dna::from_string("TTTTTTTTTTTT").unwrap(),
 //         seq_with_pal: None,
 //         functional: "(F)".to_string(),
 //         cdr3_pos: Some(0),
 //     };
 
-//     let mut model = ihor::vdj::Model {
+//     let mut model = righor::vdj::Model {
 //         seg_vs: vec![gv],
 //         seg_js: vec![gj],
 //         seg_ds: vec![gd],
@@ -1043,7 +1043,7 @@ fn infer_simple_model_vdj() -> () {
 
 //     let al_params = common::alignment_parameters_default();
 //     // No insertions or deletions
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATTTTTTTTTTTTGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
@@ -1052,11 +1052,11 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.deld5 == 2);
 //     assert!(result.clone()[0].1.delv == 2);
 //     assert!(result.clone()[0].1.delj == 2);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 
 //     // Two insertions on DJ two palindromic deletion on VD (one from delD5, one from delV)
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAAATATTTTTTTTTTTTCAGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAAATATTTTTTTTTTTTCAGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
@@ -1065,11 +1065,11 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.deld5 == 1);
 //     assert!(result.clone()[0].1.delv == 1);
 //     assert!(result.clone()[0].1.delj == 2);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("CA").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("CA").unwrap());
 
 //     // Two insertions on VD, and three deletions (2 on V one on deld5). + two palindromic deletion on DJ (D3 side)
-//     let myseq = ihor::Dna::from_string("CAGTCAGTAAAAAAAAGCTTTTTTTTTTTAAGGGGGGCAGTCAGT");
+//     let myseq = righor::Dna::from_string("CAGTCAGTAAAAAAAAGCTTTTTTTTTTTAAGGGGGGCAGTCAGT");
 //     let seq_aligned = model.align_sequence(myseq.unwrap(), &al_params);
 //     let result = model
 //         .most_likely_recombinations(&seq_aligned.unwrap(), 5, &if_params)
@@ -1079,8 +1079,8 @@ fn infer_simple_model_vdj() -> () {
 //     assert!(result.clone()[0].1.deld5 == 3);
 //     assert!(result.clone()[0].1.delv == 4);
 //     assert!(result.clone()[0].1.delj == 2);
-//     assert!(result.clone()[0].1.insvd == ihor::Dna::from_string("GC").unwrap());
-//     assert!(result.clone()[0].1.insdj == ihor::Dna::from_string("").unwrap());
+//     assert!(result.clone()[0].1.insvd == righor::Dna::from_string("GC").unwrap());
+//     assert!(result.clone()[0].1.insdj == righor::Dna::from_string("").unwrap());
 
 //     // generate and test the evaluate the resulting sequences.
 //     generate_and_infer(&model, &al_params, &if_params, 100);
@@ -1092,7 +1092,7 @@ fn test_infer_feature_real() -> Result<()> {
     // Just check that nothing panic or return an error.
     // Note: this rely on the presence of data files, so it may
     // fail if the data files are not present
-    // let model = ihor::vdj::Model::load_from_files(
+    // let model = righor::vdj::Model::load_from_files(
     //     Path::new("models/human_T_beta/model_params.txt"),
     //     Path::new("models/human_T_beta/model_marginals.txt"),
     //     Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
@@ -1104,7 +1104,7 @@ fn test_infer_feature_real() -> Result<()> {
     // let inference_params = common::inference_parameters_default();
 
     // let seq_str = "AGTCTGCCATCCCCAACCAGACAGCTCTTTACTTCTGTGCCACCGGGGCAGGAAGGGCTA".to_string();
-    // let seq = model.align_sequence(ihor::sequence::Dna::from_string(&seq_str)?, &align_params)?;
+    // let seq = model.align_sequence(righor::sequence::Dna::from_string(&seq_str)?, &align_params)?;
     // model.infer_features(&seq, &inference_params)?;
     Ok(())
 }

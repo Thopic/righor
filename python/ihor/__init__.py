@@ -1,5 +1,5 @@
-from .ihor import *
+from .righor import *
 
-__doc__ = ihor.__doc__
-if hasattr(ihor, "__all__"):
-    __all__ = ihor.__all__
+__doc__ = righor.__doc__
+if hasattr(righor, "__all__"):
+    __all__ = righor.__all__

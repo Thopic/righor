@@ -1,4 +1,4 @@
-# IHOR
+# RIGHOR
 
 Install rust (potentially slow):
 --------------------------------
@@ -21,9 +21,9 @@ How to use:
 
 Fast generation:
 ```py
-import ihor
+import righor
 # Create generation model (once only)
-gen = ihor.vdj.Generator(
+gen = righor.vdj.Generator(
 "models/human_T_beta/model_params.txt",
 "models/human_T_beta/model_marginals.txt",
 "models/human_T_beta/V_gene_CDR3_anchors.csv",
@@ -39,18 +39,18 @@ print(f"CDR3: {result.cdr3_nt} {result.cdr3_aa}")
 
 Inference:
 ```py
-import ihor
+import righor
 from tqdm import tqdm
 
 # load the model
-model = ihor.vdj.Model.load_model("models/human_T_beta/model_params.txt",
+model = righor.vdj.Model.load_model("models/human_T_beta/model_params.txt",
 "models/human_T_beta/model_marginals.txt",
 "models/human_T_beta/V_gene_CDR3_anchors.csv",
 "models/human_T_beta/J_gene_CDR3_anchors.csv")
 
 # define parameters for the alignment and the inference
-align_params = ihor.AlignmentParameters(min_score_v=0, min_score_j=0,max_error_d=100)
-infer_params = ihor.InferenceParameters(min_likelihood=1e-400)
+align_params = righor.AlignmentParameters(min_score_v=0, min_score_j=0,max_error_d=100)
+infer_params = righor.InferenceParameters(min_likelihood=1e-400)
 
 # read the file line by line and align each sequence
 seq = []
@@ -96,14 +96,14 @@ UndefinedDna would contains for each position a vec/array of bytes and a int giv
 - add simpler inference (without full VDJ, without V-J...)
 - publish cargo package
 - json export and loading
+- run cargo clippy
+- clean up gen event / static event if possible.
+- make it work with CDR3 + V gene + J gene (require implementing some of the python function in rust)
 
 
 TODO before v0.2:
 - change name
 - publish pip package
-- clean up gen event / static event if possible. <- long
-- general cleanup
-- make it work with CDR3 + V gene + J gene
 - make a python notebook for example with: load model, align sequences, display aligned sequences, evaluate, display evaluate (incl. features), infer model, display inferred model.
 - implement resulthuman in python
 - use pgen for the online version

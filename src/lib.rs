@@ -15,7 +15,7 @@ use pyo3::prelude::*;
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymodule]
-fn ihor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn righor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     let vdj_submod = PyModule::new(py, "vdj")?;
     let vj_submod = PyModule::new(py, "vj")?;
 

@@ -232,7 +232,7 @@ impl Normalize2 for Array2<f64> {
 impl Normalize2 for Array3<f64> {
     ///```
     /// use ndarray::{array, Array3};
-    /// use ihor::shared::utils::Normalize2;
+    /// use righor::shared::utils::Normalize2;
     /// let a: Array3<f64> = array![[[1., 2., 3.], [1., 2., 3.], [3., 4., 5.]]];
     /// let b = a.normalize_distribution_double().unwrap();
     /// println!("{:?}", b);
@@ -315,7 +315,7 @@ impl Normalize for Array2<f64> {
     /// Normalizes the elements of an array along the first axis.
     /// ```
     /// use ndarray::{array, Array2};
-    /// use ihor::shared::utils::Normalize;
+    /// use righor::shared::utils::Normalize;
     /// let a : Array2<f64> = array![[0.0, 2.0, 3.0], [2.0, 3.0, 3.0]];
     /// let result = a.normalize_distribution().unwrap();
     /// assert!(result == array![[0. , 0.4, 0.5],[1. , 0.6, 0.5]])
