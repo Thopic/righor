@@ -1,6 +1,8 @@
 use crate::sequence::{utils::NUCLEOTIDES, AlignmentParameters, AminoAcid, Dna};
 use crate::shared::model::{sanitize_j, sanitize_v};
-use crate::shared::parser::{parse_file, parse_str, ParserMarginals, ParserParams};
+use crate::shared::parser::{
+    parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
+};
 use crate::shared::utils::{
     calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start, DiscreteDistribution,
     ErrorDistribution, Gene, InferenceParameters, MarkovDNA, Normalize, RecordModel,
@@ -19,7 +21,7 @@ use rand::SeedableRng;
 use rand_distr::Distribution;
 use rayon::prelude::*;
 use std::path::Path;
-use std::{cmp, fs::read_to_string, fs::File};
+use std::{cmp, fs::read_to_string, fs::File, io::Write};
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct Generator {
@@ -201,6 +203,236 @@ impl Model {
         pp.add_anchors_gene(rdr_v, "v_choice")?;
         pp.add_anchors_gene(rdr_j, "j_choice")?;
         Self::load_model(&pp, &pm)
+    }
+
+    /// Save the model in a given directory (write 4 files)
+    pub fn save_model(&self, directory: &Path) -> Result<()> {
+        let path = directory.join("model_params.txt");
+        let mut file = File::create(path)?;
+        let params = self.write_params()?;
+        file.write_all(params.as_bytes())?;
+
+        let path = directory.join("model_marginals.txt");
+        let mut file = File::create(path)?;
+        let marginals = self.write_marginals()?;
+        file.write_all(marginals.as_bytes())?;
+
+        let path = directory.join("V_gene_CDR3_anchors.csv");
+        let mut file = File::create(path)?;
+        let vanchors = self.write_v_anchors()?;
+        file.write_all(vanchors.as_bytes())?;
+
+        let path = directory.join("J_gene_CDR3_anchors.csv");
+        let mut file = File::create(path)?;
+        let janchors = self.write_j_anchors()?;
+        file.write_all(janchors.as_bytes())?;
+
+        Ok(())
+    }
+
+    pub fn write_v_anchors(&self) -> Result<String> {
+        let mut wtr = csv::Writer::from_writer(vec![]);
+        wtr.write_record(&["gene", "anchor_index", "function"])?;
+        for gene in &self.seg_vs {
+            let cdr3_pos = format!(
+                "{}",
+                gene.cdr3_pos.ok_or(anyhow!("Corrupted Model struct."))?
+            );
+            wtr.write_record(&[gene.name.clone(), cdr3_pos, gene.functional.clone()])?;
+        }
+        wtr.flush()?;
+        let data = String::from_utf8(wtr.into_inner()?)?;
+        Ok(data)
+    }
+
+    pub fn write_j_anchors(&self) -> Result<String> {
+        let mut wtr = csv::Writer::from_writer(vec![]);
+        wtr.write_record(&["gene", "anchor_index", "function"])?;
+        for gene in &self.seg_js {
+            let cdr3_pos = format!(
+                "{}",
+                gene.cdr3_pos.ok_or(anyhow!("Corrupted Model struct."))?
+            );
+            wtr.write_record(&[gene.name.clone(), cdr3_pos, gene.functional.clone()])?;
+        }
+        wtr.flush()?;
+        let data = String::from_utf8(wtr.into_inner()?)?;
+        Ok(data)
+    }
+
+    pub fn write_marginals(&self) -> Result<String> {
+        let marginal_vs = Marginal::create(Vec::new(), self.p_v.clone().into_dyn()).write()?;
+        let marginal_js = Marginal::create(
+            vec!["v_choice"],
+            self.p_j_given_v.clone().permuted_axes((1, 0)).into_dyn(),
+        )
+        .write()?;
+        let marginal_ds = Marginal::create(
+            vec!["v_choice", "j_choice"],
+            self.p_d_given_vj
+                .clone()
+                .permuted_axes((1, 2, 0))
+                .into_dyn(),
+        )
+        .write()?;
+        let marginal_delv = Marginal::create(
+            vec!["v_choice"],
+            self.p_del_v_given_v
+                .clone()
+                .permuted_axes((1, 0))
+                .into_dyn(),
+        )
+        .write()?;
+        let marginal_delj = Marginal::create(
+            vec!["j_choice"],
+            self.p_del_j_given_j
+                .clone()
+                .permuted_axes((1, 0))
+                .into_dyn(),
+        )
+        .write()?;
+
+        let p_d3_d5_d = self.p_del_d5_del_d3.clone().permuted_axes((1, 0, 2));
+        let p_deld5_given_d = p_d3_d5_d.sum_axis(Axis(0));
+        let p_deld3_given_deld5_d = (p_d3_d5_d.clone()
+            / &p_deld5_given_d.broadcast(p_d3_d5_d.clone().dim()).unwrap())
+            .mapv(|x| if x.is_nan() { 0.0 } else { x });
+
+        let marginal_deld5 = Marginal::create(
+            vec!["d_gene"],
+            p_deld5_given_d.permuted_axes((1, 0)).into_dyn(),
+        )
+        .write()?;
+        let marginal_deld3 = Marginal::create(
+            vec!["d_gene", "d_5_del"],
+            p_deld3_given_deld5_d.permuted_axes((2, 1, 0)).into_dyn(),
+        )
+        .write()?;
+        let marginal_vdins =
+            Marginal::create(Vec::new(), self.p_ins_vd.clone().into_dyn()).write()?;
+        let marginal_vddinucl = Marginal::create(
+            Vec::new(),
+            self.markov_coefficients_vd
+                .iter()
+                .cloned()
+                .collect::<Array1<f64>>()
+                .into_dyn(),
+        )
+        .write()?;
+        let marginal_djins =
+            Marginal::create(Vec::new(), self.p_ins_dj.clone().into_dyn()).write()?;
+        let marginal_djdinucl = Marginal::create(
+            Vec::new(),
+            self.markov_coefficients_dj
+                .iter()
+                .cloned()
+                .collect::<Array1<f64>>()
+                .into_dyn(),
+        )
+        .write()?;
+
+        Ok(format!(
+            "@v_choice\n\
+	     {marginal_vs}\
+	     @j_choice\n\
+	     {marginal_js}\
+	     @d_gene\n\
+	     {marginal_ds}\
+	     @v_3_del\n\
+	     {marginal_delv}\
+	     @d_5_del\n\
+	     {marginal_deld5}\
+	     @d_3_del\n\
+	     {marginal_deld3}\
+	     @j_5_del\n\
+	     {marginal_delj}\
+	     @vd_ins\n\
+	     {marginal_vdins}\
+	     @vd_dinucl\n\
+	     {marginal_vddinucl}\
+	     @dj_ins\n\
+	     {marginal_djins}\
+	     @dj_dinucl\n\
+	     {marginal_djdinucl}"
+        ))
+    }
+
+    pub fn write_params(&self) -> Result<String> {
+        let mut result = "@Event_list\n\
+			  #GeneChoice;V_gene;Undefined_side;7;v_choice\n"
+            .to_string();
+        let vgenes = EventType::Genes(self.seg_vs.clone());
+        result.push_str(&vgenes.write());
+
+        result.push_str("#GeneChoice;D_gene;Undefined_side;6;d_gene\n");
+        let dgenes = EventType::Genes(self.seg_ds.clone());
+        result.push_str(&dgenes.write());
+
+        result.push_str("#GeneChoice;J_gene;Undefined_side;7;j_choice\n");
+        let jgenes = EventType::Genes(self.seg_js.clone());
+        result.push_str(&jgenes.write());
+
+        result.push_str("#Deletion;V_gene;Three_prime;5;v_3_del\n");
+        let delvs = EventType::Numbers((self.range_del_v.0..self.range_del_v.1 + 1).collect());
+        result.push_str(&delvs.write());
+
+        result.push_str("#Deletion;D_gene;Three_prime;5;d_3_del\n");
+        let deld3s = EventType::Numbers((self.range_del_d3.0..self.range_del_d3.1 + 1).collect());
+        result.push_str(&deld3s.write());
+
+        result.push_str("#Deletion;D_gene;Five_prime;5;d_5_del\n");
+        let deld5s = EventType::Numbers((self.range_del_d5.0..self.range_del_d5.1 + 1).collect());
+        result.push_str(&deld5s.write());
+
+        result.push_str("#Deletion;J_gene;Five_prime;5;j_5_del\n");
+        let deljs = EventType::Numbers((self.range_del_j.0..self.range_del_j.1 + 1).collect());
+        result.push_str(&deljs.write());
+
+        result.push_str("#Insertion;VD_genes;Undefined_side;4;vd_ins\n");
+        let insvds = EventType::Numbers((0 as i64..self.p_ins_vd.dim() as i64).collect());
+        result.push_str(&insvds.write());
+
+        result.push_str("#Insertion;DJ_genes;Undefined_side;2;dj_ins\n");
+        let insdjs = EventType::Numbers((0 as i64..self.p_ins_dj.dim() as i64).collect());
+        result.push_str(&insdjs.write());
+
+        let dimv = self.seg_vs.len();
+        let dimdelv = self.p_del_v_given_v.dim().0;
+        let dimd = self.seg_ds.len();
+        let dimdeld3 = self.p_del_d5_del_d3.dim().1;
+        let dimdeld5 = self.p_del_d5_del_d3.dim().0;
+        let dimj = self.seg_js.len();
+        let dimdelj = self.p_del_j_given_j.dim().0;
+        let error_rate = self.error_rate;
+        result.push_str(&format!(
+            "#DinucMarkov;VD_genes;Undefined_side;3;vd_dinucl\n\
+	     %T;3\n\
+	     %C;1\n\
+	     %G;2\n\
+	     %A;0\n\
+	     #DinucMarkov;DJ_gene;Undefined_side;1;dj_dinucl\n\
+	     %T;3\n\
+	     %C;1\n\
+	     %G;2\n\
+	     %A;0\n\
+	     @Edges\n\
+	     %GeneChoice_V_gene_Undefined_side_prio7_size{dimv};\
+	     Deletion_V_gene_Three_prime_prio5_size{dimdelv}\n\
+	     %GeneChoice_D_gene_Undefined_side_prio6_size{dimd};\
+	     Deletion_D_gene_Three_prime_prio5_size{dimdeld3}\n\
+	     %GeneChoice_D_gene_Undefined_side_prio6_size{dimd};\
+	     Deletion_D_gene_Five_prime_prio5_size{dimdeld5}\n\
+	     %GeneChoice_J_gene_Undefined_side_prio7_size{dimj};\
+	     Deletion_J_gene_Five_prime_prio5_size{dimdelj}\n\
+	     %GeneChoice_J_gene_Undefined_side_prio7_size{dimj};\
+	     GeneChoice_D_gene_Undefined_side_prio6_size{dimd}\n\
+	     %Deletion_D_gene_Five_prime_prio5_size{dimdeld5};\
+	     Deletion_D_gene_Three_prime_prio5_size{dimdeld3}\n\
+	     @ErrorRate\n\
+	     #SingleErrorRate\n\
+	     {error_rate}\n"
+        ));
+        Ok(result)
     }
 
     pub fn load_model(pp: &ParserParams, pm: &ParserMarginals) -> Result<Model> {
@@ -502,7 +734,7 @@ impl Model {
         &mut self,
         functional: bool,
         rng: &mut R,
-    ) -> (Dna, Option<Dna>, Option<AminoAcid>, StaticEvent) {
+    ) -> (Dna, Dna, Option<AminoAcid>, StaticEvent) {
         // loop until we find a valid sequence (if generating functional alone)
         loop {
             let mut event = StaticEvent {
@@ -583,15 +815,9 @@ impl Model {
 
             // create the complete CDR3 sequence
             let cdr3_seq = event.to_cdr3(self);
-            if cdr3_seq.is_none() {
-                if functional {
-                    continue;
-                }
-                return (full_seq, None, None, event);
-            };
 
             // translate
-            let cdr3_seq_aa: Option<AminoAcid> = cdr3_seq.clone().unwrap().translate().ok();
+            let cdr3_seq_aa: Option<AminoAcid> = cdr3_seq.translate().ok();
 
             match cdr3_seq_aa {
                 Some(saa) => {
@@ -637,6 +863,24 @@ impl Model {
         let full_seq = event.to_sequence(&self);
         let cdr3_nt = event.extract_cdr3(&full_seq, &self);
         let cdr3_aa = cdr3_nt.translate().ok();
+
+        GenerationResult {
+            v_gene: self.seg_vs[event.v_index].name.clone(),
+            j_gene: self.seg_js[event.j_index].name.clone(),
+            recombination_event: event,
+            full_seq: full_seq.get_string(),
+            cdr3_nt: cdr3_nt.get_string(),
+            cdr3_aa: cdr3_aa.map(|x| x.to_string()),
+        }
+    }
+
+    /// Return (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname)
+    pub fn generate_without_errors<R: Rng>(
+        &mut self,
+        functional: bool,
+        rng: &mut R,
+    ) -> GenerationResult {
+        let (full_seq, cdr3_nt, cdr3_aa, event) = self.generate_no_error(functional, rng);
 
         GenerationResult {
             v_gene: self.seg_vs[event.v_index].name.clone(),
@@ -695,6 +939,20 @@ impl Model {
         let mut feature = Features::new(self)?;
         let mut result = feature.infer(sequence, inference_params)?;
         result.fill_event(self, sequence)?;
+
+        // compute the pgen if needed
+        if self.error_rate == 0. {
+            // no error: likelihood = pgen
+            result.pgen = result.likelihood;
+        }
+
+        if inference_params.compute_pgen && inference_params.store_best_event {
+            // if there is error, we use the reconstructed sequence to infer everything
+            let mut feature = Features::new(self)?;
+            feature.error.error_rate = 0.; // remove the error
+            result.pgen = feature.infer(sequence, inference_params)?.likelihood;
+        }
+
         result.features = Some(feature.clone());
         Ok(result)
     }
@@ -906,5 +1164,41 @@ impl Model {
         self.p_d_given_vj = self.p_d_given_vj.normalize_distribution()?;
         self.p_j_given_v = self.p_j_given_v.normalize_distribution()?;
         Ok(())
+    }
+
+    /// Check if the model is nearly identical to another model
+    /// relative precision of 1e-4 to allow for numerical errors
+    pub fn similar_to(&self, m: Model) -> bool {
+        (self.seg_vs == m.seg_vs)
+            && (self.seg_js == m.seg_js)
+            && (self.seg_ds == m.seg_ds)
+            && (self.seg_vs_sanitized == m.seg_vs_sanitized)
+            && (self.seg_js_sanitized == m.seg_js_sanitized)
+            && (self.p_d_given_vj.relative_eq(&m.p_d_given_vj, 1e-4, 1e-4))
+            && self.p_v.relative_eq(&m.p_v, 1e-4, 1e-4)
+            && self.p_ins_dj.relative_eq(&m.p_ins_dj, 1e-4, 1e-4)
+            && self
+                .p_del_v_given_v
+                .relative_eq(&m.p_del_v_given_v, 1e-4, 1e-4)
+            && self
+                .p_del_j_given_j
+                .relative_eq(&m.p_del_j_given_j, 1e-4, 1e-4)
+            && self
+                .p_del_d5_del_d3
+                .relative_eq(&m.p_del_d5_del_d3, 1e-4, 1e-4)
+            && self
+                .markov_coefficients_vd
+                .relative_eq(&m.markov_coefficients_vd, 1e-4, 1e-4)
+            && self
+                .markov_coefficients_dj
+                .relative_eq(&m.markov_coefficients_dj, 1e-4, 1e-4)
+            && (self.range_del_v == m.range_del_v)
+            && (self.range_del_j == m.range_del_j)
+            && (self.range_del_d3 == m.range_del_d3)
+            && (self.range_del_d5 == m.range_del_d5)
+            && ((self.error_rate - m.error_rate).abs() < 1e-4)
+            && (self.thymic_q == m.thymic_q)
+            && self.p_dj.relative_eq(&m.p_dj, 1e-4, 1e-4)
+            && self.p_vdj.relative_eq(&m.p_vdj, 1e-4, 1e-4)
     }
 }

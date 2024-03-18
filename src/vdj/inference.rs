@@ -74,7 +74,7 @@ impl ResultInference {
 
 /// A Result class that's easily readable
 #[derive(Default, Clone, Debug)]
-//#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct ResultHuman {
     pub n_cdr3: String,
     pub aa_cdr3: String,
@@ -159,7 +159,7 @@ impl ResultInference {
             n_cdr3: best_event.cdr3.clone().unwrap().get_string(),
             aa_cdr3: translated_cdr3,
             likelihood: self.likelihood,
-            pgen: self.likelihood, // TODO: change
+            pgen: self.pgen,
             likelihood_ratio_best: best_event.likelihood / self.likelihood,
             seq: best_event.sequence.clone().unwrap().get_string(),
             full_seq: best_event.full_sequence.clone().unwrap().get_string(),

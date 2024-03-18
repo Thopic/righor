@@ -33,10 +33,10 @@ fn max_vector(arr: &Vec<f64>) -> Option<f64> {
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct Gene {
     pub name: String,
+    pub cdr3_pos: Option<usize>, // start (for V gene) or end (for J gene) of CDR3
+    pub functional: String,
     pub seq: Dna,
     pub seq_with_pal: Option<Dna>, // Dna with the palindromic insertions (model dependant)
-    pub functional: String,
-    pub cdr3_pos: Option<usize>, // start (for V gene) or end (for J gene) of CDR3
 }
 
 impl Gene {
@@ -431,6 +431,9 @@ pub struct InferenceParameters {
     pub infer: bool,
     // If true store the highest likelihood event
     pub store_best_event: bool,
+    // If true and "store_best_event" is true, compute the pgen of the sequence
+    // (pgen is computed by default if the model error rate is 0)
+    pub compute_pgen: bool,
 }
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -441,7 +444,7 @@ impl InferenceParameters {
         InferenceParameters::default()
     }
     fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}. store_best_event={})", self.min_likelihood, self.min_ratio_likelihood, self.infer, self.store_best_event))
+        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer, self.store_best_event, self.compute_pgen))
     }
     fn __str__(&self) -> PyResult<String> {
         // This is what will be shown when you use print() in Python
@@ -456,6 +459,7 @@ impl Default for InferenceParameters {
             min_ratio_likelihood: (-100.0f64).exp2(),
             infer: true,
             store_best_event: true,
+            compute_pgen: true,
         }
     }
 }
@@ -464,9 +468,7 @@ impl InferenceParameters {
     pub fn new(min_likelihood: f64) -> Self {
         Self {
             min_likelihood,
-            min_ratio_likelihood: 0.,
-            infer: false,
-            store_best_event: true,
+            ..Default::default()
         }
     }
 }

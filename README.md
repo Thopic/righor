@@ -92,18 +92,23 @@ define the insertion thing so that it can deal with that
 This second one is slightly a pain (the first one too ? No it's fine, just a bit longer to deal with).
 I would need to add sums here and there, nothing impossible, but slightly more a pain. In short some position must be linked, this will complexify quite a bit the definition of Dna (more precisely this will be a new class). So
 UndefinedDna would contains for each position a vec/array of bytes and a int giving the positions they're connected with  (just need two options for everything). This is very specific to the aa case, but why should I care. A bit complicated rn, leaving it for later.
+- improve alignment so that it can deal with potential indels.
+- add simpler inference (without full VDJ, without V-J...)
 
 
 TODO before v0.2:
 - change name
 - publish pip package
-- clean up gen event / static event if possible.
-- make the pgen with error
-- check the sequences for which the inference doesn't work
-- write igor file + offer a json export
+- publish cargo package
+- clean up gen event / static event if possible. <- long
+- make the pgen with error [v]
+- check the sequences for which the inference doesn't work [v]
+- write igor file + offer a json export <- long
 - general cleanup
-- fix the 2 bugs below
-
+- fix the 3 bugs below
+- make a python notebook for example with: load model, align sequences, display aligned sequences, evaluate, display evaluate (incl. features), infer model, display inferred model.
+- implement resulthuman in python
+- use pgen for the online version
 
 
 Bug:

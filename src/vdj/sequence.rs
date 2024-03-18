@@ -89,7 +89,7 @@ pub fn display_j_alignment(
     let j = model.seg_js[j_al.index].clone();
     let palj = j.seq_with_pal.as_ref().unwrap();
     let alignment = Dna::align_left_right(seq, palj, align_params);
-    alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 100)
+    alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 80)
 }
 
 pub fn display_v_alignment(
@@ -103,7 +103,8 @@ pub fn display_v_alignment(
     let alignment = Dna::align_left_right(palv, seq, align_params);
     // Sadly alignment.pretty is bugged exactly for this use case,
     // I'm waiting for them to correct this
-    alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 100)
+    // https://github.com/rust-bio/rust-bio-types/issues/47
+    alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 80)
 }
 
 pub fn align_all_vgenes(

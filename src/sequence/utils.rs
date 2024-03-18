@@ -100,7 +100,7 @@ impl Default for AlignmentParameters {
             min_score_v: -20,
             min_score_j: 0,
             max_error_d: 100,
-            left_v_cutoff: 40,
+            left_v_cutoff: 50,
         }
     }
 }
@@ -144,8 +144,8 @@ impl AlignmentParameters {
 impl AlignmentParameters {
     fn get_scoring(&self) -> pairwise::Scoring<Box<dyn Fn(u8, u8) -> i32>> {
         pairwise::Scoring {
-            gap_open: -50,
-            gap_extend: -10,
+            gap_open: -100,
+            gap_extend: -20,
             // TODO: deal better with possible IUPAC codes
             match_fn: Box::new(|a: u8, b: u8| {
                 if a == b {
@@ -153,7 +153,7 @@ impl AlignmentParameters {
                 } else if (a == b'N') | (b == b'N') {
                     0i32
                 } else {
-                    -6i32
+                    -3i32
                 }
             }),
             match_scores: None,
@@ -175,12 +175,12 @@ impl AlignmentParameters {
                 } else if (a == b'N') | (b == b'N') {
                     0i32
                 } else {
-                    -6i32
+                    -3i32
                 }
             }),
             match_scores: None,
             xclip_prefix: 0,
-            xclip_suffix: 0,
+            xclip_suffix: pairwise::MIN_SCORE, // still need V to go to the end
             yclip_prefix: 0,
             yclip_suffix: 0,
         }
@@ -374,12 +374,13 @@ impl Dna {
             return Some(alignment);
         }
 
+        // Align just the end of the V gene (faster)
         let cutv = &v.seq[start_vcut..];
 
         let mut aligner = pairwise::Aligner::with_capacity_and_scoring(
             cutv.len(),
             seq.len(),
-            align_params.get_scoring_local(), // no left-right constraint
+            align_params.get_scoring_local(), // no left-right constraint this time
         );
 
         let cutal = aligner.custom(cutv, seq.seq.as_slice());
@@ -391,6 +392,7 @@ impl Dna {
         let alignment = bio::alignment::Alignment {
             ystart: 0, // that's where V start in the sequence, so always 0
             xstart: start_vcut + cutal.xstart - cutal.ystart,
+            // this doesn't work with indels
             xend: start_vcut + cutal.xend,
             yend: cutal.yend,
             ylen: seq.len(),

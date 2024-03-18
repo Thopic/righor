@@ -32,6 +32,23 @@ pub enum EventType {
 }
 
 impl EventType {
+    pub fn write(&self) -> String {
+        let mut result = String::new();
+        match self {
+            EventType::Genes(v) => {
+                for (ii, g) in v.iter().enumerate() {
+                    result.push_str(&format!("%{};{};{}\n", g.name, g.seq, ii));
+                }
+            }
+            EventType::Numbers(v) => {
+                for (ii, nb) in v.iter().enumerate() {
+                    result.push_str(&format!("%{};{}\n", nb, ii));
+                }
+            }
+        }
+        result
+    }
+
     pub fn to_genes(&self) -> Result<Vec<Gene>> {
         match self {
             EventType::Genes(v) => Ok(v.to_vec()),
@@ -54,6 +71,81 @@ pub struct ParserParams {
 }
 
 impl Marginal {
+    pub fn create(dependences: Vec<&str>, probabilities: ArrayD<f64>) -> Marginal {
+        let dimensions: Vec<usize> = probabilities
+            .shape()
+            .iter()
+            .map(|&d| d.try_into().unwrap())
+            .collect();
+        Marginal {
+            dimensions,
+            dependences: dependences.into_iter().map(String::from).collect(),
+            probabilities,
+        }
+    }
+
+    pub fn write(&self) -> Result<String> {
+        let mut result = format!(
+            "$Dim[{}]\n",
+            self.dimensions
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<String>>()
+                .join(",")
+        );
+
+        if (self.dependences.len() + 1) != self.dimensions.len()
+            || self.dimensions.len() != self.probabilities.shape().len()
+        {
+            return Err(anyhow!("Corrupted marginal struct."));
+        }
+
+        for (i, &dim_size) in self.dimensions.iter().enumerate() {
+            if self.probabilities.shape()[i] != dim_size {
+                return Err(anyhow!("Corrupted marginal struct."));
+            }
+        }
+
+        if self.dimensions.len() == 1 {
+            result.push_str(&"#\n%");
+            for k in 0..self.dimensions[0] {
+                let prob = self.probabilities[k];
+                result.push_str(&format!("{},", prob));
+            }
+            result.pop(); // remove last comma
+            result.push('\n');
+        } else if self.dimensions.len() == 2 {
+            for i in 0..self.dimensions[0] {
+                result.push_str(&format!("#[{},{}]\n", self.dependences[0], i));
+                for k in 0..self.dimensions[1] {
+                    let prob = self.probabilities[[i, k]];
+                    result.push_str(&format!("{},", prob));
+                }
+                result.pop(); // remove last comma
+                result.push('\n');
+            }
+        } else if self.dimensions.len() == 3 {
+            for i in 0..self.dimensions[0] {
+                for j in 0..self.dimensions[1] {
+                    result.push_str(&format!(
+                        "#[{},{}],[{},{}]\n",
+                        self.dependences[0], i, self.dependences[1], j,
+                    ));
+
+                    for k in 0..self.dimensions[2] {
+                        let prob = self.probabilities[[i, j, k]];
+                        result.push_str(&format!("{},", prob));
+                    }
+                    result.pop(); // Remove the last comma
+                    result.push('\n');
+                }
+            }
+        } else {
+            return Err(anyhow!("Not implemented."));
+        }
+        Ok(result)
+    }
+
     pub fn parse(str_data: &Vec<String>) -> Result<(String, Marginal)> {
         if str_data.len() < 2 {
             return Err(anyhow!("Invalid file format."))?;

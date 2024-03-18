@@ -59,44 +59,46 @@ impl StaticEvent {
         full_sequence.extract_subsequence(vg.cdr3_pos.unwrap(), end_cdr3)
     }
 
-    pub fn to_cdr3(&self, m: &Model) -> Option<Dna> {
-        let seq_v_cdr3: &Dna = &m.seg_vs_sanitized[self.v_index];
-        let seq_j_cdr3: &Dna = &m.seg_js_sanitized[self.j_index];
-        let seq_d: &Dna = m.seg_ds[self.d_index].seq_with_pal.as_ref().unwrap();
-        let mut seq: Dna = Dna::new();
+    pub fn to_cdr3(&self, m: &Model) -> Dna {
+        let full_sequence = self.to_sequence(m);
+        self.extract_cdr3(&full_sequence, m)
+        // let seq_v_cdr3: &Dna = &m.seg_vs_sanitized[self.v_index];
+        // let seq_j_cdr3: &Dna = &m.seg_js_sanitized[self.j_index];
+        // let seq_d: &Dna = m.seg_ds[self.d_index].seq_with_pal.as_ref().unwrap();
+        // let mut seq: Dna = Dna::new();
 
-        if self.delv > seq_v_cdr3.len() {
-            // this should go to None, CDR3 is badly defined
-            return None;
-        }
-        if self.delj > seq_j_cdr3.len() {
-            return None;
-        }
+        // if self.delv > seq_v_cdr3.len() {
+        //     // this should go to None, CDR3 is badly defined
+        //     return None;
+        // }
+        // if self.delj > seq_j_cdr3.len() {
+        //     return None;
+        // }
 
-        // println!(
-        //     "{:?}",
-        //     (
-        //         seq_v_cdr3
-        //             .extract_subsequence(0, seq_v_cdr3.len() - self.delv)
-        //             .get_string(),
-        //         self.insvd.get_string(),
-        //         seq_d
-        //             .extract_subsequence(self.deld5, seq_d.len() - self.deld3)
-        //             .get_string(),
-        //         self.insdj.get_string(),
-        //         seq_j_cdr3
-        //             .extract_subsequence(self.delj, seq_j_cdr3.len())
-        //             .get_string()
-        //     )
-        // );
+        // // println!(
+        // //     "{:?}",
+        // //     (
+        // //         seq_v_cdr3
+        // //             .extract_subsequence(0, seq_v_cdr3.len() - self.delv)
+        // //             .get_string(),
+        // //         self.insvd.get_string(),
+        // //         seq_d
+        // //             .extract_subsequence(self.deld5, seq_d.len() - self.deld3)
+        // //             .get_string(),
+        // //         self.insdj.get_string(),
+        // //         seq_j_cdr3
+        // //             .extract_subsequence(self.delj, seq_j_cdr3.len())
+        // //             .get_string()
+        // //     )
+        // // );
 
-        seq.extend(&seq_v_cdr3.extract_subsequence(0, seq_v_cdr3.len() - self.delv));
-        seq.extend(&self.insvd);
-        seq.extend(&seq_d.extract_subsequence(self.deld5, seq_d.len() - self.deld3));
-        seq.extend(&self.insdj);
-        seq.extend(&seq_j_cdr3.extract_subsequence(self.delj, seq_j_cdr3.len()));
+        // seq.extend(&seq_v_cdr3.extract_subsequence(0, seq_v_cdr3.len() - self.delv));
+        // seq.extend(&self.insvd);
+        // seq.extend(&seq_d.extract_subsequence(self.deld5, seq_d.len() - self.deld3));
+        // seq.extend(&self.insdj);
+        // seq.extend(&seq_j_cdr3.extract_subsequence(self.delj, seq_j_cdr3.len()));
 
-        Some(seq)
+        // Some(seq)
     }
 }
 
