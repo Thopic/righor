@@ -647,7 +647,7 @@ impl Model {
     }
 
     pub fn get_p_j(&self) -> Array1<f64> {
-        (self.get_p_vj()).sum_axis(Axis(1))
+        (self.get_p_vj()).sum_axis(Axis(0))
     }
 
     pub fn get_p_vj(&self) -> Array2<f64> {
