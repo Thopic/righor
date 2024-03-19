@@ -102,11 +102,10 @@ UndefinedDna would contains for each position a vec/array of bytes and a int giv
 
 
 TODO before v0.2:
-- change name
 - publish pip package
 - make a python notebook for example with: load model, align sequences, display aligned sequences, evaluate, display evaluate (incl. features), infer model, display inferred model.
-- implement resulthuman in python
 - use pgen for the online version
+- fix the inference, there is still a problem left (clearly). V/J work great (makes sense), but D and insertions fail. Similarly delV fails and delJ mostly fails.
 
 
 

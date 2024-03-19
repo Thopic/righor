@@ -59,7 +59,7 @@ impl ResultInference {
     }
     #[getter]
     pub fn get_pgen(&self) -> f64 {
-        self.likelihood
+        self.pgen
     }
     #[getter]
     #[pyo3(name = "best_event")]

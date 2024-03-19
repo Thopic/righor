@@ -112,6 +112,7 @@ impl AlignmentParameters {
     pub fn py_new() -> Self {
         AlignmentParameters::default()
     }
+
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "AlignmentParameters(min_score_v={}, min_score_j={}, max_error_d={}. left_v_cutoff={})",
@@ -202,6 +203,10 @@ pub struct Dna {
     pub seq: Vec<u8>,
 }
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl Dna {}
+
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct AminoAcid {
@@ -240,6 +245,10 @@ impl Dna {
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl Dna {
+    fn __repr__(&self) -> String {
+        self.get_string()
+    }
+
     pub fn get_string(&self) -> String {
         self.to_string()
     }
@@ -439,6 +448,10 @@ impl AminoAcid {
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl AminoAcid {
+    fn __repr__(&self) -> String {
+        String::from_utf8_lossy(&self.seq).to_string()
+    }
+
     #[staticmethod]
     #[pyo3(name = "from_string")]
     pub fn py_from_string(s: &str) -> AminoAcid {

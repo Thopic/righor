@@ -59,6 +59,10 @@ impl Generator {
     pub fn generate(&mut self, functional: bool) -> GenerationResult {
         self.model.generate(functional, &mut self.rng)
     }
+    pub fn generate_without_errors(&mut self, functional: bool) -> GenerationResult {
+        self.model
+            .generate_without_errors(functional, &mut self.rng)
+    }
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
@@ -70,6 +74,27 @@ pub struct GenerationResult {
     pub v_gene: String,
     pub j_gene: String,
     pub recombination_event: StaticEvent,
+}
+
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl GenerationResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "GenerationResult(\n\
+		 CDR3 (nucletides): {},\n\
+		 CDR3 (amino-acids): {},\n\
+		 Full sequence (nucleotides): {}...,\n\
+		 V gene: {},\n\
+		 J gene: {})
+		 ",
+            self.cdr3_nt,
+            self.cdr3_aa.clone().unwrap_or("Out-of-frame".to_string()),
+            &self.full_seq[0..30],
+            self.v_gene,
+            self.j_gene
+        )
+    }
 }
 
 // A VJ model is in practice a simplified VDJ model (without insDJ / D / delD3 / delD5)
@@ -493,6 +518,7 @@ impl Model {
 
         self.inner.set_p_vdj(&p_vdj)?;
         self.inner.initialize()?;
+        self.update_outer_model()?;
 
         Ok(())
     }
@@ -513,7 +539,6 @@ impl Model {
         self.range_del_j = self.inner.range_del_j;
         self.range_del_v = self.inner.range_del_v;
         self.error_rate = self.inner.error_rate;
-        self.initialize()?;
         Ok(())
     }
 
@@ -568,6 +593,7 @@ impl Model {
             inner: self.inner.filter_vs(vs)?,
             ..Default::default()
         };
+
         m.update_outer_model()?;
         m.initialize()?;
         Ok(m)

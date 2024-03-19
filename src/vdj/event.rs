@@ -32,6 +32,28 @@ pub struct StaticEvent {
     pub errors: Vec<(usize, u8)>,
 }
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl StaticEvent {
+    fn __repr__(&self) -> String {
+        format!(
+            "StaticEvent(\n\
+		 nb. del. on V3: {},\n\
+		 nb. del. on D5: {},\n\
+		 nb. del. on D3: {},\n\
+		 nb. del. on J5: {},\n\
+		 V-D insertions: {},\n\
+		 D-J insertions: {})",
+            self.delv,
+            self.deld5,
+            self.deld3,
+            self.delj,
+            self.insvd.get_string(),
+            self.insdj.get_string()
+        )
+    }
+}
+
 impl StaticEvent {
     pub fn to_sequence(&self, m: &Model) -> Dna {
         let seq_v: &Dna = m.seg_vs[self.v_index].seq_with_pal.as_ref().unwrap();

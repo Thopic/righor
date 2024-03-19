@@ -40,6 +40,27 @@ pub struct GenerationResult {
     pub recombination_event: StaticEvent,
 }
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl GenerationResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "GenerationResult(\n\
+		 CDR3 (nucletides): {},\n\
+		 CDR3 (amino-acids): {},\n\
+		 Full sequence (nucleotides): {}...,\n\
+		 V gene: {},\n\
+		 J gene: {})
+		 ",
+            self.cdr3_nt,
+            self.cdr3_aa.clone().unwrap_or("Out-of-frame".to_string()),
+            &self.full_seq[0..30],
+            self.v_gene,
+            self.j_gene
+        )
+    }
+}
+
 impl Generator {
     /// available_v, available_j: set of v,j genes to choose from
     pub fn new(
@@ -73,6 +94,10 @@ impl Generator {
 impl Generator {
     pub fn generate(&mut self, functional: bool) -> GenerationResult {
         self.model.generate(functional, &mut self.rng)
+    }
+    pub fn generate_without_errors(&mut self, functional: bool) -> GenerationResult {
+        self.model
+            .generate_without_errors(functional, &mut self.rng)
     }
 }
 
@@ -971,9 +996,18 @@ impl Model {
 
         if inference_params.compute_pgen && inference_params.store_best_event {
             // if there is error, we use the reconstructed sequence to infer everything
+            let event = result
+                .get_best_event()
+                .ok_or(anyhow!("Error with pgen inference"))?;
+            let seq_without_err = event
+                .reconstructed_sequence
+                .ok_or(anyhow!("Error with pgen inference"))?;
+            // full sequence, so default alignment parameters should be fine.
+            let aligned_seq =
+                self.align_sequence(seq_without_err, &AlignmentParameters::default())?;
             let mut feature = Features::new(self)?;
             feature.error.error_rate = 0.; // remove the error
-            result.pgen = feature.infer(sequence, inference_params)?.likelihood;
+            result.pgen = feature.infer(&aligned_seq, inference_params)?.likelihood;
         }
 
         result.features = Some(feature.clone());
@@ -987,6 +1021,8 @@ impl Model {
     ) -> Result<()> {
         let mut ip = inference_params.clone();
         ip.infer = true;
+        ip.compute_pgen = false;
+        ip.store_best_event = false;
         let features = sequences
             .par_iter()
             .map(|sequence| {

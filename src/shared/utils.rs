@@ -39,6 +39,14 @@ pub struct Gene {
     pub seq_with_pal: Option<Dna>, // Dna with the palindromic insertions (model dependant)
 }
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl Gene {
+    fn __repr__(&self) -> String {
+        format!("Gene({})", self.name)
+    }
+}
+
 impl Gene {
     pub fn create_palindromic_ends(&mut self, lenleft: usize, lenright: usize) {
         let palindromic_extension_left = self
