@@ -105,7 +105,7 @@ TODO before v0.2:
 - publish pip package
 - make a python notebook for example with: load model, align sequences, display aligned sequences, evaluate, display evaluate (incl. features), infer model, display inferred model.
 - use pgen for the online version
-- fix the inference, there is still a problem left (clearly). V/J work great (makes sense), but D and insertions fail. Similarly delV fails and delJ mostly fails. PROBLEM WITH ALIGNMENT.
+- fix the inference, there is still a problem left (clearly). V/J work great (makes sense), but D and insertions fail. Similarly delV fails and delJ mostly fails. There's clearly a problem with delv. Best guesss: there's a problem with the normalisation ?
 
 
 

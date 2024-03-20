@@ -651,7 +651,7 @@ impl Model {
     }
 
     pub fn get_p_vj(&self) -> Array2<f64> {
-        self.p_j_given_v.clone() * self.p_v.clone()
+        (self.p_j_given_v.clone() * self.p_v.clone()).t().to_owned()
     }
 
     pub fn set_p_vj(&mut self, arr: &Array2<f64>) -> Result<()> {
@@ -671,6 +671,15 @@ impl Model {
         Ok(())
     }
 
+    pub fn align_from_cdr3(
+        &self,
+        cdr3_seq: Dna,
+        vgenes: Vec<Gene>,
+        jgenes: Vec<Gene>,
+    ) -> Result<Sequence> {
+        self.inner.align_from_cdr3(cdr3_seq, vgenes, jgenes)
+    }
+
     pub fn align_sequence(
         &self,
         dna_seq: Dna,
@@ -679,13 +688,8 @@ impl Model {
         self.inner.align_sequence(dna_seq, align_params)
     }
 
-    pub fn recreate_full_sequence(
-        &self,
-        dna: &Dna,
-        v_index: usize,
-        j_index: usize,
-    ) -> (Dna, String, String, usize) {
-        self.inner.recreate_full_sequence(dna, v_index, j_index)
+    pub fn recreate_full_sequence(&self, dna: &Dna, vgene: &Gene, jgene: &Gene) -> Dna {
+        self.inner.recreate_full_sequence(dna, vgene, jgene)
     }
 
     pub fn from_features(&self, feature: &Features) -> Result<Model> {

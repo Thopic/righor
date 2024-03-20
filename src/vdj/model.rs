@@ -1,4 +1,7 @@
-use crate::sequence::{utils::NUCLEOTIDES, AlignmentParameters, AminoAcid, Dna};
+use crate::sequence::{
+    utils::count_differences, utils::NUCLEOTIDES, AlignmentParameters, AminoAcid, Dna,
+};
+use crate::sequence::{DAlignment, VJAlignment};
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
@@ -1105,25 +1108,109 @@ impl Model {
         self.seg_ds[event.d_index].name.clone()
     }
 
-    pub fn align_sequence(
+    pub fn align_from_cdr3(
         &self,
-        dna_seq: Dna,
-        align_params: &AlignmentParameters,
+        cdr3_seq: Dna,
+        vgenes: Vec<Gene>,
+        jgenes: Vec<Gene>,
     ) -> Result<Sequence> {
+        let v_alignments = vgenes
+            .iter()
+            .map(|vg| {
+                let start_gene = vg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
+                let index = self
+                    .seg_vs
+                    .iter()
+                    .position(|x| x.name == vg.name)
+                    .ok_or(anyhow!("Invalid V gene."))?;
+                let pal_v = vg
+                    .seq_with_pal
+                    .as_ref()
+                    .ok_or(anyhow!("Model not fully loaded yet."))?;
+                let cdr3_pos = vg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
+                let start_seq = 0;
+                let end_seq = pal_v.len() - cdr3_pos;
+                let end_gene = start_gene + pal_v.len() - cdr3_pos;
+                let mut errors = vec![0; self.p_del_v_given_v.dim().0];
+                for del_v in 0..errors.len() {
+                    if del_v <= pal_v.len() && del_v <= end_seq - start_seq {
+                        errors[del_v] = count_differences(
+                            &cdr3_seq.seq[0..end_seq - del_v],
+                            &pal_v.seq[start_gene..end_gene - del_v],
+                        );
+                    }
+                }
+
+                Ok(VJAlignment {
+                    index,
+                    start_seq,
+                    end_seq,
+                    start_gene,
+                    end_gene,
+                    errors: errors,
+                    score: 0, // meaningless
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let j_alignments = jgenes
+            .iter()
+            .map(|jg| {
+                let index = self
+                    .seg_js
+                    .iter()
+                    .position(|x| x.name == jg.name)
+                    .ok_or(anyhow!("Invalid J gene."))?;
+                let pal_j = jg
+                    .seq_with_pal
+                    .as_ref()
+                    .ok_or(anyhow!("Model not fully loaded yet."))?;
+                let cdr3_pos = jg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
+                let start_seq = cdr3_seq.len() - cdr3_pos - 3;
+                let start_gene = 0;
+                let end_seq = cdr3_seq.len();
+                let end_gene = cdr3_pos + 3;
+                let mut errors = vec![0; self.p_del_j_given_j.dim().0];
+                for del_j in 0..errors.len() {
+                    if del_j <= pal_j.len() && del_j <= end_gene - start_gene {
+                        errors[del_j] = count_differences(
+                            &cdr3_seq.seq[del_j + start_seq..end_seq],
+                            &pal_j.seq[del_j + start_gene..end_gene],
+                        );
+                    }
+                }
+
+                Ok(VJAlignment {
+                    index,
+                    start_seq,
+                    end_seq,
+                    start_gene,
+                    end_gene,
+                    errors: errors,
+                    score: 0, // meaningless
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         let mut seq = Sequence {
-            sequence: dna_seq.clone(),
-            v_genes: align_all_vgenes(&dna_seq, self, align_params),
-            j_genes: align_all_jgenes(&dna_seq, self, align_params),
+            sequence: cdr3_seq.clone(),
+            v_genes: v_alignments,
+            j_genes: j_alignments,
             d_genes: Vec::new(),
             valid_alignment: true,
         };
 
-        // if we don't have v genes or j genes, don't try inferring the d gene
-        if (seq.v_genes.is_empty()) | (seq.j_genes.is_empty()) {
-            seq.valid_alignment = false;
-            return Ok(seq);
-        }
+        let align_params = AlignmentParameters::default();
 
+        seq.d_genes = self.make_d_genes_alignments(&seq, &align_params)?;
+        Ok(seq)
+    }
+
+    fn make_d_genes_alignments(
+        &self,
+        seq: &Sequence,
+        align_params: &AlignmentParameters,
+    ) -> Result<Vec<DAlignment>> {
         // roughly estimate bounds for the position of d
         // TODO: not great, improve on that
         let left_bound = seq
@@ -1145,28 +1232,49 @@ impl Model {
             .map(|j| {
                 cmp::min(
                     j.start_seq + (self.p_del_j_given_j.dim().0 + self.p_del_d5_del_d3.dim().1),
-                    dna_seq.len(),
+                    seq.sequence.len(),
                 )
             })
             .max()
             .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
 
         // initialize all the d genes positions
-        seq.d_genes = align_all_dgenes(&dna_seq, self, left_bound, right_bound, align_params);
+        Ok(align_all_dgenes(
+            &seq.sequence,
+            self,
+            left_bound,
+            right_bound,
+            align_params,
+        ))
+    }
+
+    pub fn align_sequence(
+        &self,
+        dna_seq: Dna,
+        align_params: &AlignmentParameters,
+    ) -> Result<Sequence> {
+        let mut seq = Sequence {
+            sequence: dna_seq.clone(),
+            v_genes: align_all_vgenes(&dna_seq, self, align_params),
+            j_genes: align_all_jgenes(&dna_seq, self, align_params),
+            d_genes: Vec::new(),
+            valid_alignment: true,
+        };
+
+        // if we don't have v genes or j genes, don't try inferring the d gene
+        if (seq.v_genes.is_empty()) | (seq.j_genes.is_empty()) {
+            seq.valid_alignment = false;
+            return Ok(seq);
+        }
+        seq.d_genes = self.make_d_genes_alignments(&seq, align_params)?;
+
         Ok(seq)
     }
 
     /// Re-create the full sequence of the variable region (with complete V/J gene, not just the CDR3)
-    /// Return full_seq, v name, j name, cdr3_start
-    pub fn recreate_full_sequence(
-        &self,
-        dna: &Dna,
-        v_index: usize,
-        j_index: usize,
-    ) -> (Dna, String, String, usize) {
+    /// Return full_seq
+    pub fn recreate_full_sequence(&self, dna: &Dna, vgene: &Gene, jgene: &Gene) -> Dna {
         let mut seq: Dna = Dna::new();
-        let vgene = self.seg_vs[v_index].clone();
-        let jgene = self.seg_js[j_index].clone();
         let vgene_sans_cdr3 = vgene.seq.extract_subsequence(0, vgene.cdr3_pos.unwrap());
         seq.extend(&vgene_sans_cdr3);
         seq.extend(dna);
@@ -1175,7 +1283,7 @@ impl Model {
                 .seq
                 .extract_subsequence(jgene.cdr3_pos.unwrap() + 3, jgene.seq.len()),
         );
-        (seq, vgene.name, jgene.name, vgene_sans_cdr3.len())
+        seq
     }
 
     pub fn load_features(&mut self, feature: &Features) -> Result<()> {

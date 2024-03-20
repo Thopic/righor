@@ -104,7 +104,11 @@ impl Feature<(usize, usize)> for CategoricalFeature1g1 {
         self.probas[[observation.0, observation.1]]
     }
     fn cleanup(&self) -> Result<CategoricalFeature1g1> {
-        CategoricalFeature1g1::new(&self.probas_dirty)
+        Ok(CategoricalFeature1g1 {
+            probas_dirty: Array2::<f64>::zeros(self.probas.dim()),
+            probas: self.probas_dirty.normalize_distribution_double()?,
+        })
+        //        CategoricalFeature1g1::new(&self.probas_dirty)
     }
 
     fn average(
@@ -160,7 +164,11 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature1g2 {
         self.probas[[observation.0, observation.1, observation.2]]
     }
     fn cleanup(&self) -> Result<CategoricalFeature1g2> {
-        CategoricalFeature1g2::new(&self.probas_dirty)
+        Ok(CategoricalFeature1g2 {
+            probas_dirty: Array3::<f64>::zeros(self.probas.dim()),
+            probas: self.probas_dirty.normalize_distribution_3()?,
+        })
+        //        CategoricalFeature1g2::new(&self.probas_dirty)
     }
 
     fn average(
@@ -271,8 +279,12 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
         self.probas[[observation.0, observation.1, observation.2]]
     }
     fn cleanup(&self) -> Result<CategoricalFeature2g1> {
-        let m = CategoricalFeature2g1::new(&self.probas_dirty)?;
-        Ok(m)
+        Ok(CategoricalFeature2g1 {
+            probas_dirty: Array3::<f64>::zeros(self.probas.dim()),
+            probas: self.probas_dirty.normalize_distribution_3()?,
+        })
+        // let m = CategoricalFeature2g1::new(&self.probas_dirty)?;
+        // Ok(m)
     }
     fn average(
         mut iter: impl Iterator<Item = CategoricalFeature2g1> + ExactSizeIterator,
@@ -493,12 +505,15 @@ impl Feature<&Dna> for InsertionFeature {
 
         for ii in 1..observation_plus_one.len() {
             // TODO: The way I deal with N is not quite exact, need to fix that (not a big deal though)
+            // if (likelihood != 0.) {
+            //     println!("{}\t{}", observation_plus_one.get_string(), likelihood);
+            // }
             if (observation_plus_one.seq[ii - 1] != b'N') && (observation_plus_one.seq[ii] != b'N')
             {
                 self.transition_matrix_dirty[[
                     nucleotides_inv(observation_plus_one.seq[ii - 1]),
                     nucleotides_inv(observation_plus_one.seq[ii]),
-                ]] += likelihood;
+                ]] += likelihood
             }
         }
     }
@@ -521,13 +536,34 @@ impl Feature<&Dna> for InsertionFeature {
                 nucleotides_inv(observation_plus_one.seq[ii]),
             ]];
         }
+        // println!(
+        //     "likelihood: {}\t{}",
+        //     observation_plus_one.get_string(),
+        //     proba * self.length_distribution[len]
+        // );
         proba * self.length_distribution[len]
     }
     fn cleanup(&self) -> Result<InsertionFeature> {
-        InsertionFeature::new(
-            &self.length_distribution_dirty,
-            &self.transition_matrix_dirty,
-        )
+        let mut m = InsertionFeature {
+            length_distribution: self.length_distribution_dirty.normalize_distribution()?,
+            // we shouldn't normalize the transition matrix per line, because bias on
+            // the auto-transition X -> X
+            transition_matrix: self
+                .transition_matrix_dirty
+                .normalize_distribution_double()?,
+            transition_matrix_dirty: Array2::<f64>::zeros(self.transition_matrix.dim()),
+            length_distribution_dirty: Array1::<f64>::zeros(self.length_distribution.dim()),
+            transition_matrix_internal: Array2::<f64>::zeros((5, 5)),
+        };
+
+        m.define_internal();
+        Ok(m)
+        // println!("{:?}", self.transition_matrix_dirty);
+
+        // InsertionFeature::new(
+        //     &self.length_distribution_dirty,
+        //     &self.transition_matrix_dirty,
+        // )
     }
     fn average(
         mut iter: impl Iterator<Item = InsertionFeature> + ExactSizeIterator,

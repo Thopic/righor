@@ -137,14 +137,7 @@ impl MarkovDNA {
         for probs in transition_probs.axis_iter(Axis(0)) {
             transition_matrix.push(DiscreteDistribution::new(probs.to_vec())?);
         }
-        // let initial_distribution = match initial_probs {
-        //     None => DiscreteDistribution::new(calc_steady_state_dist(&transition_probs)?)?,
-        //     Some(dist) => DiscreteDistribution::new(dist)?,
-        // };
-        Ok(MarkovDNA {
-            //            initial_distribution,
-            transition_matrix,
-        })
+        Ok(MarkovDNA { transition_matrix })
     }
 
     pub fn generate<R: Rng>(&mut self, length: usize, previous_nucleotide: u8, rng: &mut R) -> Dna {
