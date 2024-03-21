@@ -9,4 +9,4 @@ pub use feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature1g2, CategoricalFeature2,
     CategoricalFeature2g1, ErrorSingleNucleotide, InsertionFeature,
 };
-pub use utils::{Gene, InferenceParameters};
+pub use utils::{genes_matching, Gene, InferenceParameters};

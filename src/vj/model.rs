@@ -4,7 +4,8 @@ use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
 use crate::shared::utils::{
-    calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start, Gene, RecordModel,
+    calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start, Gene, ModelGen,
+    RecordModel,
 };
 use crate::shared::InferenceParameters;
 use crate::vdj::{
@@ -702,5 +703,14 @@ impl Model {
 
     pub fn similar_to(&self, m: Model) -> bool {
         self.inner.similar_to(m.inner)
+    }
+}
+
+impl ModelGen for Model {
+    fn get_v_segments(&self) -> Vec<Gene> {
+        self.seg_vs.clone()
+    }
+    fn get_j_segments(&self) -> Vec<Gene> {
+        self.seg_js.clone()
     }
 }

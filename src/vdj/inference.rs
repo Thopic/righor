@@ -221,7 +221,7 @@ impl ResultInference {
             let start_cdr3 = cdr3_pos_v as i64 - event.v_start_gene as i64;
 
             // careful, cdr3_pos_j does not! include the palindromic insertions
-            // Also does not include the last codon
+            // or the last nucleotide
             let end_cdr3 = event.j_start_seq as i64 + cdr3_pos_j as i64 - model.range_del_j.0 + 3;
 
             event.cdr3 = Some(

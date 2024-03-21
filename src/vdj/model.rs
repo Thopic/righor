@@ -8,7 +8,7 @@ use crate::shared::parser::{
 };
 use crate::shared::utils::{
     calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start, DiscreteDistribution,
-    ErrorDistribution, Gene, InferenceParameters, MarkovDNA, Normalize, RecordModel,
+    ErrorDistribution, Gene, InferenceParameters, MarkovDNA, ModelGen, Normalize, RecordModel,
 };
 use crate::vdj::inference::ResultInference;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
@@ -1166,10 +1166,11 @@ impl Model {
                     .as_ref()
                     .ok_or(anyhow!("Model not fully loaded yet."))?;
                 let cdr3_pos = jg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
-                let start_seq = cdr3_seq.len() - cdr3_pos - 3;
+                let start_seq =
+                    ((cdr3_seq.len() - cdr3_pos - 3) as i64 + self.range_del_j.0) as usize;
                 let start_gene = 0;
                 let end_seq = cdr3_seq.len();
-                let end_gene = cdr3_pos + 3;
+                let end_gene = (cdr3_pos as i64 + 3 - self.range_del_j.0) as usize; // careful, palindromic insert
                 let mut errors = vec![0; self.p_del_j_given_j.dim().0];
                 for del_j in 0..errors.len() {
                     if del_j <= pal_j.len() && del_j <= end_gene - start_gene {
@@ -1281,7 +1282,7 @@ impl Model {
         seq.extend(
             &jgene
                 .seq
-                .extract_subsequence(jgene.cdr3_pos.unwrap() + 3, jgene.seq.len()),
+                .extract_subsequence(jgene.cdr3_pos.unwrap() + 1, jgene.seq.len()),
         );
         seq
     }
@@ -1367,5 +1368,14 @@ impl Model {
             && (self.thymic_q == m.thymic_q)
             && self.p_dj.relative_eq(&m.p_dj, 1e-4, 1e-4)
             && self.p_vdj.relative_eq(&m.p_vdj, 1e-4, 1e-4)
+    }
+}
+
+impl ModelGen for Model {
+    fn get_v_segments(&self) -> Vec<Gene> {
+        self.seg_vs.clone()
+    }
+    fn get_j_segments(&self) -> Vec<Gene> {
+        self.seg_js.clone()
     }
 }

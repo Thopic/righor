@@ -6,10 +6,16 @@ use pyo3::prelude::*;
 use rand::distributions::Distribution;
 use rand::Rng;
 use rand_distr::{Uniform, WeightedAliasIndex};
+use regex::Regex;
 
 const EPSILON: f64 = 1e-10;
 
 use serde::{Deserialize, Serialize};
+
+pub trait ModelGen {
+    fn get_v_segments(&self) -> Vec<Gene>;
+    fn get_j_segments(&self) -> Vec<Gene>;
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RecordModel {
@@ -33,7 +39,10 @@ fn max_vector(arr: &Vec<f64>) -> Option<f64> {
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct Gene {
     pub name: String,
-    pub cdr3_pos: Option<usize>, // start (for V gene) or end (for J gene) of CDR3
+    // start (for V gene) or end (for J gene) of CDR3
+    // for V gene this corresponds to the position of the first nucleotide of the "C"
+    // for J gene this corresponds to the position of the first nucleotide of the "F/W"
+    pub cdr3_pos: Option<usize>,
     pub functional: String,
     pub seq: Dna,
     pub seq_with_pal: Option<Dna>, // Dna with the palindromic insertions (model dependant)
@@ -816,4 +825,109 @@ impl RangeArray2 {
     {
         self.array.iter_mut().for_each(|x| *x = f(*x));
     }
+}
+
+pub fn genes_matching(x: &str, model: &impl ModelGen, exact: bool) -> Result<Vec<Gene>> {
+    let regex = Regex::new(
+        r"^(TRB|TRA|IGH|IGK|IGL|TRG|TRD)(?:\w+)?(V|D|J)([\w-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$",
+    )
+    .unwrap();
+    let g = regex
+        .captures(x)
+        .ok_or(anyhow!("Gene {} does not have a valid name", x))?;
+
+    let chain = g.get(1).map_or("", |m| m.as_str());
+    let gene_type = g.get(2).map_or("", |m| m.as_str());
+    let gene_id = g.get(3).map_or("", |m| m.as_str());
+    let allele = g.get(4).map(|m| m.as_str().parse::<i32>().ok()).flatten();
+
+    let possible_genes = igor_genes(chain, gene_type, model)?;
+
+    let gene_id_regex = Regex::new(r"(\d+)(?:[-S](\d+))?").unwrap();
+    let gene_id_match = gene_id_regex.captures(gene_id);
+
+    let (gene_id_1, gene_id_2) = gene_id_match.map_or((None, None), |m| {
+        let id1 = m.get(1).map(|x| x.as_str().parse::<i32>().ok()).flatten();
+        let id2 = m.get(2).map(|x| x.as_str().parse::<i32>().ok()).flatten();
+        (id1, id2)
+    });
+
+    let result: Vec<Gene> = if exact {
+        possible_genes
+            .into_iter()
+            .filter(|a| a.0 == x)
+            .map(|x| x.5)
+            .collect()
+    } else {
+        possible_genes
+            .into_iter()
+            .filter(|a| match (gene_id_1, gene_id_2, allele) {
+                (Some(id1), Some(id2), Some(al)) => {
+                    a.1 == Some(id1) && a.2 == Some(id2) && a.4 == Some(al)
+                }
+                (Some(id1), Some(id2), None) => a.1 == Some(id1) && a.2 == Some(id2),
+                (Some(id1), None, Some(al)) => a.1 == Some(id1) && a.4 == Some(al),
+                (Some(id1), None, None) => a.1 == Some(id1),
+                _ => false,
+            })
+            .map(|x| x.5)
+            .collect()
+    };
+
+    Ok(result)
+}
+
+fn igor_genes(
+    chain: &str,
+    gene_type: &str,
+    model: &impl ModelGen,
+) -> Result<
+    Vec<(
+        String,
+        Option<i32>,
+        Option<i32>,
+        Option<i32>,
+        Option<i32>,
+        Gene,
+    )>,
+> {
+    let regex =
+        Regex::new(r"(\d+)(?:P)?(?:[\-S](\d+)(?:D)?(?:\-(\d+))?)?(?:/DV\d+)?(?:-NL1)?(?:\*(\d+))?")
+            .unwrap();
+
+    let vsegments = model.get_v_segments();
+    let jsegments = model.get_j_segments();
+    let list_genes = match gene_type {
+        "V" => &vsegments,
+        "J" => &jsegments,
+        _ => return Err(anyhow!("Gene type {} is not valid", gene_type)),
+    };
+
+    let key = format!("{}{}", chain, gene_type);
+    let mut lst: Vec<(
+        String,
+        Option<i32>,
+        Option<i32>,
+        Option<i32>,
+        Option<i32>,
+        Gene,
+    )> = Vec::new();
+
+    for gene_obj in list_genes {
+        let gene = &gene_obj.name;
+        if let Some(cap) = regex.captures(&(key.clone() + gene)) {
+            let tuple = (
+                gene.clone(),
+                cap.get(1).map(|m| m.as_str().parse::<i32>().ok()).flatten(),
+                cap.get(2).map(|m| m.as_str().parse::<i32>().ok()).flatten(),
+                cap.get(3).map(|m| m.as_str().parse::<i32>().ok()).flatten(),
+                cap.get(4).map(|m| m.as_str().parse::<i32>().ok()).flatten(),
+                gene_obj.clone(),
+            );
+            lst.push(tuple);
+        } else {
+            return Err(anyhow!("{} does not match. Check if the gene name and the model are compatible (e.g(e.g. TRA for a TRB/IGL model)", key));
+        }
+    }
+    Ok(lst)
 }
