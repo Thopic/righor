@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2021"
 license = "MIT"
 homepage = "https://github.com/Thopic/righor"
+description = "Righor creates model of Ig/TCR sequences from sequencing data."
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
