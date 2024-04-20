@@ -1,118 +1,134 @@
 # RIGHOR
 
-Install rust (potentially slow):
---------------------------------
+This package, based on IGoR, is meant to learn models of V(D)J recombination.
 
-``` sh
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+It can:
+- generate sequences
+- evaluate sequences (infer the most likely recombination scenarios)
+- compute "pgen"
 
-Install the library:
---------------------
+It's probably easier to use the companion python package, but working in Rust directly should also be viable.
 
-In the git folder:
-``` sh
-pip install maturin
-maturin develop --release -F py_binds,pyo3 --profile release
-```
 
-How to use:
------------
+How to use the python package:
+------------------------------
 
-Fast generation:
+Load a model:
 ```py
 import righor
-# Create generation model (once only)
-gen = righor.vdj.Generator(
-"models/human_T_beta/model_params.txt",
-"models/human_T_beta/model_marginals.txt",
-"models/human_T_beta/V_gene_CDR3_anchors.csv",
-"models/human_T_beta/J_gene_CDR3_anchors.csv")
+import matplotlib.pyplot as plt
+import seaborn
+import pandas as pd
+from tqdm.notebook import tqdm
+from collections import Counter
+import numpy as np
 
-# Generate productive amino-acid sequence
-result = gen.generate(True) # False for unproductive
-print(f"Full sequence: {result.full_seq}")
-print(f"V gene: {result.v_gene}, J gene: {result.j_gene}")
-print(f"CDR3: {result.cdr3_nt} {result.cdr3_aa}")
+
+igor_model = righor.load_model("human", "trb")
+
+# alternatively, you can load a model from igor files
+# igor_model = righor.load_model_from_files(params.txt, marginals.txt, anchor_v.csv, anchor_j.csv)
 ```
 
+Generate sequences fast:
 
-Inference:
 ```py
-import righor
-from tqdm import tqdm
+# Create a generator object
+generator = igor_model.generator(seed=42) # or igor_model.generator() to run it without a seed
 
-# load the model
-model = righor.vdj.Model.load_model("models/human_T_beta/model_params.txt",
-"models/human_T_beta/model_marginals.txt",
-"models/human_T_beta/V_gene_CDR3_anchors.csv",
-"models/human_T_beta/J_gene_CDR3_anchors.csv")
+# Generate 10'000 functional sequences (not out-of-frame, no stop codons, right boundaries)
+for _ in tqdm(range(10000)):
+    # generate_without_errors ignore Igor error model, use "generate" if this is needed
+    sequence = generator.generate_without_errors(functional=True)
+    if "IGH" in sequence.cdr3_aa:
+        print("TRB CDR3 containing \"IGH\":", sequence.cdr3_aa)
+
+# Generate one sequence with a particular V/J genes family
+V_genes = righor.genes_matching("TRBV5", igor_model) # return all the V genes that match TRBV5
+J_genes = righor.genes_matching("TRBJ", igor_model) # all the J genes
+generator = igor_model.generator(seed=42, available_v=V_genes, available_j=J_genes)
+generation_result = generator.generate_without_errors(functional=True)
+print("Result:")
+print(generation_result)
+print("Explicit recombination event:")
+print(generation_result.recombination_event)
+```
+
+Evaluate a given sequence:
+
+```py
+my_sequence = "ACCCTCCAGTCTGCCAGGCCCTCACATACCTCTCAGTACCTCTGTGCCAGCAGTGAGGACAGGGACGTCACTGAAGCTTTCTTTGGACAAGGCACC"
+
+# first align the sequence
+align_params = righor.AlignmentParameters() # default alignment parameters
+aligned_sequence = igor_model.align_sequence(my_sequence, align_params)
+
+# we can also align a sequence from a CDR3 and a list of V-genes and J-genes (much faster)
+# v_genes = righor.genes_matching("TRBV1", igor_model)
+# j_genes = righor.genes_matching("TRBJ1", igor_model)
+# igor_model.align_cdr3('TGTGTGAGAGATATTGTAGTAGTACCAGCTGCTAACCGCTTTCCTTCTTACTACTACTACTACTACATGGACGTCTGG', v_genes, j_genes)
+
+# then evaluate it
+infer_params = righor.InferenceParameters() # default inference parameters
+result_inference = igor_model.evaluate(aligned_sequence, infer_params)
+
+# Most likely scenario
+best_event = result_inference.best_event
+
+print(f"Probability that this specific event chain created the sequence: {best_event.likelihood / result_inference.likelihood:.2f}.")
+print(f"Reconstructed sequence (without errors):", best_event.reconstructed_sequence)
+print(f"Pgen: {result_inference.pgen:.1e}")
+```
+
+Infer a model:
+
+```py
+# here we just generate the sequences needed
+generator = igor_model.generator()
+example_seq = generator.generate(False)
+sequences = [generator.generate(False).full_seq for _ in range(1000)]
 
 # define parameters for the alignment and the inference
-align_params = righor.AlignmentParameters(min_score_v=0, min_score_j=0,max_error_d=100)
-infer_params = righor.InferenceParameters(min_likelihood=1e-400)
+align_params = righor.AlignmentParameters()
+align_params.left_v_cutoff = 40
+infer_params = righor.InferenceParameters()
 
-# read the file line by line and align each sequence
-seq = []
-with open('demo/murugan_naive1_noncoding_demo_seqs.txt') as f:
-    for l in tqdm(f):
-        s = model.align_sequence(l.strip(), align_params)
-        r = model.infer(s, infer_params)
-        print(r.likelihood)
+# generate an uniform model as a starting point
+# (it's generally *much* faster to start from an already inferred model)
+model = igor_model.copy()
+model.p_ins_vd = np.ones(model.p_ins_vd.shape)
+model.error_rate = 0
+
+# align multiple sequences at once
+aligned_sequences = model.align_all_sequences(sequences, align_params)
+
+# multiple round of expectation-maximization to infer the model
+models = {}
+model = igor_model.uniform()
+model.error_rate = 0
+models[0] = model
+for ii in tqdm(range(35)):
+    models[ii+1] = models[ii].copy()
+    models[ii+1].infer(aligned_sequences, infer_params)
 ```
 
 
-Differences with IGoR:
+Extra stuff:
+------------
+
+Main differences with IGoR:
 - "dynamic programming" method, instead of summing over all events we first pre-compute over sum of events. This means that we can run it with undefined nucleotides like N (at least in theory, I need to add full support for these).
 - The D gene alignment is less constrained
 
-Limitations (I think also true for IGoR but not clear):
+Limitations:
 - Need to get rid of any primers/ends on the V gene side before running it
 - The reads need to be long enough to fully cover the CDR3 (even when it's particularly long)
-- still not sure if I should use initial_distribution for the insertion model
+
 
 Programming stuff:
-- I'm working on the web version on a different crate, importing the library, need to push that on git.
-- python version: also a different crate now (will maybe loop it back in)
-- when adding a model, add it to "models.json". First model in a category is the default model. Each field is one independant model. The elements in chain and species should always be lower-case.
-
-
-Things to do:
-- test the inference in detail
-- add more tests
-- deal with the "pgen with errors"
-- deal with potential insertion in V/J alignment, remove the sequence from the inference if the insertion overlap with the delv range.
-- test the restricted V gene option for generation.
-- write igor file, offer a json export
-- StaticEvent / GenEvent
-- modify the way I deal with added error (make it cleaner, with a "ErrorDistribution" thing or smt)
-- deal with amino-acid and generic "undefined" stuff.
-Strat: define an extended Dna object that the alignment can deal with +
-define the insertion thing so that it can deal with that
-This second one is slightly a pain (the first one too ? No it's fine, just a bit longer to deal with).
-I would need to add sums here and there, nothing impossible, but slightly more a pain. In short some position must be linked, this will complexify quite a bit the definition of Dna (more precisely this will be a new class). So
-UndefinedDna would contains for each position a vec/array of bytes and a int giving the positions they're connected with  (just need two options for everything). This is very specific to the aa case, but why should I care. A bit complicated rn, leaving it for later.
-- improve alignment so that it can deal with potential indels.
-- add simpler inference (without full VDJ, without V-J...)
-- publish cargo package
-- json export and loading
-- run cargo clippy
-- clean up gen event / static event if possible.
-- make it work with CDR3 + V gene + J gene (require implementing some of the python function in rust)
-
-
-TODO before v0.2:
-- publish pip package
-- make a python notebook for example with: load model, align sequences, display aligned sequences, evaluate, display evaluate (incl. features), infer model, display inferred model.
-- use pgen for the online version
-- fix the inference, there is still a problem left (clearly). V/J work great (makes sense), but D and insertions fail. Similarly delV fails and delJ mostly fails. There's clearly a problem with delv. Best guesss: there's a problem with the normalisation ?
-
-
-
-
-
-
-
+- There's a wasm version for web use.
+- python version is in a different crate now.
+- to add a model permanently, add it to "models.json". First model in a category is the default model. Each field is one independant model. The elements in chain and species should always be lower-case.
 
 Current status:
 - speed is ok (50 seqs/s roughly ?). Could be slightly faster. I think some range should be replaced by iterator.

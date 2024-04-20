@@ -1,4 +1,4 @@
-use crate::sequence::Dna;
+use crate::shared::Dna;
 use crate::vdj::Model;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;

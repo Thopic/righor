@@ -1,8 +1,7 @@
-use crate::sequence::utils::{difference_as_i64, Dna};
-use crate::sequence::{DAlignment, VJAlignment};
 use crate::shared::feature::Feature;
-use crate::shared::utils::{RangeArray1, RangeArray2};
-use crate::shared::InferenceParameters;
+use crate::shared::utils::{difference_as_i64};
+use crate::shared::data_structures::{RangeArray1, RangeArray2};
+use crate::shared::{DAlignment, VJAlignment, Dna, InferenceParameters};
 use crate::vdj::{Features, Sequence};
 use itertools::iproduct;
 
@@ -289,12 +288,7 @@ impl AggregatedFeatureSpanD {
         *self.dirty_likelihood.get_mut((sd, ed)) += likelihood;
     }
 
-    pub fn disaggregate(
-        &self,
-        ds: &Vec<DAlignment>,
-        feat: &mut Features,
-        ip: &InferenceParameters,
-    ) {
+    pub fn disaggregate(&self, ds: &[DAlignment], feat: &mut Features, ip: &InferenceParameters) {
         // Now with startD and end D
         for d in ds.iter() {
             for (deld5, deld3) in iproduct!(0..feat.deld.dim().0, 0..feat.deld.dim().1) {

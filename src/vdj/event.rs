@@ -1,9 +1,11 @@
-use crate::sequence::{DAlignment, Dna, VJAlignment};
+use crate::shared::Dna;
+use crate::shared::{DAlignment, VJAlignment};
 use crate::vdj::Model;
 use anyhow::{anyhow, Result};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
+#[derive(Default)]
 pub struct Event<'a> {
     pub v: Option<&'a VJAlignment>,
     pub j: Option<&'a VJAlignment>,
@@ -159,18 +161,5 @@ impl Event<'_> {
             insdj,
             ..Default::default()
         })
-    }
-}
-impl Default for Event<'_> {
-    fn default() -> Self {
-        Event {
-            v: None,
-            j: None,
-            d: None,
-            delv: 0,
-            delj: 0,
-            deld3: 0,
-            deld5: 0,
-        }
     }
 }

@@ -1,7 +1,6 @@
 #![allow(unused_imports)] //TODO REMOVE
 #![allow(dead_code)]
 
-mod sequence;
 mod shared;
 pub mod vdj;
 pub mod vj;
@@ -23,23 +22,27 @@ fn main() -> Result<()> {
     // )?;
 
     //TODO: modify before release
-    let mut igor_model = righor::vj::Model::load_from_name(
+    let igor_model = righor::vdj::Model::load_from_name(
         "human",
-        "tra",
+        "igh",
         None,
-        Path::new("/home/thomas/Downloads/righor-py/models"),
+        Path::new("/home/thomas/Downloads/righor.data/data/models"),
     )?;
+    let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
 
-    igor_model.save_model(Path::new("tmp/"));
+    for _ in 0..1000000 {
+        generator.generate_without_errors(true);
+    }
+    // igor_model.save_model(Path::new("tmp/"));
 
-    let mut new_model = righor::vj::Model::load_from_files(
-        Path::new("tmp/model_params.txt"),
-        Path::new("tmp/model_marginals.txt"),
-        Path::new("tmp/V_gene_CDR3_anchors.csv"),
-        Path::new("tmp/J_gene_CDR3_anchors.csv"),
-    )?;
+    // let mut new_model = righor::vj::Model::load_from_files(
+    //     Path::new("tmp/model_params.txt"),
+    //     Path::new("tmp/model_marginals.txt"),
+    //     Path::new("tmp/V_gene_CDR3_anchors.csv"),
+    //     Path::new("tmp/J_gene_CDR3_anchors.csv"),
+    // )?;
 
-    println!("{}", igor_model.similar_to(new_model));
+    // println!("{}", igor_model.similar_to(new_model));
 
     // igor_model.error_rate = 0.;
 

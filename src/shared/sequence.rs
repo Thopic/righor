@@ -1,10 +1,17 @@
-// Define DNA and AminoAcid structure + basic operations on the sequences
-use anyhow::{anyhow, Result};
-use bio::alignment::{pairwise, Alignment};
-use phf::phf_map;
+/// Contains the basic struct and function for loading and aligning sequences
+use crate::shared::utils::count_differences;
+use crate::vdj::model::Model as ModelVDJ;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
+use std::sync::Arc;
+use serde::{Serialize, Deserialize};
+use phf::phf_map;
+use anyhow::{anyhow, Result};
 use std::fmt;
+use bio::alignment::{pairwise, Alignment};
+use crate::shared::AlignmentParameters;
+
+
 
 static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
     "TTT" => b'F', "TTC" => b'F', "TTA" => b'L', "TTG" => b'L', "TCT" => b'S', "TCC" => b'S',
@@ -18,6 +25,23 @@ static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
     "GTT" => b'V', "GTC" => b'V', "GTA" => b'V', "GTG" => b'V', "GCT" => b'A', "GCC" => b'A',
     "GCA" => b'A', "GCG" => b'A', "GAT" => b'D', "GAC" => b'D', "GAA" => b'E', "GAG" => b'E',
     "GGT" => b'G', "GGC" => b'G', "GGA" => b'G', "GGG" => b'G'
+};
+
+// The standard ACGT nucleotides
+pub const NUCLEOTIDES: [u8; 15] = [
+    b'A', b'C', b'G', b'T', b'N', b'R', b'Y', b'S', b'W', b'K', b'M', b'B', b'D', b'H', b'V',
+];
+pub static NUCLEOTIDES_INV: phf::Map<u8, usize> = phf_map! {
+    b'A' => 0, b'T' => 3, b'G' => 2, b'C' => 1, b'N' => 4,
+    b'R' => 5, b'Y' => 6, b'S' => 7, b'W' => 8, b'K' => 9,
+    b'M' => 10, b'B' => 11, b'D' => 12, b'H' => 13, b'V' => 14,
+};
+
+static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
+    b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G', b'N' => b'N',
+    b'R' => b'Y', b'Y' => b'R', b'S' => b'S', b'W' => b'W', b'K' => b'M',
+    b'M' => b'K', b'B' => b'A', b'D' => b'C', b'H' => b'G', b'V' => b'T',
+
 };
 
 // static AMINO_TO_DNA: phf::Map<&'static str, u8> = phf_map! {
@@ -44,23 +68,6 @@ static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
 //     b'*' => "TRA" & "TAG",
 // };
 
-// The standard ACGT nucleotides
-pub const NUCLEOTIDES: [u8; 15] = [
-    b'A', b'C', b'G', b'T', b'N', b'R', b'Y', b'S', b'W', b'K', b'M', b'B', b'D', b'H', b'V',
-];
-pub static NUCLEOTIDES_INV: phf::Map<u8, usize> = phf_map! {
-    b'A' => 0, b'T' => 3, b'G' => 2, b'C' => 1, b'N' => 4,
-    b'R' => 5, b'Y' => 6, b'S' => 7, b'W' => 8, b'K' => 9,
-    b'M' => 10, b'B' => 11, b'D' => 12, b'H' => 13, b'V' => 14,
-};
-
-static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
-    b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G', b'N' => b'N',
-    b'R' => b'Y', b'Y' => b'R', b'S' => b'S', b'W' => b'W', b'K' => b'M',
-    b'M' => b'K', b'B' => b'A', b'D' => b'C', b'H' => b'G', b'V' => b'T',
-
-};
-
 pub fn nucleotides_inv(n: u8) -> usize {
     static LOOKUP_TABLE: [usize; 256] = {
         let mut table = [0; 256];
@@ -84,128 +91,12 @@ pub fn nucleotides_inv(n: u8) -> usize {
 
     LOOKUP_TABLE[n as usize]
 }
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-pub struct AlignmentParameters {
-    // Structure containing all the parameters for the alignment
-    // of the V and J genes
-    pub min_score_v: i32,
-    pub min_score_j: i32,
-    pub max_error_d: usize,
-    pub left_v_cutoff: usize,
-}
-
-impl Default for AlignmentParameters {
-    fn default() -> AlignmentParameters {
-        AlignmentParameters {
-            min_score_v: -20,
-            min_score_j: 0,
-            max_error_d: 100,
-            left_v_cutoff: 50,
-        }
-    }
-}
-
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-#[pymethods]
-impl AlignmentParameters {
-    #[new]
-    pub fn py_new() -> Self {
-        AlignmentParameters::default()
-    }
-
-    fn __repr__(&self) -> PyResult<String> {
-        Ok(format!(
-            "AlignmentParameters(min_score_v={}, min_score_j={}, max_error_d={}. left_v_cutoff={})",
-            self.min_score_v, self.min_score_j, self.max_error_d, self.left_v_cutoff
-        ))
-    }
-
-    fn __str__(&self) -> PyResult<String> {
-        // This is what will be shown when you use print() in Python
-        self.__repr__()
-    }
-}
-
-impl AlignmentParameters {
-    pub fn new(
-        min_score_v: i32,
-        min_score_j: i32,
-        max_error_d: usize,
-        left_v_cutoff: usize,
-    ) -> Self {
-        Self {
-            min_score_v,
-            min_score_j,
-            max_error_d,
-            left_v_cutoff, // shorten the V gene for alignment (improve speed)
-        }
-    }
-}
-
-impl AlignmentParameters {
-    fn get_scoring(&self) -> pairwise::Scoring<Box<dyn Fn(u8, u8) -> i32>> {
-        pairwise::Scoring {
-            gap_open: -100,
-            gap_extend: -20,
-            // TODO: deal better with possible IUPAC codes
-            match_fn: Box::new(|a: u8, b: u8| {
-                if a == b {
-                    6i32
-                } else if (a == b'N') | (b == b'N') {
-                    0i32
-                } else {
-                    -3i32
-                }
-            }),
-            match_scores: None,
-            xclip_prefix: 0,
-            xclip_suffix: pairwise::MIN_SCORE,
-            yclip_prefix: pairwise::MIN_SCORE,
-            yclip_suffix: 0,
-        }
-    }
-
-    fn get_scoring_local(&self) -> pairwise::Scoring<Box<dyn Fn(u8, u8) -> i32>> {
-        pairwise::Scoring {
-            gap_open: -50,
-            gap_extend: -10,
-            // TODO: deal better with possible IUPAC codes
-            match_fn: Box::new(|a: u8, b: u8| {
-                if a == b {
-                    6i32
-                } else if (a == b'N') | (b == b'N') {
-                    0i32
-                } else {
-                    -3i32
-                }
-            }),
-            match_scores: None,
-            xclip_prefix: 0,
-            xclip_suffix: pairwise::MIN_SCORE, // still need V to go to the end
-            yclip_prefix: 0,
-            yclip_suffix: 0,
-        }
-    }
-
-    pub fn valid_v_alignment(&self, al: &Alignment) -> bool {
-        al.xend - al.xstart == al.yend - al.ystart
-    }
-
-    pub fn valid_j_alignment(&self, al: &Alignment) -> bool {
-        // right now: no insert
-        al.score > self.min_score_j && al.xend - al.xstart == al.yend - al.ystart
-    }
-}
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Dna {
     pub seq: Vec<u8>,
 }
-
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-#[pymethods]
-impl Dna {}
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
@@ -320,7 +211,7 @@ impl Dna {
         let len = self.len() as i64;
         let valid_start = std::cmp::max(0, start) as usize;
         let valid_end = std::cmp::min(len, end) as usize;
-        let mut result = Vec::with_capacity((end - start).abs() as usize);
+        let mut result = Vec::with_capacity((end - start).unsigned_abs() as usize);
 
         if start < 0 {
             result.resize(start.unsigned_abs() as usize, b'N');
@@ -459,17 +350,6 @@ impl AminoAcid {
     }
 }
 
-pub fn difference_as_i64(a: usize, b: usize) -> i64 {
-    if a >= b {
-        // don't check for overflow, trust the system
-        // assert!(a - b <= i64::MAX as usize, "Overflow occurred");
-        (a - b) as i64
-    } else {
-        // don't check for underflow either
-        // assert!(b - a <= i64::MAX as usize, "Underflow occurred");
-        -((b - a) as i64)
-    }
-}
 
 // pyo3 boiler code
 #[cfg(feature = "py_binds")]
@@ -487,9 +367,122 @@ impl Dna {
     }
 }
 
-pub fn count_differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> usize {
-    vec1.iter()
-        .zip(vec2.iter())
-        .filter(|&(a, b)| a != b)
-        .count()
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Default, Clone, Debug)]
+pub struct VJAlignment {
+    // Structure containing the alignment between a V/J gene and the sequence
+    // Note that the genes defined here include the palindromic insertion at the end
+
+    // Example
+    // gene (V):  ATACGATCATTGACAATCTGGAGATACGTA
+    //                         ||||||\|||||\|\\\
+    // sequence:               CAATCTAGAGATTCCAATCTAGAGATTCA
+    // start_gene -------------^ 13
+    // end_gene   ------------------------------^ 30
+    // start_seq               0
+    // end_seq                 -----------------^ 17
+    // errors[u] contains the number of errors left if u nucleotides are removed
+    // (starting from the end of the V-gene, or the beginning of the J gene)
+    // the length of this vector is the maximum number of v/j deletion.
+    // so here [5,4,3,2,2,1,1,1,1,1,1,0,0,...]
+    // score is the score of the alignment according to the alignment process
+    pub index: usize, // index of the gene in the model
+    pub start_seq: usize,
+    pub end_seq: usize,
+    pub start_gene: usize,
+    pub end_gene: usize,
+    pub errors: Vec<usize>,
+    pub score: i32,
+}
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
+impl VJAlignment {
+    pub fn nb_errors(&self, del: usize) -> usize {
+        if del >= self.errors.len() {
+            return match self.errors.last() {
+                None => 0,
+                Some(l) => *l,
+            };
+        }
+        self.errors[del]
+    }
+
+    pub fn length_with_deletion(&self, del: usize) -> usize {
+        // just return the aligned part length (that matches the seq)
+        if self.end_seq <= self.start_seq + del {
+            return 0;
+        }
+        self.end_seq - self.start_seq - del
+    }
+}
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
+#[derive(Clone, Debug)]
+pub struct DAlignment {
+    // Structure containing the alignment between a D gene and the sequence
+    // Similarly to VJaligment the gene include the palindromic insertion
+    // d-gene  :         DDDDDDDDDDDD
+    // sequence:     SSSSSSSSSSSSSSSSSSSSS
+    // pos     ----------^ 4
+    // error_left contains the number of errors in the alignment starting from the left
+    // error_right contains the number of errors in the alignment starting from the right
+    // For example:
+    // DDDDDDDDDDD
+    // SXSSSXSSXSX
+    // errors_left:  [4,4,3,3,3,3,2,2,2,1,1]
+    // errors_right: [4,3,3,2,2,2,1,1,1,1,0]
+    // "pos" represents the start of the sequence *with palindromes added*
+    pub index: usize,
+    pub len_d: usize, // length of the D gene (with palindromic inserts)
+    pub pos: usize,   // begining of the D-gene in the sequence (can't be < 0)
+
+    pub dseq: Arc<Dna>,     // the sequence of the D gene
+    pub sequence: Arc<Dna>, // the complete sequence aligned
+}
+
+//#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
+impl DAlignment {
+    pub fn nb_errors(&self, deld5: usize, deld3: usize) -> usize {
+        if deld5 + deld3 > self.len_d {
+            return 0;
+        }
+
+        count_differences(
+            &self.sequence.seq[self.pos + deld5..self.pos + self.dseq.len() - deld3],
+            &self.dseq.seq[deld5..self.dseq.len() - deld3],
+        )
+    }
+    pub fn length_with_deletion(&self, deld5: usize, deld3: usize) -> usize {
+        self.len() - deld5 - deld3
+    }
+
+    pub fn len(&self) -> usize {
+        self.len_d
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len_d == 0
+    }
+
+    pub fn display(&self, sequence: &Dna, model: &ModelVDJ) -> String {
+        let mut line1 = "".to_string();
+        let mut line2 = "".to_string();
+        let mut line3 = "".to_string();
+        let dna_sequence = sequence.seq.clone();
+        let dna_dgene = model.seg_ds[self.index].seq_with_pal.clone().unwrap().seq;
+        for ii in 0..sequence.len() {
+            line1 += &(dna_sequence[ii] as char).to_string();
+            if (ii < self.pos) || (ii >= self.pos + self.len_d) {
+                line2 += " ";
+                line3 += " ";
+            } else {
+                line3 += &(dna_dgene[ii - self.pos] as char).to_string();
+                if dna_dgene[ii - self.pos] != dna_sequence[ii] {
+                    line2 += "\\";
+                } else {
+                    line2 += "|";
+                }
+            }
+        }
+        format!("{line1}\n{line2}\n{line3}\n")
+    }
 }

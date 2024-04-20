@@ -1,5 +1,4 @@
-use crate::sequence::Dna;
-use crate::shared::Gene;
+use crate::shared::{Dna, Gene};
 use anyhow::{anyhow, Result};
 
 pub fn sanitize_v(genes: Vec<Gene>) -> Result<Vec<Dna>> {

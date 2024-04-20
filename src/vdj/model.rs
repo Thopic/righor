@@ -1,15 +1,15 @@
-use crate::sequence::{
-    utils::count_differences, utils::NUCLEOTIDES, AlignmentParameters, AminoAcid, Dna,
-};
-use crate::sequence::{DAlignment, VJAlignment};
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
-use crate::shared::utils::{
-    calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start, DiscreteDistribution,
-    ErrorDistribution, Gene, InferenceParameters, MarkovDNA, ModelGen, Normalize, RecordModel,
+use crate::shared::distributions::*;
+
+
+use crate::shared::{Gene, InferenceParameters, ModelGen,
+		    utils::sorted_and_complete, utils::sorted_and_complete_0start, utils::Normalize, RecordModel, DAlignment, VJAlignment,
+    utils::count_differences, sequence::NUCLEOTIDES, AlignmentParameters, AminoAcid, Dna,
 };
+
 use crate::vdj::inference::ResultInference;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
 use crate::vdj::{Features, InfEvent, Sequence, StaticEvent};
@@ -23,6 +23,8 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_distr::Distribution;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::io::BufReader;
 use std::path::Path;
 use std::{cmp, fs::read_to_string, fs::File, io::Write};
 
@@ -80,10 +82,10 @@ impl Generator {
         // create an internal model in case we need to restrict the V/J genes.
         let mut internal_model = model.clone();
 
-        if !available_v.is_none() {
+        if available_v.is_some() {
             internal_model = internal_model.filter_vs(available_v.unwrap())?;
         }
-        if !available_j.is_none() {
+        if available_j.is_some() {
             internal_model = internal_model.filter_js(available_j.unwrap())?;
         }
         Ok(Generator {
@@ -118,7 +120,7 @@ pub struct Generative {
     error: ErrorDistribution,
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Model {
     // Sequence information
     pub seg_vs: Vec<Gene>,
@@ -137,6 +139,7 @@ pub struct Model {
     pub p_del_v_given_v: Array2<f64>,
     pub p_del_j_given_j: Array2<f64>,
     pub p_del_d5_del_d3: Array3<f64>, // P(del_d5, del_d3 | D)
+    #[serde(skip)]
     pub gen: Generative,
     pub markov_coefficients_vd: Array2<f64>,
     pub markov_coefficients_dj: Array2<f64>,
@@ -258,9 +261,25 @@ impl Model {
         Ok(())
     }
 
+    /// Save the data in json format
+    pub fn save_json(&self, filename: &Path) -> Result<()> {
+        let mut file = File::create(filename)?;
+        let json = serde_json::to_string(&self)?;
+        Ok(writeln!(file, "{}", json)?)
+    }
+
+    /// Load a saved model in json format
+    pub fn load_json(filename: &Path) -> Result<Model> {
+        let file = File::open(filename)?;
+        let reader = BufReader::new(file);
+        let mut model: Model = serde_json::from_reader(reader)?;
+        model.initialize()?;
+        Ok(model)
+    }
+
     pub fn write_v_anchors(&self) -> Result<String> {
         let mut wtr = csv::Writer::from_writer(vec![]);
-        wtr.write_record(&["gene", "anchor_index", "function"])?;
+        wtr.write_record(["gene", "anchor_index", "function"])?;
         for gene in &self.seg_vs {
             let cdr3_pos = format!(
                 "{}",
@@ -275,7 +294,7 @@ impl Model {
 
     pub fn write_j_anchors(&self) -> Result<String> {
         let mut wtr = csv::Writer::from_writer(vec![]);
-        wtr.write_record(&["gene", "anchor_index", "function"])?;
+        wtr.write_record(["gene", "anchor_index", "function"])?;
         for gene in &self.seg_js {
             let cdr3_pos = format!(
                 "{}",
@@ -323,8 +342,8 @@ impl Model {
         let p_d3_d5_d = self.p_del_d5_del_d3.clone().permuted_axes((1, 0, 2));
         let p_deld5_given_d = p_d3_d5_d.sum_axis(Axis(0));
         let p_deld3_given_deld5_d = (p_d3_d5_d.clone()
-            / &p_deld5_given_d.broadcast(p_d3_d5_d.clone().dim()).unwrap())
-            .mapv(|x| if x.is_nan() { 0.0 } else { x });
+            / p_deld5_given_d.broadcast(p_d3_d5_d.clone().dim()).unwrap())
+        .mapv(|x| if x.is_nan() { 0.0 } else { x });
 
         let marginal_deld5 = Marginal::create(
             vec!["d_gene"],
@@ -417,11 +436,11 @@ impl Model {
         result.push_str(&deljs.write());
 
         result.push_str("#Insertion;VD_genes;Undefined_side;4;vd_ins\n");
-        let insvds = EventType::Numbers((0 as i64..self.p_ins_vd.dim() as i64).collect());
+        let insvds = EventType::Numbers((0_i64..self.p_ins_vd.dim() as i64).collect());
         result.push_str(&insvds.write());
 
         result.push_str("#Insertion;DJ_genes;Undefined_side;2;dj_ins\n");
-        let insdjs = EventType::Numbers((0 as i64..self.p_ins_dj.dim() as i64).collect());
+        let insdjs = EventType::Numbers((0_i64..self.p_ins_dj.dim() as i64).collect());
         result.push_str(&insdjs.write());
 
         let dimv = self.seg_vs.len();
@@ -911,8 +930,8 @@ impl Model {
             }
         }
 
-        let full_seq = event.to_sequence(&self);
-        let cdr3_nt = event.extract_cdr3(&full_seq, &self);
+        let full_seq = event.to_sequence(self);
+        let cdr3_nt = event.extract_cdr3(&full_seq, self);
         let cdr3_aa = cdr3_nt.translate().ok();
 
         GenerationResult {
@@ -1132,9 +1151,9 @@ impl Model {
                 let end_seq = pal_v.len() - cdr3_pos;
                 let end_gene = start_gene + pal_v.len() - cdr3_pos;
                 let mut errors = vec![0; self.p_del_v_given_v.dim().0];
-                for del_v in 0..errors.len() {
+                for (del_v, err_delv) in errors.iter_mut().enumerate() {
                     if del_v <= pal_v.len() && del_v <= end_seq - start_seq {
-                        errors[del_v] = count_differences(
+                        *err_delv = count_differences(
                             &cdr3_seq.seq[0..end_seq - del_v],
                             &pal_v.seq[start_gene..end_gene - del_v],
                         );
@@ -1147,7 +1166,7 @@ impl Model {
                     end_seq,
                     start_gene,
                     end_gene,
-                    errors: errors,
+                    errors,
                     score: 0, // meaningless
                 })
             })
@@ -1172,9 +1191,9 @@ impl Model {
                 let end_seq = cdr3_seq.len();
                 let end_gene = (cdr3_pos as i64 + 3 - self.range_del_j.0) as usize; // careful, palindromic insert
                 let mut errors = vec![0; self.p_del_j_given_j.dim().0];
-                for del_j in 0..errors.len() {
+                for (del_j, err_delj) in errors.iter_mut().enumerate() {
                     if del_j <= pal_j.len() && del_j <= end_gene - start_gene {
-                        errors[del_j] = count_differences(
+                        *err_delj = count_differences(
                             &cdr3_seq.seq[del_j + start_seq..end_seq],
                             &pal_j.seq[del_j + start_gene..end_gene],
                         );
@@ -1187,7 +1206,7 @@ impl Model {
                     end_seq,
                     start_gene,
                     end_gene,
-                    errors: errors,
+                    errors,
                     score: 0, // meaningless
                 })
             })

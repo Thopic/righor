@@ -1,10 +1,10 @@
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use crate::shared::distributions::calc_steady_state_dist;
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::shared::feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1,
     CategoricalFeature3, InsertionFeature,
 };
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use crate::shared::utils::calc_steady_state_dist;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]

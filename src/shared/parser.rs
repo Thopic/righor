@@ -1,7 +1,6 @@
 // Parser for the marginals and params files
 
-use crate::sequence::Dna;
-use crate::shared::utils::Gene;
+use crate::shared::{Dna, Gene};
 use anyhow::{anyhow, Result};
 use csv::Reader;
 use ndarray::{ArrayD, IxDyn};
@@ -72,11 +71,7 @@ pub struct ParserParams {
 
 impl Marginal {
     pub fn create(dependences: Vec<&str>, probabilities: ArrayD<f64>) -> Marginal {
-        let dimensions: Vec<usize> = probabilities
-            .shape()
-            .iter()
-            .map(|&d| d.try_into().unwrap())
-            .collect();
+        let dimensions: Vec<usize> = probabilities.shape().to_vec();
         Marginal {
             dimensions,
             dependences: dependences.into_iter().map(String::from).collect(),
@@ -107,7 +102,7 @@ impl Marginal {
         }
 
         if self.dimensions.len() == 1 {
-            result.push_str(&"#\n%");
+            result.push_str("#\n%");
             for k in 0..self.dimensions[0] {
                 let prob = self.probabilities[k];
                 result.push_str(&format!("{},", prob));
@@ -226,8 +221,8 @@ fn parse_numbers(str_data: &Vec<String>) -> Result<EventType> {
         if data.len() != 2 {
             Err(anyhow!(format!("Invalid format for gene event {}", line)))?;
         } else {
-            let value = i64::from_str(&data[0][1..].trim())?;
-            let index = usize::from_str(&data[1].trim())?;
+            let value = i64::from_str(data[0][1..].trim())?;
+            let index = usize::from_str(data[1].trim())?;
             events[index] = value;
         }
     }

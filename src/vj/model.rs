@@ -1,13 +1,12 @@
-use crate::sequence::AlignmentParameters;
-use crate::sequence::Dna;
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
 use crate::shared::utils::{
-    calc_steady_state_dist, sorted_and_complete, sorted_and_complete_0start, Gene, ModelGen,
-    RecordModel,
+    sorted_and_complete, sorted_and_complete_0start
 };
-use crate::shared::InferenceParameters;
+use crate::shared::{Gene, ModelGen, distributions::calc_steady_state_dist,
+		    RecordModel, AlignmentParameters, Dna, InferenceParameters};
+
 use crate::vdj::{
     inference::{Features, InfEvent, ResultInference},
     Model as ModelVDJ, Sequence,
@@ -19,7 +18,8 @@ use ndarray::{array, Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use std::{fs::read_to_string, fs::File, io::Write, path::Path};
+use serde::{Deserialize, Serialize};
+use std::{fs::read_to_string, fs::File, io::BufReader, io::Write, path::Path};
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct Generator {
@@ -42,10 +42,10 @@ impl Generator {
         // create an internal model in case we need to restrict the V/J genes.
         let mut internal_model = model.clone();
 
-        if !available_v.is_none() {
+        if available_v.is_some() {
             internal_model = internal_model.filter_vs(available_v.unwrap())?;
         }
-        if !available_j.is_none() {
+        if available_j.is_some() {
             internal_model = internal_model.filter_js(available_j.unwrap())?;
         }
         Ok(Generator {
@@ -100,7 +100,7 @@ impl GenerationResult {
 
 // A VJ model is in practice a simplified VDJ model (without insDJ / D / delD3 / delD5)
 // So I use a VDJ model as the inner model, with a different parameter set.
-#[derive(Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct Model {
     // The actual/real underlying model
     pub inner: ModelVDJ,
@@ -233,6 +233,22 @@ impl Model {
         Ok(())
     }
 
+    /// Save the data in json format
+    pub fn save_json(&self, filename: &Path) -> Result<()> {
+        let mut file = File::create(filename)?;
+        let json = serde_json::to_string(&self)?;
+        Ok(writeln!(file, "{}", json)?)
+    }
+
+    /// Load a saved model in json format
+    pub fn load_json(filename: &Path) -> Result<Model> {
+        let file = File::open(filename)?;
+        let reader = BufReader::new(file);
+        let mut model: Model = serde_json::from_reader(reader)?;
+        model.initialize()?;
+        Ok(model)
+    }
+
     pub fn write_v_anchors(&self) -> Result<String> {
         self.inner.write_v_anchors()
     }
@@ -314,7 +330,7 @@ impl Model {
         result.push_str(&deljs.write());
 
         result.push_str("#Insertion;VJ_gene;Undefined_side;4;vj_ins\n");
-        let insvjs = EventType::Numbers((0 as i64..self.p_ins_vj.dim() as i64).collect());
+        let insvjs = EventType::Numbers((0_i64..self.p_ins_vj.dim() as i64).collect());
         result.push_str(&insvjs.write());
 
         let dimv = self.seg_vs.len();

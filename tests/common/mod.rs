@@ -1,6 +1,8 @@
-use righor::vdj;
 use ndarray::array;
+use righor::vdj;
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn simple_model_vdj() -> vdj::Model {
     let gv1 = righor::Gene {
         name: "V1".to_string(),
@@ -64,12 +66,4 @@ pub fn simple_model_vdj() -> vdj::Model {
 
     model.initialize().unwrap();
     model
-}
-
-pub fn inference_parameters_default() -> righor::InferenceParameters {
-    righor::InferenceParameters::default()
-}
-
-pub fn alignment_parameters_default() -> righor::AlignmentParameters {
-    righor::AlignmentParameters::default()
 }

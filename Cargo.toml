@@ -25,7 +25,7 @@ rand = { version = "0.8.5", features = [ "small_rng" ] }
 rand_distr = "0.4.0"
 phf = { version = "0.10", features = ["macros"] }
 regex = "1.9"
-ndarray = {version="0.15", features = ["approx"]}
+ndarray = {version="0.15", features = ["approx", "serde"]}
 csv = "1.1"
 enum_dispatch = "0.3"
 pyo3 = {version = "0.20.0", features = ["extension-module", "anyhow", "multiple-pymethods"], optional=true}

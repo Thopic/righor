@@ -1,6 +1,5 @@
-use crate::sequence::utils::Dna;
 use crate::shared::feature::*;
-use crate::shared::utils::InferenceParameters;
+use crate::shared::{Dna, InferenceParameters};
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
     Model, Sequence,
@@ -155,7 +154,7 @@ impl ResultInference {
             width = width
         );
 
-        return Ok(ResultHuman {
+        Ok(ResultHuman {
             n_cdr3: best_event.cdr3.clone().unwrap().get_string(),
             aa_cdr3: translated_cdr3,
             likelihood: self.likelihood,
@@ -168,7 +167,7 @@ impl ResultInference {
             aligned_j,
             v_name: model.get_v_gene(&best_event),
             j_name: model.get_j_gene(&best_event),
-        });
+        })
     }
 
     fn impossible() -> ResultInference {
@@ -191,7 +190,7 @@ impl ResultInference {
     /// I just store the necessary stuff in the Event variable while looping
     /// Fill event add enough to be able to completely recreate the sequence
     pub fn fill_event(&mut self, model: &Model, sequence: &Sequence) -> Result<()> {
-        if !self.best_event.is_none() {
+        if self.best_event.is_some() {
             let mut event = self.best_event.clone().unwrap();
             event.ins_vd = Some(
                 sequence
@@ -311,19 +310,19 @@ impl Features {
         let mut features_d = Vec::new();
         for d_idx in 0..self.vdj.dim().1 {
             let feature_d =
-                AggregatedFeatureSpanD::new(&sequence.get_specific_dgene(d_idx), &self, ip);
+                AggregatedFeatureSpanD::new(&sequence.get_specific_dgene(d_idx), self, ip);
             features_d.push(feature_d);
         }
 
         let mut features_v = Vec::new();
         for val in &sequence.v_genes {
-            let feature_v = AggregatedFeatureEndV::new(val, &self, ip);
+            let feature_v = AggregatedFeatureEndV::new(val, self, ip);
             features_v.push(feature_v);
         }
 
         let mut features_j = Vec::new();
         for jal in &sequence.j_genes {
-            let feature_j = AggregatedFeatureStartJ::new(jal, &self, ip);
+            let feature_j = AggregatedFeatureStartJ::new(jal, self, ip);
             features_j.push(feature_j);
         }
 
@@ -372,6 +371,7 @@ impl Features {
         Ok(result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn infer_given_vdj(
         &mut self,
         feature_v: &mut AggregatedFeatureEndV,
@@ -450,18 +450,22 @@ impl Features {
                                         start_d: sd,
                                         end_d: ed,
                                         start_j: sj,
-                                        likelihood: likelihood,
+                                        likelihood,
                                         ..Default::default()
                                     };
                                     current_result.set_best_event(event, ip);
                                 }
                             }
                             if ip.infer {
-                                feature_v.dirty_update(ev, likelihood);
-                                feature_j.dirty_update(sj, likelihood);
-                                feature_d.dirty_update(sd, ed, likelihood);
-                                ins_vd.dirty_update(ev, sd, likelihood);
-                                ins_dj.dirty_update(ed, sj, likelihood);
+				if ip.infer_genes {
+                                    feature_v.dirty_update(ev, likelihood);
+                                    feature_j.dirty_update(sj, likelihood);
+                                    feature_d.dirty_update(sd, ed, likelihood);
+				}
+				if ip.infer_insertions {
+                                    ins_vd.dirty_update(ev, sd, likelihood);
+                                    ins_dj.dirty_update(ed, sj, likelihood);
+				}
                                 self.vdj.dirty_update(
                                     (feature_v.index, feature_d.index, feature_j.index),
                                     likelihood,

@@ -1,4 +1,6 @@
-use crate::sequence::utils::{nucleotides_inv, Dna};
+use crate::shared::{
+     nucleotides_inv, Dna, 
+};
 use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2, Normalize3};
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3};
@@ -396,11 +398,7 @@ pub struct ErrorSingleNucleotide {
 
 impl ErrorSingleNucleotide {
     pub fn new(error_rate: f64) -> Result<ErrorSingleNucleotide> {
-        if (error_rate < 0.)
-            || (error_rate >= 1.)
-            || (error_rate.is_nan())
-            || (error_rate.is_infinite())
-        {
+        if !(0. ..1.).contains(&error_rate) || (error_rate.is_nan()) || (error_rate.is_infinite()) {
             return Err(anyhow!(
                 "Error in ErrorSingleNucleotide Feature creation. Negative/NaN/infinite error rate."
             ));

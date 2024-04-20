@@ -1,5 +1,4 @@
-use crate::sequence::utils::{count_differences, difference_as_i64, AlignmentParameters};
-use crate::sequence::{DAlignment, Dna, VJAlignment};
+use crate::shared::{utils::count_differences, utils::difference_as_i64, AlignmentParameters, Dna, DAlignment, VJAlignment};
 use crate::vdj::{Event, Model};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
@@ -127,9 +126,9 @@ pub fn align_all_vgenes(
         let max_del_v = model.p_del_v_given_v.dim().0;
 
         let mut errors = vec![0; max_del_v];
-        for del_v in 0..max_del_v {
+        for (del_v, err_delv) in errors.iter_mut().enumerate() {
             if del_v <= palv.len() && del_v <= alignment.yend - alignment.ystart {
-                errors[del_v] = count_differences(
+                *err_delv = count_differences(
                     &seq.seq[alignment.ystart..alignment.yend - del_v],
                     &palv.seq[alignment.xstart..alignment.xend - del_v],
                 );
@@ -166,9 +165,9 @@ pub fn align_all_jgenes(
             // println!("J: {:?}", alignment.score);
             let max_del_j = model.p_del_j_given_j.dim().0;
             let mut errors = vec![0; max_del_j];
-            for del_j in 0..max_del_j {
+            for (del_j, err_delj) in errors.iter_mut().enumerate() {
                 if del_j <= palj.len() && del_j <= alignment.yend - alignment.ystart {
-                    errors[del_j] = count_differences(
+                    *err_delj = count_differences(
                         &seq.seq[del_j + alignment.xstart..alignment.xend],
                         &palj.seq[del_j + alignment.ystart..alignment.yend],
                     );
