@@ -11,6 +11,143 @@ use std::fmt;
 use bio::alignment::{pairwise, Alignment};
 use crate::shared::AlignmentParameters;
 
+// pub trait DnaLike {
+//     pub fn len(&self) -> usize;
+//     pub fn is_empty(&self) -> bool;
+//     pub fn reverse_complement(&self) -> Self where Self: Sized;
+//     pub fn extract_subsequence(&self, start: usize, end: usize) -> Self where Self: Sized;
+//     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> Self where Self: Sized;
+//     pub fn probability(&self, markov_coefficients: Array2<f64>) -> f64;
+// }
+
+
+// /// Partially defined dna sequence created from an amino-acid sequence
+// struct UndefinedDna {
+//     // List of codons
+//     codons: Vec<u8>,
+//     // the start of the actual nucleotide sequence (potentially mid-codon)
+//     // belong to  0..=2
+//     codon_start: usize,
+//     // the end of the actual nucleotide sequence (potentially mid-codon)
+//     // belong to 0..2
+//     codon_end: usize,
+//     // true if the sequence considered is the reverse complement of the codons stored
+//     reverse_complement: bool,
+    
+// }
+
+// impl UndefinedDna {
+//     pub fn pad_right(&mut self, n: usize) {
+// 	// X for undefined amino-acid
+// 	let number_aa_added = (n - self.codon_end)/3;
+// 	self.codons.resize(number_aa_added, b'X');
+// 	self.codon_end = (n - self.codon_end)%3;
+//     }
+
+//     pub fn pad_left(&mut self, n: usize) {
+// 	// NNN corresponds to all possible amino-acid, so to the bitvec (2^64 - 1)
+// 	let number_aa_added = (n - self.codon_start)/3;
+// 	self.codons.splice(0..0, vec![b'X', number_aa_added]);
+// 	self.codon_start = (n - self.codon_start)%3;
+//     }
+
+//     /// Make an amino-acid sequence into an "UndefinedDna" sequence
+//     pub fn from_aminoacid(aa: &AminoAcid) -> UndefinedDna {
+// 	UndefinedDna {
+// 	    codons: aa.clone(),
+// 	    codon_start: 0,
+// 	    codon_end: 0,
+// 	}
+//     }
+    
+//     /// lossy process, remove some information about the codon
+//     pub fn to_dna(&self) -> Dna {
+
+// 	let sequence = Dna {
+// 	    seq: self.codons.iter().flat_map(|&aa| AMINO_TO_DNA_LOSSY.get(&aa).unwrap().clone()).collect(),
+// 	};
+// 	sequence.extract_subsequence(self.codon_start, self.len() - self.codon_end)
+//     }
+
+    
+// }
+
+// impl DnaLike for UndefinedDna {
+
+//     /// Return the reverse complement of the sequence
+//     pub fn reverse_complement(&mut self) -> UndefinedDna {
+	
+//     }
+
+    
+//     /// Extract a subsequence from the dna. No particular checks. 
+//     pub fn extract_subsequence(&self, start: usize, end: usize) -> UndefinedDna {
+// 	// where to start in the amino-acid sequence
+
+// 	// example:
+// 	// start = 10, end = 20
+// 	// codon_start = 2, codon_end = 1
+// 	//   <---------------------------------->  : true sequence
+// 	// ....................................... : full stored data
+// 	//  x  x  x  x  x  x  x  x  x  x  x  x  x  : amino-acids
+// 	//             <-------->                  : extracted sequence
+// 	//             ............                : stored data for extracted sequence
+// 	// 
+
+// 	let shift_start = start + self.codon_start;
+// 	let shift_end = end + self.codon_start;
+	    
+// 	let aa_start = shift_start / 3;
+// 	let aa_end = shift_end / 3 + 1;
+	
+// 	UndefinedDna {
+// 	    codons: self.codons[aa_start..aa_end].to_vec(),
+// 	    codon_start: shift_start % 3,
+// 	    codon_end: 3*(aa_end) - shift_end 
+	    
+// 	}
+//     }
+
+//     /// Return dna[start:end] but padded with N if start < 0 or end >= dna.len()
+//     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> UndefinedDna {
+
+// 	// example:
+// 	// start = -4, end = 17
+// 	// codon_start = 2, codon_end = 0
+// 	//               0    '    '   '  
+// 	//               <----------->             : true sequence
+// 	//             ...............             : full stored data
+// 	//              x  x  x  x  x              : amino-acids
+// 	//           <-------------------->        : extracted and padded sequence
+// 	//          ........................       : stored data for padded sequence
+	
+// 	let result = self.clone();	
+//         let len = self.len() as i64;
+// 	let mut shift = 0;
+
+// 	if start < 0 {
+// 	    result.pad_left(start.unsigned_abs());
+// 	    shift = start.unsigned_abs();
+// 	}
+// 	if end > self.len() {
+// 	    result.pad_right(end - self.len());
+// 	}
+// 	result.extract_subsequence(start + shift, end + shift) 
+//     }
+
+//     pub fn len(&self) -> usize {
+// 	3*self.codons.len() - self.codon_start - self.codon_end
+//     }
+
+//     pub fn is_empty(&self) -> bool {
+// 	self.len() == 0
+//     }
+// }
+
+
+
+
+
 
 
 static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
@@ -44,7 +181,7 @@ static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
 
 };
 
-// static AMINO_TO_DNA: phf::Map<&'static str, u8> = phf_map! {
+// static AMINO_TO_DNA_LOSSY: phf::Map<&'static str, u8> = phf_map! {
 //     b'A' => "GCN",
 //     b'C' => "TGY",
 //     b'D' => "GAY",
@@ -53,19 +190,19 @@ static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
 //     b'G' => "GGN",
 //     b'H' => "CAY",
 //     b'I' => "ATH",
-//     b'L' => "CTN" & "TTR",
+//     b'L' => "YTN",
 //     b'K' => "AAR",
 //     b'M' => "ATG",
 //     b'N' => "AAY",
 //     b'P' => "CCN",
 //     b'Q' => "CAR",
-//     b'R' => "CGN" & "AGR",
-//     b'S' => "TCN" & "AGY",
+//     b'R' => "MGN",
+//     b'S' => "WSN",
 //     b'T' => "CAN",
 //     b'V' => "GTN",
 //     b'W' => "TGG",
 //     b'Y' => "TAY",
-//     b'*' => "TRA" & "TAG",
+//     b'*' => "TRR",
 // };
 
 pub fn nucleotides_inv(n: u8) -> usize {

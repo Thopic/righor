@@ -18,3 +18,4 @@ pub use utils::{RecordModel};
 pub use gene::{Gene, genes_matching, ModelGen};
 pub use parameters::{AlignmentParameters, InferenceParameters};
 pub use sequence::{nucleotides_inv, AminoAcid, DAlignment, Dna, VJAlignment};
+pub use model::{Modelable};

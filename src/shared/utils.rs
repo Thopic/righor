@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 
 use ndarray::{s, Array, Array1, Array2, Array3, Dimension};
+
 use serde::{Deserialize, Serialize};
 
 pub fn count_differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> usize {

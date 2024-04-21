@@ -1,12 +1,13 @@
 #![allow(unused_imports)] //TODO REMOVE
 #![allow(dead_code)]
 
-mod shared;
+pub mod shared;
 pub mod vdj;
 pub mod vj;
 
 use anyhow::{anyhow, Result};
 use kdam::tqdm;
+use righor::Modelable;
 use ndarray::array;
 use ndarray::Axis;
 use std::fs::File;

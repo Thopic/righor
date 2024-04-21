@@ -11,6 +11,7 @@ use crate::vdj::{
     inference::{Features, InfEvent, ResultInference},
     Model as ModelVDJ, Sequence,
 };
+use crate::shared::Modelable;
 use crate::vj::StaticEvent;
 use anyhow::{anyhow, Result};
 use ndarray::{array, Array1, Array2, Array3, Axis};
@@ -26,6 +27,18 @@ pub struct Generator {
     model: Model,
     rng: SmallRng,
 }
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct GenerationResult {
+    pub cdr3_nt: String,
+    pub cdr3_aa: Option<String>,
+    pub full_seq: String,
+    pub v_gene: String,
+    pub j_gene: String,
+    pub recombination_event: StaticEvent,
+}
+
 
 impl Generator {
     pub fn new(
@@ -66,16 +79,6 @@ impl Generator {
     }
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
-pub struct GenerationResult {
-    pub cdr3_nt: String,
-    pub cdr3_aa: Option<String>,
-    pub full_seq: String,
-    pub v_gene: String,
-    pub j_gene: String,
-    pub recombination_event: StaticEvent,
-}
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
@@ -131,8 +134,11 @@ pub struct Model {
     pub thymic_q: f64,
 }
 
-impl Model {
-    pub fn load_from_name(
+impl Modelable for Model {
+    type GenerationResult = GenerationResult;
+    type RecombinaisonEvent = StaticEvent;
+    
+    fn load_from_name(
         species: &str,
         chain: &str,
         id: Option<String>,
@@ -171,7 +177,7 @@ impl Model {
         }
     }
 
-    pub fn load_from_files(
+    fn load_from_files(
         path_params: &Path,
         path_marginals: &Path,
         path_anchor_vgene: &Path,
@@ -190,7 +196,7 @@ impl Model {
         Self::load_model(&pp, &pm)
     }
 
-    pub fn load_from_str(
+    fn load_from_str(
         params: &str,
         marginals: &str,
         anchor_vgene: &str,
@@ -208,7 +214,7 @@ impl Model {
     }
 
     /// Save the model in a given directory (write 4 files)
-    pub fn save_model(&self, directory: &Path) -> Result<()> {
+    fn save_model(&self, directory: &Path) -> Result<()> {
         // same as in vdj/model.rs, not ideal
         let path = directory.join("model_params.txt");
         let mut file = File::create(path)?;
@@ -234,129 +240,152 @@ impl Model {
     }
 
     /// Save the data in json format
-    pub fn save_json(&self, filename: &Path) -> Result<()> {
+    fn save_json(&self, filename: &Path) -> Result<()> {
         let mut file = File::create(filename)?;
         let json = serde_json::to_string(&self)?;
         Ok(writeln!(file, "{}", json)?)
     }
 
     /// Load a saved model in json format
-    pub fn load_json(filename: &Path) -> Result<Model> {
+    fn load_json(filename: &Path) -> Result<Model> {
         let file = File::open(filename)?;
         let reader = BufReader::new(file);
         let mut model: Model = serde_json::from_reader(reader)?;
         model.initialize()?;
         Ok(model)
     }
+    
 
-    pub fn write_v_anchors(&self) -> Result<String> {
-        self.inner.write_v_anchors()
+    fn initialize(&mut self) -> Result<()> {
+        self.load_inner_vdj()?;
+        Ok(())
     }
 
-    pub fn write_j_anchors(&self) -> Result<String> {
-        self.inner.write_j_anchors()
+        fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
+        let gen_result = self.inner.generate(functional, rng);
+        let se = gen_result.recombination_event;
+        GenerationResult {
+            cdr3_nt: gen_result.cdr3_nt,
+            cdr3_aa: gen_result.cdr3_aa,
+            full_seq: gen_result.full_seq,
+            v_gene: gen_result.v_gene,
+            j_gene: gen_result.j_gene,
+            recombination_event: StaticEvent {
+                v_index: se.v_index,
+                v_start_gene: se.v_start_gene,
+                delv: se.delv,
+                j_index: se.j_index,
+                j_start_seq: se.j_start_seq,
+                delj: se.delj,
+                insvj: se.insvd,
+            },
+        }
     }
 
-    pub fn write_marginals(&self) -> Result<String> {
-        let marginal_vs = Marginal::create(Vec::new(), self.p_v.clone().into_dyn()).write()?;
-        let marginal_js = Marginal::create(
-            vec!["v_choice"],
-            self.p_j_given_v.clone().permuted_axes((1, 0)).into_dyn(),
-        )
-        .write()?;
-        let marginal_delv = Marginal::create(
-            vec!["v_choice"],
-            self.p_del_v_given_v
-                .clone()
-                .permuted_axes((1, 0))
-                .into_dyn(),
-        )
-        .write()?;
-        let marginal_delj = Marginal::create(
-            vec!["j_choice"],
-            self.p_del_j_given_j
-                .clone()
-                .permuted_axes((1, 0))
-                .into_dyn(),
-        )
-        .write()?;
-
-        let marginal_vjins =
-            Marginal::create(Vec::new(), self.p_ins_vj.clone().into_dyn()).write()?;
-        let marginal_vjdinucl = Marginal::create(
-            Vec::new(),
-            self.markov_coefficients_vj
-                .iter()
-                .cloned()
-                .collect::<Array1<f64>>()
-                .into_dyn(),
-        )
-        .write()?;
-
-        Ok(format!(
-            "@v_choice\n\
-	     {marginal_vs}\
-	     @j_choice\n\
-	     {marginal_js}\
-	     @v_3_del\n\
-	     {marginal_delv}\
-	     @j_5_del\n\
-	     {marginal_delj}\
-	     @vj_ins\n\
-	     {marginal_vjins}\
-	     @vj_dinucl\n\
-	     {marginal_vjdinucl}\
-	     "
-        ))
+    fn generate_without_errors<R: Rng>(
+        &mut self,
+        functional: bool,
+        rng: &mut R,
+    ) -> GenerationResult {
+        let gen_result = self.inner.generate_without_errors(functional, rng);
+        let se = gen_result.recombination_event;
+        GenerationResult {
+            cdr3_nt: gen_result.cdr3_nt,
+            cdr3_aa: gen_result.cdr3_aa,
+            full_seq: gen_result.full_seq,
+            v_gene: gen_result.v_gene,
+            j_gene: gen_result.j_gene,
+            recombination_event: StaticEvent {
+                v_index: se.v_index,
+                v_start_gene: se.v_start_gene,
+                delv: se.delv,
+                j_index: se.j_index,
+                j_start_seq: se.j_start_seq,
+                delj: se.delj,
+                insvj: se.insvd,
+            },
+        }
     }
 
-    pub fn write_params(&self) -> Result<String> {
-        let mut result = "@Event_list\n\
-			  #GeneChoice;V_gene;Undefined_side;7;v_choice\n"
-            .to_string();
-        let vgenes = EventType::Genes(self.seg_vs.clone());
-        result.push_str(&vgenes.write());
+    fn filter_vs(&self, vs: Vec<Gene>) -> Result<Model> {
+        let mut m = Model {
+            inner: self.inner.filter_vs(vs)?,
+            ..Default::default()
+        };
 
-        result.push_str("#GeneChoice;J_gene;Undefined_side;6;j_choice\n");
-        let jgenes = EventType::Genes(self.seg_js.clone());
-        result.push_str(&jgenes.write());
-
-        result.push_str("#Deletion;V_gene;Three_prime;5;v_3_del\n");
-        let delvs = EventType::Numbers((self.range_del_v.0..self.range_del_v.1 + 1).collect());
-        result.push_str(&delvs.write());
-
-        result.push_str("#Deletion;J_gene;Five_prime;5;j_5_del\n");
-        let deljs = EventType::Numbers((self.range_del_j.0..self.range_del_j.1 + 1).collect());
-        result.push_str(&deljs.write());
-
-        result.push_str("#Insertion;VJ_gene;Undefined_side;4;vj_ins\n");
-        let insvjs = EventType::Numbers((0_i64..self.p_ins_vj.dim() as i64).collect());
-        result.push_str(&insvjs.write());
-
-        let dimv = self.seg_vs.len();
-        let dimdelv = self.p_del_v_given_v.dim().0;
-        let dimj = self.seg_js.len();
-        let dimdelj = self.p_del_j_given_j.dim().0;
-        let error_rate = self.error_rate;
-        result.push_str(&format!(
-            "#DinucMarkov;VJ_gene;Undefined_side;3;vj_dinucl\n\
-	     %T;3\n\
-	     %C;1\n\
-	     %G;2\n\
-	     %A;0\n\
-	     @Edges\n\
-	     %GeneChoice_V_gene_Undefined_side_prio7_size{dimv};\
-	     GeneChoice_J_gene_Undefined_side_prio6_size{dimj}\n\
-	     %GeneChoice_V_gene_Undefined_side_prio7_size{dimv};\
-	     Deletion_V_gene_Three_prime_prio5_size{dimdelv}\n\
-	     %GeneChoice_J_gene_Undefined_side_prio6_size{dimj};\
-	     Deletion_J_gene_Five_prime_prio5_size{dimdelj}\n\
-	     @ErrorRate\n\
-	     #SingleErrorRate\n\
-	     {error_rate}\n"
-        ));
-        Ok(result)
+        m.update_outer_model()?;
+        m.initialize()?;
+        Ok(m)
     }
+
+    fn filter_js(&self, js: Vec<Gene>) -> Result<Model> {
+        let mut m = Model {
+            inner: self.inner.filter_js(js)?,
+            ..Default::default()
+        };
+        m.update_outer_model()?;
+        m.initialize()?;
+        Ok(m)
+    }
+
+    /// Return an uniform model (for initializing the inference)
+    fn uniform(&self) -> Result<Model> {
+        let mut m = Model {
+            inner: self.inner.uniform()?,
+            ..Default::default()
+        };
+        m.update_outer_model()?;
+        m.initialize()?;
+        Ok(m)
+    }
+
+    fn evaluate(
+        &self,
+        sequence: &Sequence,
+        inference_params: &InferenceParameters,
+    ) -> Result<ResultInference> {
+        self.inner.evaluate(sequence, inference_params)
+    }
+
+    fn infer(
+        &mut self,
+        sequences: &Vec<Sequence>,
+        inference_params: &InferenceParameters,
+    ) -> Result<()> {
+        self.inner.infer(sequences, inference_params)?;
+        self.update_outer_model()?;
+        Ok(())
+    }
+    
+    fn similar_to(&self, m: Model) -> bool {
+        self.inner.similar_to(m.inner)
+    }
+
+        fn align_from_cdr3(
+        &self,
+        cdr3_seq: Dna,
+        vgenes: Vec<Gene>,
+        jgenes: Vec<Gene>,
+    ) -> Result<Sequence> {
+        self.inner.align_from_cdr3(cdr3_seq, vgenes, jgenes)
+    }
+
+    fn align_sequence(
+        &self,
+        dna_seq: Dna,
+        align_params: &AlignmentParameters,
+    ) -> Result<Sequence> {
+        self.inner.align_sequence(dna_seq, align_params)
+    }
+
+    fn recreate_full_sequence(&self, dna: &Dna, vgene: &Gene, jgene: &Gene) -> Dna {
+        self.inner.recreate_full_sequence(dna, vgene, jgene)
+    }
+
+    
+}
+
+impl Model {
 
     pub fn load_model(pp: &ParserParams, pm: &ParserMarginals) -> Result<Model> {
         let mut model: Model = Model {
@@ -489,10 +518,116 @@ impl Model {
         Ok(model)
     }
 
-    pub fn initialize(&mut self) -> Result<()> {
-        self.load_inner_vdj()?;
-        Ok(())
+    
+    pub fn write_v_anchors(&self) -> Result<String> {
+        self.inner.write_v_anchors()
     }
+
+    pub fn write_j_anchors(&self) -> Result<String> {
+        self.inner.write_j_anchors()
+    }
+
+    pub fn write_marginals(&self) -> Result<String> {
+        let marginal_vs = Marginal::create(Vec::new(), self.p_v.clone().into_dyn()).write()?;
+        let marginal_js = Marginal::create(
+            vec!["v_choice"],
+            self.p_j_given_v.clone().permuted_axes((1, 0)).into_dyn(),
+        )
+        .write()?;
+        let marginal_delv = Marginal::create(
+            vec!["v_choice"],
+            self.p_del_v_given_v
+                .clone()
+                .permuted_axes((1, 0))
+                .into_dyn(),
+        )
+        .write()?;
+        let marginal_delj = Marginal::create(
+            vec!["j_choice"],
+            self.p_del_j_given_j
+                .clone()
+                .permuted_axes((1, 0))
+                .into_dyn(),
+        )
+        .write()?;
+
+        let marginal_vjins =
+            Marginal::create(Vec::new(), self.p_ins_vj.clone().into_dyn()).write()?;
+        let marginal_vjdinucl = Marginal::create(
+            Vec::new(),
+            self.markov_coefficients_vj
+                .iter()
+                .cloned()
+                .collect::<Array1<f64>>()
+                .into_dyn(),
+        )
+        .write()?;
+
+        Ok(format!(
+            "@v_choice\n\
+	     {marginal_vs}\
+	     @j_choice\n\
+	     {marginal_js}\
+	     @v_3_del\n\
+	     {marginal_delv}\
+	     @j_5_del\n\
+	     {marginal_delj}\
+	     @vj_ins\n\
+	     {marginal_vjins}\
+	     @vj_dinucl\n\
+	     {marginal_vjdinucl}\
+	     "
+        ))
+    }
+
+    pub fn write_params(&self) -> Result<String> {
+        let mut result = "@Event_list\n\
+			  #GeneChoice;V_gene;Undefined_side;7;v_choice\n"
+            .to_string();
+        let vgenes = EventType::Genes(self.seg_vs.clone());
+        result.push_str(&vgenes.write());
+
+        result.push_str("#GeneChoice;J_gene;Undefined_side;6;j_choice\n");
+        let jgenes = EventType::Genes(self.seg_js.clone());
+        result.push_str(&jgenes.write());
+
+        result.push_str("#Deletion;V_gene;Three_prime;5;v_3_del\n");
+        let delvs = EventType::Numbers((self.range_del_v.0..self.range_del_v.1 + 1).collect());
+        result.push_str(&delvs.write());
+
+        result.push_str("#Deletion;J_gene;Five_prime;5;j_5_del\n");
+        let deljs = EventType::Numbers((self.range_del_j.0..self.range_del_j.1 + 1).collect());
+        result.push_str(&deljs.write());
+
+        result.push_str("#Insertion;VJ_gene;Undefined_side;4;vj_ins\n");
+        let insvjs = EventType::Numbers((0_i64..self.p_ins_vj.dim() as i64).collect());
+        result.push_str(&insvjs.write());
+
+        let dimv = self.seg_vs.len();
+        let dimdelv = self.p_del_v_given_v.dim().0;
+        let dimj = self.seg_js.len();
+        let dimdelj = self.p_del_j_given_j.dim().0;
+        let error_rate = self.error_rate;
+        result.push_str(&format!(
+            "#DinucMarkov;VJ_gene;Undefined_side;3;vj_dinucl\n\
+	     %T;3\n\
+	     %C;1\n\
+	     %G;2\n\
+	     %A;0\n\
+	     @Edges\n\
+	     %GeneChoice_V_gene_Undefined_side_prio7_size{dimv};\
+	     GeneChoice_J_gene_Undefined_side_prio6_size{dimj}\n\
+	     %GeneChoice_V_gene_Undefined_side_prio7_size{dimv};\
+	     Deletion_V_gene_Three_prime_prio5_size{dimdelv}\n\
+	     %GeneChoice_J_gene_Undefined_side_prio6_size{dimj};\
+	     Deletion_J_gene_Five_prime_prio5_size{dimdelj}\n\
+	     @ErrorRate\n\
+	     #SingleErrorRate\n\
+	     {error_rate}\n"
+        ));
+        Ok(result)
+    }
+
 
     fn load_inner_vdj(&mut self) -> Result<()> {
         // create an empty d gene
@@ -559,101 +694,6 @@ impl Model {
         Ok(())
     }
 
-    pub fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
-        let gen_result = self.inner.generate(functional, rng);
-        let se = gen_result.recombination_event;
-        GenerationResult {
-            cdr3_nt: gen_result.cdr3_nt,
-            cdr3_aa: gen_result.cdr3_aa,
-            full_seq: gen_result.full_seq,
-            v_gene: gen_result.v_gene,
-            j_gene: gen_result.j_gene,
-            recombination_event: StaticEvent {
-                v_index: se.v_index,
-                v_start_gene: se.v_start_gene,
-                delv: se.delv,
-                j_index: se.j_index,
-                j_start_seq: se.j_start_seq,
-                delj: se.delj,
-                insvj: se.insvd,
-            },
-        }
-    }
-
-    pub fn generate_without_errors<R: Rng>(
-        &mut self,
-        functional: bool,
-        rng: &mut R,
-    ) -> GenerationResult {
-        let gen_result = self.inner.generate_without_errors(functional, rng);
-        let se = gen_result.recombination_event;
-        GenerationResult {
-            cdr3_nt: gen_result.cdr3_nt,
-            cdr3_aa: gen_result.cdr3_aa,
-            full_seq: gen_result.full_seq,
-            v_gene: gen_result.v_gene,
-            j_gene: gen_result.j_gene,
-            recombination_event: StaticEvent {
-                v_index: se.v_index,
-                v_start_gene: se.v_start_gene,
-                delv: se.delv,
-                j_index: se.j_index,
-                j_start_seq: se.j_start_seq,
-                delj: se.delj,
-                insvj: se.insvd,
-            },
-        }
-    }
-
-    pub fn filter_vs(&self, vs: Vec<Gene>) -> Result<Model> {
-        let mut m = Model {
-            inner: self.inner.filter_vs(vs)?,
-            ..Default::default()
-        };
-
-        m.update_outer_model()?;
-        m.initialize()?;
-        Ok(m)
-    }
-
-    pub fn filter_js(&self, js: Vec<Gene>) -> Result<Model> {
-        let mut m = Model {
-            inner: self.inner.filter_js(js)?,
-            ..Default::default()
-        };
-        m.update_outer_model()?;
-        m.initialize()?;
-        Ok(m)
-    }
-
-    /// Return an uniform model (for initializing the inference)
-    pub fn uniform(&self) -> Result<Model> {
-        let mut m = Model {
-            inner: self.inner.uniform()?,
-            ..Default::default()
-        };
-        m.update_outer_model()?;
-        m.initialize()?;
-        Ok(m)
-    }
-
-    pub fn evaluate(
-        &self,
-        sequence: &Sequence,
-        inference_params: &InferenceParameters,
-    ) -> Result<ResultInference> {
-        self.inner.evaluate(sequence, inference_params)
-    }
-
-    pub fn infer(
-        &mut self,
-        sequences: &Vec<Sequence>,
-        inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        self.inner.infer(sequences, inference_params)?;
-        self.update_outer_model()?;
-        Ok(())
-    }
 
     pub fn get_v_gene(&self, event: &InfEvent) -> String {
         self.seg_vs[event.v_index].name.clone()
@@ -688,26 +728,6 @@ impl Model {
         Ok(())
     }
 
-    pub fn align_from_cdr3(
-        &self,
-        cdr3_seq: Dna,
-        vgenes: Vec<Gene>,
-        jgenes: Vec<Gene>,
-    ) -> Result<Sequence> {
-        self.inner.align_from_cdr3(cdr3_seq, vgenes, jgenes)
-    }
-
-    pub fn align_sequence(
-        &self,
-        dna_seq: Dna,
-        align_params: &AlignmentParameters,
-    ) -> Result<Sequence> {
-        self.inner.align_sequence(dna_seq, align_params)
-    }
-
-    pub fn recreate_full_sequence(&self, dna: &Dna, vgene: &Gene, jgene: &Gene) -> Dna {
-        self.inner.recreate_full_sequence(dna, vgene, jgene)
-    }
 
     pub fn from_features(&self, feature: &Features) -> Result<Model> {
         let mut m = self.clone();
@@ -717,9 +737,6 @@ impl Model {
         Ok(m)
     }
 
-    pub fn similar_to(&self, m: Model) -> bool {
-        self.inner.similar_to(m.inner)
-    }
 }
 
 impl ModelGen for Model {
