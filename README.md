@@ -7,7 +7,7 @@ It can:
 - evaluate sequences (infer the most likely recombination scenarios)
 - compute "pgen"
 
-It's probably easier to use the companion python package, but working in Rust directly should also be viable.
+It's probably easier to use the [companion python package](https://pypi.org/project/righor/) (`pip install righor`), but working in Rust directly should also be viable.
 
 
 How to use the python package:
