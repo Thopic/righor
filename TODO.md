@@ -12,8 +12,8 @@
 		I would need to add sums here and there, nothing impossible, but slightly more a pain. In short some position must be linked, this will complexify quite a bit the definition of Dna (more precisely this will be a new class). So
 	UndefinedDna would contains for each position a vec/array of bytes and a int giving the positions they're connected with  (just need two options for everything). This is very specific to the aa case, but why should I care. A bit complicated rn, leaving it for later.
 - clean up gen event / static event if possible.
-
-
+- add some checks so that people don't mix up the V and J files
+- allow restricted models (P(V) P(DJ))
 
 Before version change checklist:
 - is righor-py using the cargo package or the local version ?
