@@ -1,10 +1,10 @@
 //! Deal with V/J gene names and gene representations
-use serde::{Serialize, Deserialize};
-use anyhow::{anyhow, Result};
 use crate::shared::Dna;
-use regex::Regex;
+use anyhow::{anyhow, Result};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 /// Define some storage wrapper for the V/D/J genes
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
@@ -25,6 +25,18 @@ pub struct Gene {
 impl Gene {
     fn __repr__(&self) -> String {
         format!("Gene({})", self.name)
+    }
+
+    #[new]
+    #[pyo3(signature = (name = "", cdr3_pos = None, functional = "", seq = ""))]
+    fn new(name: &str, cdr3_pos: Option<usize>, functional: &str, seq: &str) {
+        Gene {
+            name,
+            cdr3_pos,
+            functional,
+            seq,
+            seq_with_pal: None,
+        }
     }
 }
 
