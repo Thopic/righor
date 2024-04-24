@@ -493,8 +493,9 @@ impl AminoAcid {
 #[pymethods]
 impl Dna {
     #[new]
-    pub fn py_new() -> Dna {
-        Dna::new()
+    #[pyo3(signature = (sequence = String::new()))]
+    pub fn py_new(sequence: String) -> Dna {
+        Dna::from_string(sequence)
     }
 
     #[staticmethod]
