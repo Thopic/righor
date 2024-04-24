@@ -14,6 +14,7 @@
 - clean up gen event / static event if possible.
 - add some checks so that people don't mix up the V and J files
 - allow restricted models (P(V) P(DJ))
+- allow to fix number of cores used
 
 Before version change checklist:
 - is righor-py using the cargo package or the local version ?
