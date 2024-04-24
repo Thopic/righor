@@ -29,7 +29,7 @@ impl Gene {
 
     #[new]
     #[pyo3(signature = (name = "", cdr3_pos = None, functional = "", seq = ""))]
-    fn new(name: &str, cdr3_pos: Option<usize>, functional: &str, seq: &str) {
+    fn new(name: String, cdr3_pos: Option<usize>, functional: String, seq: String) -> Gene {
         Gene {
             name,
             cdr3_pos,
