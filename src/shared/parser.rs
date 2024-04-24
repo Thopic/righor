@@ -111,7 +111,7 @@ impl Marginal {
             result.push('\n');
         } else if self.dimensions.len() == 2 {
             for i in 0..self.dimensions[0] {
-                result.push_str(&format!("#[{},{}]\n", self.dependences[0], i));
+                result.push_str(&format!("#[{},{}]\n%", self.dependences[0], i));
                 for k in 0..self.dimensions[1] {
                     let prob = self.probabilities[[i, k]];
                     result.push_str(&format!("{},", prob));
@@ -123,7 +123,7 @@ impl Marginal {
             for i in 0..self.dimensions[0] {
                 for j in 0..self.dimensions[1] {
                     result.push_str(&format!(
-                        "#[{},{}],[{},{}]\n",
+                        "#[{},{}],[{},{}]\n%",
                         self.dependences[0], i, self.dependences[1], j,
                     ));
 
