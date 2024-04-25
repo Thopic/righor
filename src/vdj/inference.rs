@@ -44,8 +44,8 @@ pub struct InfEvent {
 pub struct ResultInference {
     pub likelihood: f64,
     pub pgen: f64,
-    best_event: Option<InfEvent>,
-    best_likelihood: f64,
+    pub best_event: Option<InfEvent>,
+    pub best_likelihood: f64,
     pub features: Option<Features>,
 }
 
@@ -170,7 +170,7 @@ impl ResultInference {
         })
     }
 
-    fn impossible() -> ResultInference {
+    pub fn impossible() -> ResultInference {
         ResultInference {
             likelihood: 0.,
             pgen: 0.,
@@ -263,13 +263,30 @@ impl ResultInference {
     }
 }
 
+pub trait FeaturesInsDelVDJ {
+    fn delv(&self) -> &CategoricalFeature1g1;
+    fn delj(&self) -> &CategoricalFeature1g1;
+    fn deld(&self) -> &CategoricalFeature2g1;
+    fn insvd(&self) -> &InsertionFeature;
+    fn insdj(&self) -> &InsertionFeature;
+    fn error(&self) -> &ErrorSingleNucleotide;
+    fn delv_mut(&mut self) -> &mut CategoricalFeature1g1;
+    fn delj_mut(&mut self) -> &mut CategoricalFeature1g1;
+    fn deld_mut(&mut self) -> &mut CategoricalFeature2g1;
+    fn insvd_mut(&mut self) -> &mut InsertionFeature;
+    fn insdj_mut(&mut self) -> &mut InsertionFeature;
+    fn error_mut(&mut self) -> &mut ErrorSingleNucleotide;
+
+    fn new(model: &Model) -> Result<Self>
+    where
+        Self: Sized;
+    fn infer(&mut self, sequence: &Sequence, ip: &InferenceParameters) -> Result<ResultInference>;
+    fn update_model(&self, model: &mut Model) -> Result<()>;
+}
+
 #[derive(Default, Clone, Debug)]
-//#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct Features {
-    //    pub v: CategoricalFeature1,
     pub delv: CategoricalFeature1g1,
-    // pub j: CategoricalFeature1g1,
-    // pub d: CategoricalFeature1g2,
     pub vdj: CategoricalFeature3,
     pub delj: CategoricalFeature1g1,
     pub deld: CategoricalFeature2g1, // d5, d3, d
@@ -278,8 +295,57 @@ pub struct Features {
     pub error: ErrorSingleNucleotide,
 }
 
-impl Features {
-    pub fn new(model: &Model) -> Result<Features> {
+impl FeaturesInsDelVDJ for Features {
+    fn delv(&self) -> &CategoricalFeature1g1 {
+        &self.delv
+    }
+    fn delj(&self) -> &CategoricalFeature1g1 {
+        &self.delj
+    }
+    fn deld(&self) -> &CategoricalFeature2g1 {
+        &self.deld
+    }
+    fn insvd(&self) -> &InsertionFeature {
+        &self.insvd
+    }
+    fn insdj(&self) -> &InsertionFeature {
+        &self.insdj
+    }
+    fn error(&self) -> &ErrorSingleNucleotide {
+        &self.error
+    }
+    fn delv_mut(&mut self) -> &mut CategoricalFeature1g1 {
+        &mut self.delv
+    }
+    fn delj_mut(&mut self) -> &mut CategoricalFeature1g1 {
+        &mut self.delj
+    }
+    fn deld_mut(&mut self) -> &mut CategoricalFeature2g1 {
+        &mut self.deld
+    }
+    fn insvd_mut(&mut self) -> &mut InsertionFeature {
+        &mut self.insvd
+    }
+    fn insdj_mut(&mut self) -> &mut InsertionFeature {
+        &mut self.insdj
+    }
+    fn error_mut(&mut self) -> &mut ErrorSingleNucleotide {
+        &mut self.error
+    }
+
+    fn update_model(&self, model: &mut Model) -> Result<()> {
+        model.p_vdj = self.vdj.probas.clone();
+        model.p_del_v_given_v = self.delv.probas.clone();
+        model.set_p_vdj(&self.vdj.probas.clone())?;
+        model.p_del_j_given_j = self.delj.probas.clone();
+        model.p_del_d5_del_d3 = self.deld.probas.clone();
+        (model.p_ins_vd, model.markov_coefficients_vd) = self.insvd.get_parameters();
+        (model.p_ins_dj, model.markov_coefficients_dj) = self.insdj.get_parameters();
+        model.error_rate = self.error.error_rate;
+        Ok(())
+    }
+
+    fn new(model: &Model) -> Result<Features> {
         Ok(Features {
             vdj: CategoricalFeature3::new(&model.p_vdj)?,
             delv: CategoricalFeature1g1::new(&model.p_del_v_given_v)?,
@@ -291,11 +357,9 @@ impl Features {
         })
     }
 
-    pub fn infer(
-        &mut self,
-        sequence: &Sequence,
-        ip: &InferenceParameters,
-    ) -> Result<ResultInference> {
+    /// Core function, iterate over all realistic scenarios to compute the
+    /// likelihood of the sequence and update the parameters
+    fn infer(&mut self, sequence: &Sequence, ip: &InferenceParameters) -> Result<ResultInference> {
         // Estimate the likelihood of all possible insertions
         let mut ins_vd = match FeatureVD::new(sequence, self, ip) {
             Some(ivd) => ivd,
@@ -370,7 +434,9 @@ impl Features {
         // Return the result
         Ok(result)
     }
+}
 
+impl Features {
     #[allow(clippy::too_many_arguments)]
     pub fn infer_given_vdj(
         &mut self,
@@ -457,15 +523,15 @@ impl Features {
                                 }
                             }
                             if ip.infer {
-				if ip.infer_genes {
+                                if ip.infer_genes {
                                     feature_v.dirty_update(ev, likelihood);
                                     feature_j.dirty_update(sj, likelihood);
                                     feature_d.dirty_update(sd, ed, likelihood);
-				}
-				if ip.infer_insertions {
+                                }
+                                if ip.infer_insertions {
                                     ins_vd.dirty_update(ev, sd, likelihood);
                                     ins_dj.dirty_update(ed, sj, likelihood);
-				}
+                                }
                                 self.vdj.dirty_update(
                                     (feature_v.index, feature_d.index, feature_j.index),
                                     likelihood,

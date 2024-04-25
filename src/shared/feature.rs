@@ -1,7 +1,5 @@
-use crate::shared::{
-     nucleotides_inv, Dna, 
-};
 use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2, Normalize3};
+use crate::shared::{nucleotides_inv, Dna};
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Array3};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]

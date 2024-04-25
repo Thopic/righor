@@ -1,17 +1,17 @@
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
-use crate::shared::utils::{
-    sorted_and_complete, sorted_and_complete_0start
+use crate::shared::utils::{sorted_and_complete, sorted_and_complete_0start};
+use crate::shared::{
+    distributions::calc_steady_state_dist, AlignmentParameters, Dna, Gene, InferenceParameters,
+    ModelGen, RecordModel,
 };
-use crate::shared::{Gene, ModelGen, distributions::calc_steady_state_dist,
-		    RecordModel, AlignmentParameters, Dna, InferenceParameters};
 
+use crate::shared::Modelable;
 use crate::vdj::{
     inference::{Features, InfEvent, ResultInference},
     Model as ModelVDJ, Sequence,
 };
-use crate::shared::Modelable;
 use crate::vj::StaticEvent;
 use anyhow::{anyhow, Result};
 use ndarray::{array, Array1, Array2, Array3, Axis};
@@ -38,7 +38,6 @@ pub struct GenerationResult {
     pub j_gene: String,
     pub recombination_event: StaticEvent,
 }
-
 
 impl Generator {
     pub fn new(
@@ -78,7 +77,6 @@ impl Generator {
             .generate_without_errors(functional, &mut self.rng)
     }
 }
-
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
@@ -137,7 +135,7 @@ pub struct Model {
 impl Modelable for Model {
     type GenerationResult = GenerationResult;
     type RecombinaisonEvent = StaticEvent;
-    
+
     fn load_from_name(
         species: &str,
         chain: &str,
@@ -254,14 +252,13 @@ impl Modelable for Model {
         model.initialize()?;
         Ok(model)
     }
-    
 
     fn initialize(&mut self) -> Result<()> {
         self.load_inner_vdj()?;
         Ok(())
     }
 
-        fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
+    fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
         let gen_result = self.inner.generate(functional, rng);
         let se = gen_result.recombination_event;
         GenerationResult {
@@ -356,12 +353,12 @@ impl Modelable for Model {
         self.update_outer_model()?;
         Ok(())
     }
-    
+
     fn similar_to(&self, m: Model) -> bool {
         self.inner.similar_to(m.inner)
     }
 
-        fn align_from_cdr3(
+    fn align_from_cdr3(
         &self,
         cdr3_seq: Dna,
         vgenes: Vec<Gene>,
@@ -370,23 +367,16 @@ impl Modelable for Model {
         self.inner.align_from_cdr3(cdr3_seq, vgenes, jgenes)
     }
 
-    fn align_sequence(
-        &self,
-        dna_seq: Dna,
-        align_params: &AlignmentParameters,
-    ) -> Result<Sequence> {
+    fn align_sequence(&self, dna_seq: Dna, align_params: &AlignmentParameters) -> Result<Sequence> {
         self.inner.align_sequence(dna_seq, align_params)
     }
 
     fn recreate_full_sequence(&self, dna: &Dna, vgene: &Gene, jgene: &Gene) -> Dna {
         self.inner.recreate_full_sequence(dna, vgene, jgene)
     }
-
-    
 }
 
 impl Model {
-
     pub fn load_model(pp: &ParserParams, pm: &ParserMarginals) -> Result<Model> {
         let mut model: Model = Model {
             seg_vs: pp
@@ -518,7 +508,6 @@ impl Model {
         Ok(model)
     }
 
-    
     pub fn write_v_anchors(&self) -> Result<String> {
         self.inner.write_v_anchors()
     }
@@ -628,7 +617,6 @@ impl Model {
         Ok(result)
     }
 
-
     fn load_inner_vdj(&mut self) -> Result<()> {
         // create an empty d gene
         let d_gene = Gene {
@@ -694,7 +682,6 @@ impl Model {
         Ok(())
     }
 
-
     pub fn get_v_gene(&self, event: &InfEvent) -> String {
         self.seg_vs[event.v_index].name.clone()
     }
@@ -728,7 +715,6 @@ impl Model {
         Ok(())
     }
 
-
     pub fn from_features(&self, feature: &Features) -> Result<Model> {
         let mut m = self.clone();
         m.inner.update(feature)?;
@@ -736,7 +722,6 @@ impl Model {
         m.initialize()?;
         Ok(m)
     }
-
 }
 
 impl ModelGen for Model {

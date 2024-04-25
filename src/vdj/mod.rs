@@ -8,7 +8,7 @@ pub mod sequence;
 
 // Re-exporting for public API
 pub use self::event::{Event, StaticEvent};
-use self::feature::{
+pub use self::feature::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
 };
 pub use self::inference::{Features, InfEvent, ResultHuman, ResultInference};

@@ -1,11 +1,12 @@
 pub mod shared;
+pub mod v_dj;
 pub mod vdj;
 pub mod vj;
 
 pub use crate::shared::{
-    Modelable, genes_matching, AlignmentParameters, AminoAcid, CategoricalFeature1, CategoricalFeature1g1,
+    genes_matching, AlignmentParameters, AminoAcid, CategoricalFeature1, CategoricalFeature1g1,
     CategoricalFeature2, CategoricalFeature2g1, DAlignment, Dna, ErrorSingleNucleotide, Gene,
-    InferenceParameters, InsertionFeature, VJAlignment,
+    InferenceParameters, InsertionFeature, Modelable, VJAlignment,
 };
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]

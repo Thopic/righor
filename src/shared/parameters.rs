@@ -3,7 +3,6 @@ use bio::alignment::{pairwise, Alignment};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
-
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 pub struct AlignmentParameters {
     // Structure containing all the parameters for the alignment
@@ -17,26 +16,29 @@ pub struct AlignmentParameters {
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Clone, Debug)]
 pub struct InferenceParameters {
-    // The evaluation/inference algorithm will cut branches
-    // with likelihood < min_likelihood
+    /// The evaluation/inference algorithm will cut branches
+    /// with likelihood < min_likelihood
     pub min_likelihood: f64,
-    // The evaluation/inference algorithm will cut branches with
-    // likelihood < (best current likelihood * min_ratio_likelihood)
+    /// The evaluation/inference algorithm will cut branches with
+    /// likelihood < (best current likelihood * min_ratio_likelihood)
     pub min_ratio_likelihood: f64,
-    // If true, run the inference (so update the features)
+    /// If true, run the inference (so update the features)
     pub infer: bool,
-    // If true store the highest likelihood event
+    /// If true store the highest likelihood event
     pub store_best_event: bool,
-    // If true and "store_best_event" is true, compute the pgen of the sequence
-    // (pgen is computed by default if the model error rate is 0)
+    /// If true and "store_best_event" is true, compute the pgen of the sequence
+    /// (pgen is computed by default if the model error rate is 0)
     pub compute_pgen: bool,
 
-    // If true (default) infer the insertion distribution
+    /// If true (default) infer the insertion distribution
     pub infer_insertions: bool,
-    // If true (default) infer the deletion distribution & gene usage
+    /// If true (default) infer the deletion distribution & gene usage
     pub infer_genes: bool,
-}
 
+    /// if true (default is false), use the P(V, D, J) complete model
+    /// rather than the P(V, J)×P(D|J) model
+    pub complete_vdj_inference: bool,
+}
 
 impl Default for AlignmentParameters {
     fn default() -> AlignmentParameters {
@@ -139,7 +141,6 @@ impl AlignmentParameters {
     }
 }
 
-
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl InferenceParameters {
@@ -164,8 +165,9 @@ impl Default for InferenceParameters {
             infer: true,
             store_best_event: true,
             compute_pgen: true,
-	    infer_insertions: true,
-	    infer_genes: true,
+            infer_insertions: true,
+            infer_genes: true,
+            complete_vdj_inference: false,
         }
     }
 }

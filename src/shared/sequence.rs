@@ -1,15 +1,15 @@
 /// Contains the basic struct and function for loading and aligning sequences
 use crate::shared::utils::count_differences;
+use crate::shared::AlignmentParameters;
 use crate::vdj::model::Model as ModelVDJ;
+use anyhow::{anyhow, Result};
+use bio::alignment::{pairwise, Alignment};
+use phf::phf_map;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
-use std::sync::Arc;
-use serde::{Serialize, Deserialize};
-use phf::phf_map;
-use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use std::fmt;
-use bio::alignment::{pairwise, Alignment};
-use crate::shared::AlignmentParameters;
+use std::sync::Arc;
 
 // pub trait DnaLike {
 //     pub fn len(&self) -> usize;
@@ -19,7 +19,6 @@ use crate::shared::AlignmentParameters;
 //     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> Self where Self: Sized;
 //     pub fn probability(&self, markov_coefficients: Array2<f64>) -> f64;
 // }
-
 
 // /// Partially defined dna sequence created from an amino-acid sequence
 // struct UndefinedDna {
@@ -33,7 +32,7 @@ use crate::shared::AlignmentParameters;
 //     codon_end: usize,
 //     // true if the sequence considered is the reverse complement of the codons stored
 //     reverse_complement: bool,
-    
+
 // }
 
 // impl UndefinedDna {
@@ -59,7 +58,7 @@ use crate::shared::AlignmentParameters;
 // 	    codon_end: 0,
 // 	}
 //     }
-    
+
 //     /// lossy process, remove some information about the codon
 //     pub fn to_dna(&self) -> Dna {
 
@@ -69,18 +68,16 @@ use crate::shared::AlignmentParameters;
 // 	sequence.extract_subsequence(self.codon_start, self.len() - self.codon_end)
 //     }
 
-    
 // }
 
 // impl DnaLike for UndefinedDna {
 
 //     /// Return the reverse complement of the sequence
 //     pub fn reverse_complement(&mut self) -> UndefinedDna {
-	
+
 //     }
 
-    
-//     /// Extract a subsequence from the dna. No particular checks. 
+//     /// Extract a subsequence from the dna. No particular checks.
 //     pub fn extract_subsequence(&self, start: usize, end: usize) -> UndefinedDna {
 // 	// where to start in the amino-acid sequence
 
@@ -92,19 +89,19 @@ use crate::shared::AlignmentParameters;
 // 	//  x  x  x  x  x  x  x  x  x  x  x  x  x  : amino-acids
 // 	//             <-------->                  : extracted sequence
 // 	//             ............                : stored data for extracted sequence
-// 	// 
+// 	//
 
 // 	let shift_start = start + self.codon_start;
 // 	let shift_end = end + self.codon_start;
-	    
+
 // 	let aa_start = shift_start / 3;
 // 	let aa_end = shift_end / 3 + 1;
-	
+
 // 	UndefinedDna {
 // 	    codons: self.codons[aa_start..aa_end].to_vec(),
 // 	    codon_start: shift_start % 3,
-// 	    codon_end: 3*(aa_end) - shift_end 
-	    
+// 	    codon_end: 3*(aa_end) - shift_end
+
 // 	}
 //     }
 
@@ -114,14 +111,14 @@ use crate::shared::AlignmentParameters;
 // 	// example:
 // 	// start = -4, end = 17
 // 	// codon_start = 2, codon_end = 0
-// 	//               0    '    '   '  
+// 	//               0    '    '   '
 // 	//               <----------->             : true sequence
 // 	//             ...............             : full stored data
 // 	//              x  x  x  x  x              : amino-acids
 // 	//           <-------------------->        : extracted and padded sequence
 // 	//          ........................       : stored data for padded sequence
-	
-// 	let result = self.clone();	
+
+// 	let result = self.clone();
 //         let len = self.len() as i64;
 // 	let mut shift = 0;
 
@@ -132,7 +129,7 @@ use crate::shared::AlignmentParameters;
 // 	if end > self.len() {
 // 	    result.pad_right(end - self.len());
 // 	}
-// 	result.extract_subsequence(start + shift, end + shift) 
+// 	result.extract_subsequence(start + shift, end + shift)
 //     }
 
 //     pub fn len(&self) -> usize {
@@ -143,12 +140,6 @@ use crate::shared::AlignmentParameters;
 // 	self.len() == 0
 //     }
 // }
-
-
-
-
-
-
 
 static DNA_TO_AMINO: phf::Map<&'static str, u8> = phf_map! {
     "TTT" => b'F', "TTC" => b'F', "TTA" => b'L', "TTG" => b'L', "TCT" => b'S', "TCC" => b'S',
@@ -486,7 +477,6 @@ impl AminoAcid {
         AminoAcid::from_string(s)
     }
 }
-
 
 // pyo3 boiler code
 #[cfg(feature = "py_binds")]

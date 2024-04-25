@@ -1,11 +1,11 @@
 //! Distributions to improve the speed of the generation process
-use anyhow::{anyhow, Result};
-use rand_distr::{WeightedAliasIndex, Uniform, Distribution};
-use rand::Rng;
-use ndarray::{Array1, Array2, Axis};
-use crate::shared::Dna;
 use crate::shared::sequence::{nucleotides_inv, NUCLEOTIDES};
 use crate::shared::utils::normalize_transition_matrix;
+use crate::shared::Dna;
+use anyhow::{anyhow, Result};
+use ndarray::{Array1, Array2, Axis};
+use rand::Rng;
+use rand_distr::{Distribution, Uniform, WeightedAliasIndex};
 
 /// Generate an integer with a given probability
 #[derive(Clone, Debug)]

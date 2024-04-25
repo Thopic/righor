@@ -2,14 +2,15 @@
 #![allow(dead_code)]
 
 pub mod shared;
+pub mod v_dj;
 pub mod vdj;
 pub mod vj;
 
 use anyhow::{anyhow, Result};
 use kdam::tqdm;
-use righor::Modelable;
 use ndarray::array;
 use ndarray::Axis;
+use righor::Modelable;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;

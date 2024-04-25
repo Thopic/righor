@@ -80,9 +80,9 @@ impl StaticEvent {
         let vg = &m.seg_vs[self.v_index];
         let jg = &m.seg_js[self.j_index];
         let mut end_cdr3 = full_sequence.len() - jg.seq.len() + jg.cdr3_pos.unwrap() + 3;
-	if vg.cdr3_pos.unwrap() > end_cdr3 {
-	    end_cdr3 = vg.cdr3_pos.unwrap(); // if we cut too much we return the empty sequence
-	}
+        if vg.cdr3_pos.unwrap() > end_cdr3 {
+            end_cdr3 = vg.cdr3_pos.unwrap(); // if we cut too much we return the empty sequence
+        }
         full_sequence.extract_subsequence(vg.cdr3_pos.unwrap(), end_cdr3)
     }
 

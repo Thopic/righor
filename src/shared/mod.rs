@@ -1,10 +1,10 @@
 //! Shared functionalities between VDJ and VJ (not related to alignment)
+pub mod data_structures;
+pub mod distributions;
 pub mod feature;
 pub mod gene;
 pub mod model;
 pub mod parameters;
-pub mod data_structures;
-pub mod distributions;
 pub mod parser;
 pub mod py_binding;
 pub mod sequence;
@@ -14,8 +14,8 @@ pub use feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature1g2, CategoricalFeature2,
     CategoricalFeature2g1, ErrorSingleNucleotide, InsertionFeature,
 };
-pub use utils::{RecordModel};
-pub use gene::{Gene, genes_matching, ModelGen};
+pub use gene::{genes_matching, Gene, ModelGen};
+pub use model::Modelable;
 pub use parameters::{AlignmentParameters, InferenceParameters};
 pub use sequence::{nucleotides_inv, AminoAcid, DAlignment, Dna, VJAlignment};
-pub use model::{Modelable};
+pub use utils::RecordModel;

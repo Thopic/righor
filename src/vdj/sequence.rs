@@ -1,4 +1,7 @@
-use crate::shared::{utils::count_differences, utils::difference_as_i64, AlignmentParameters, Dna, DAlignment, VJAlignment};
+use crate::shared::{
+    utils::count_differences, utils::difference_as_i64, AlignmentParameters, DAlignment, Dna,
+    VJAlignment,
+};
 use crate::vdj::{Event, Model};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;

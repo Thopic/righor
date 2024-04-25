@@ -1,7 +1,8 @@
-use crate::shared::feature::Feature;
-use crate::shared::utils::{difference_as_i64};
 use crate::shared::data_structures::{RangeArray1, RangeArray2};
-use crate::shared::{DAlignment, VJAlignment, Dna, InferenceParameters};
+use crate::shared::feature::Feature;
+use crate::shared::utils::difference_as_i64;
+use crate::shared::{DAlignment, Dna, InferenceParameters, VJAlignment};
+use crate::vdj::inference::FeaturesInsDelVDJ;
 use crate::vdj::{Features, Sequence};
 use itertools::iproduct;
 
@@ -61,19 +62,19 @@ pub struct AggregatedFeatureSpanD {
 impl AggregatedFeatureEndV {
     pub fn new(
         v: &VJAlignment,
-        feat: &Features,
+        feat: &impl FeaturesInsDelVDJ,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureEndV> {
         let mut likelihood = RangeArray1::zeros((
-            difference_as_i64(v.end_seq, feat.delv.dim().0) + 1,
+            difference_as_i64(v.end_seq, feat.delv().dim().0) + 1,
             v.end_seq as i64 + 1,
         ));
         let mut total_likelihood = 0.;
-        for delv in 0..feat.delv.dim().0 {
+        for delv in 0..feat.delv().dim().0 {
             let v_end = difference_as_i64(v.end_seq, delv);
-            let ll_delv = feat.delv.likelihood((delv, v.index));
+            let ll_delv = feat.delv().likelihood((delv, v.index));
             let ll_v_err = feat
-                .error
+                .error()
                 .likelihood((v.nb_errors(delv), v.length_with_deletion(delv)));
             let ll = ll_delv * ll_v_err;
             if ll > ip.min_likelihood {
@@ -109,21 +110,26 @@ impl AggregatedFeatureEndV {
         *self.dirty_likelihood.get_mut(ev) += likelihood;
     }
 
-    pub fn disaggregate(&self, v: &VJAlignment, feat: &mut Features, ip: &InferenceParameters) {
-        for delv in 0..feat.delv.dim().0 {
+    pub fn disaggregate(
+        &self,
+        v: &VJAlignment,
+        feat: &mut impl FeaturesInsDelVDJ,
+        ip: &InferenceParameters,
+    ) {
+        for delv in 0..feat.delv().dim().0 {
             let v_end = difference_as_i64(v.end_seq, delv);
-            let ll = feat.delv.likelihood((delv, v.index))
+            let ll = feat.delv().likelihood((delv, v.index))
                 * feat
-                    .error
+                    .error()
                     .likelihood((v.nb_errors(delv), v.length_with_deletion(delv)));
 
             if ll > ip.min_likelihood {
                 let proba_params_given_ev = ll / self.total_likelihood; // P(parameters|ev)
                 let dirty_proba = self.dirty_likelihood.get(v_end); // P(ev)
                 if dirty_proba > 0. {
-                    feat.delv
+                    feat.delv_mut()
                         .dirty_update((delv, v.index), dirty_proba * proba_params_given_ev);
-                    feat.error.dirty_update(
+                    feat.error_mut().dirty_update(
                         (v.nb_errors(delv), v.length_with_deletion(delv)),
                         dirty_proba * proba_params_given_ev,
                     );
@@ -331,19 +337,19 @@ pub struct FeatureVD {
 impl FeatureVD {
     pub fn new(
         sequence: &Sequence,
-        feat: &Features,
+        feat: &impl FeaturesInsDelVDJ,
         ip: &InferenceParameters,
     ) -> Option<FeatureVD> {
         if sequence.v_genes.is_empty() || sequence.d_genes.is_empty() {
             return None;
         }
         let min_end_v = sequence.v_genes.iter().map(|x| x.end_seq).min().unwrap() as i64
-            - feat.delv.dim().0 as i64
+            - feat.delv().dim().0 as i64
             + 1;
         let min_start_d = sequence.d_genes.iter().map(|x| x.pos).min().unwrap() as i64;
         let max_end_v = sequence.v_genes.iter().map(|x| x.end_seq).max().unwrap() as i64;
         let max_start_d = sequence.d_genes.iter().map(|x| x.pos).max().unwrap() as i64
-            + feat.deld.dim().0 as i64
+            + feat.deld().dim().0 as i64
             - 1;
 
         let mut likelihoods =
@@ -351,9 +357,9 @@ impl FeatureVD {
 
         for ev in min_end_v..=max_end_v {
             for sd in min_start_d..=max_start_d {
-                if sd >= ev && ((sd - ev) as usize) < feat.insvd.max_nb_insertions() {
+                if sd >= ev && ((sd - ev) as usize) < feat.insvd().max_nb_insertions() {
                     let ins_vd_plus_first = sequence.get_subsequence(ev - 1, sd);
-                    let likelihood = feat.insvd.likelihood(&ins_vd_plus_first);
+                    let likelihood = feat.insvd().likelihood(&ins_vd_plus_first);
                     if likelihood > ip.min_likelihood {
                         *likelihoods.get_mut((ev, sd)) = likelihood;
                     }
@@ -395,17 +401,22 @@ impl FeatureVD {
         *self.dirty_likelihood.get_mut((ev, sd)) += likelihood;
     }
 
-    pub fn disaggregate(&self, sequence: &Dna, feat: &mut Features, ip: &InferenceParameters) {
+    pub fn disaggregate(
+        &self,
+        sequence: &Dna,
+        feat: &mut impl FeaturesInsDelVDJ,
+        ip: &InferenceParameters,
+    ) {
         for ev in self.likelihood.lower().0..self.likelihood.upper().0 {
             for sd in self.likelihood.lower().1..self.likelihood.upper().1 {
                 if sd >= ev
-                    && ((sd - ev) as usize) < feat.insvd.max_nb_insertions()
+                    && ((sd - ev) as usize) < feat.insvd().max_nb_insertions()
                     && self.likelihood(ev, sd) > ip.min_likelihood
                 {
                     let ins_vd_plus_first = &sequence.extract_padded_subsequence(ev - 1, sd);
                     let likelihood = self.likelihood(ev, sd);
                     if likelihood > ip.min_likelihood {
-                        feat.insvd
+                        feat.insvd_mut()
                             .dirty_update(ins_vd_plus_first, self.dirty_likelihood.get((ev, sd)))
                     }
                 }
@@ -422,7 +433,7 @@ pub struct FeatureDJ {
 impl FeatureDJ {
     pub fn new(
         sequence: &Sequence,
-        feat: &Features,
+        feat: &impl FeaturesInsDelVDJ,
         ip: &InferenceParameters,
     ) -> Option<FeatureDJ> {
         if sequence.d_genes.is_empty() || sequence.j_genes.is_empty() {
@@ -435,7 +446,7 @@ impl FeatureDJ {
             .map(|x| x.pos + x.len())
             .min()
             .unwrap() as i64
-            - feat.deld.dim().1 as i64
+            - feat.deld().dim().1 as i64
             + 1;
         let min_start_j = sequence.j_genes.iter().map(|x| x.start_seq).min().unwrap() as i64;
         let max_end_d = sequence
@@ -445,7 +456,7 @@ impl FeatureDJ {
             .max()
             .unwrap() as i64;
         let max_start_j = sequence.j_genes.iter().map(|x| x.start_seq).max().unwrap() as i64
-            + feat.delj.dim().0 as i64
+            + feat.delj().dim().0 as i64
             - 1;
 
         let mut likelihoods =
@@ -453,11 +464,11 @@ impl FeatureDJ {
 
         for ed in min_end_d..=max_end_d {
             for sj in min_start_j..=max_start_j {
-                if sj >= ed && ((sj - ed) as usize) < feat.insdj.max_nb_insertions() {
+                if sj >= ed && ((sj - ed) as usize) < feat.insdj().max_nb_insertions() {
                     // careful we need to reverse ins_dj for the inference
                     let mut ins_dj_plus_last = sequence.get_subsequence(ed, sj + 1);
                     ins_dj_plus_last.reverse();
-                    let likelihood = feat.insdj.likelihood(&ins_dj_plus_last);
+                    let likelihood = feat.insdj().likelihood(&ins_dj_plus_last);
                     if likelihood > ip.min_likelihood {
                         *likelihoods.get_mut((ed, sj)) = likelihood;
                     }
@@ -499,16 +510,21 @@ impl FeatureDJ {
         *self.dirty_likelihood.get_mut((ed, sj)) += likelihood;
     }
 
-    pub fn disaggregate(&self, sequence: &Dna, feat: &mut Features, ip: &InferenceParameters) {
+    pub fn disaggregate(
+        &self,
+        sequence: &Dna,
+        feat: &mut impl FeaturesInsDelVDJ,
+        ip: &InferenceParameters,
+    ) {
         for ed in self.likelihood.lower().0..self.likelihood.upper().0 {
             for sj in self.likelihood.lower().1..self.likelihood.upper().1 {
                 if sj >= ed
-                    && ((sj - ed) as usize) < feat.insdj.max_nb_insertions()
+                    && ((sj - ed) as usize) < feat.insdj().max_nb_insertions()
                     && self.likelihood(ed, sj) > ip.min_likelihood
                 {
                     let mut ins_dj_plus_last = sequence.extract_padded_subsequence(ed, sj + 1);
                     ins_dj_plus_last.reverse();
-                    feat.insdj
+                    feat.insdj_mut()
                         .dirty_update(&ins_dj_plus_last, self.dirty_likelihood.get((ed, sj)));
                 }
             }

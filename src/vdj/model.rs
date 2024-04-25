@@ -1,13 +1,14 @@
+use crate::shared::distributions::*;
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
-use crate::shared::distributions::*;
 use crate::shared::Modelable;
 
-use crate::shared::{Gene, InferenceParameters, ModelGen,
-		    utils::sorted_and_complete, utils::sorted_and_complete_0start, utils::Normalize, RecordModel, DAlignment, VJAlignment,
-    utils::count_differences, sequence::NUCLEOTIDES, AlignmentParameters, AminoAcid, Dna,
+use crate::shared::{
+    sequence::NUCLEOTIDES, utils::count_differences, utils::sorted_and_complete,
+    utils::sorted_and_complete_0start, utils::Normalize, AlignmentParameters, AminoAcid,
+    DAlignment, Dna, Gene, InferenceParameters, ModelGen, RecordModel, VJAlignment,
 };
 
 use crate::vdj::inference::ResultInference;
@@ -29,7 +30,8 @@ pub struct GenerationResult {
     pub recombination_event: StaticEvent,
 }
 
-
+use crate::v_dj;
+use crate::vdj::inference::FeaturesInsDelVDJ;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -45,7 +47,6 @@ pub struct Generator {
     model: Model,
     rng: SmallRng,
 }
-
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
@@ -162,13 +163,10 @@ pub struct Model {
     pub thymic_q: f64,
 }
 
-
-
 impl Modelable for Model {
-
     type GenerationResult = GenerationResult;
     type RecombinaisonEvent = StaticEvent;
-    
+
     fn load_from_name(
         species: &str,
         chain: &str,
@@ -285,7 +283,7 @@ impl Modelable for Model {
         Ok(model)
     }
 
-        /// Return (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname)
+    /// Return (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname)
     fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
         let (full_seq, _, _, mut event) = self.generate_no_error(functional, rng);
 
@@ -369,7 +367,7 @@ impl Modelable for Model {
         // load the data and normalize
         let mut feature = Features::new(self)?;
         feature.normalize()?;
-        self.load_features(&feature)?;
+        feature.update_model(self)?;
         self.initialize_generative_model()?;
         Ok(())
     }
@@ -418,21 +416,35 @@ impl Modelable for Model {
         ip.infer = true;
         ip.compute_pgen = false;
         ip.store_best_event = false;
-        let features = sequences
-            .par_iter()
-            .map(|sequence| {
-                let mut feature = Features::new(self)?;
-                let _ = feature.infer(sequence, &ip)?;
-                Ok(feature)
-            })
-            .collect::<Result<Vec<_>>>()?;
 
-        let avg_features = Features::average(features)?;
-        self.update(&avg_features)?;
+        if ip.complete_vdj_inference {
+            let features = sequences
+                .par_iter()
+                .map(|sequence| {
+                    let mut feature = Features::new(self)?;
+                    let _ = feature.infer(sequence, &ip)?;
+                    Ok(feature)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let avg_features = Features::average(features)?;
+            self.update(&avg_features)?;
+        } else {
+            let features = sequences
+                .par_iter()
+                .map(|sequence| {
+                    let mut feature = v_dj::Features::new(self)?;
+                    let _ = feature.infer(sequence, &ip)?;
+                    Ok(feature)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let avg_features = v_dj::Features::average(features)?;
+            self.update(&avg_features)?;
+        }
+
         Ok(())
     }
 
-        fn filter_vs(&self, vs: Vec<Gene>) -> Result<Model> {
+    fn filter_vs(&self, vs: Vec<Gene>) -> Result<Model> {
         let mut m = self.clone();
 
         let dim = self.p_vdj.dim();
@@ -488,7 +500,7 @@ impl Modelable for Model {
         Ok(m)
     }
 
-        fn align_from_cdr3(
+    fn align_from_cdr3(
         &self,
         cdr3_seq: Dna,
         vgenes: Vec<Gene>,
@@ -587,11 +599,7 @@ impl Modelable for Model {
         Ok(seq)
     }
 
-        fn align_sequence(
-        &self,
-        dna_seq: Dna,
-        align_params: &AlignmentParameters,
-    ) -> Result<Sequence> {
+    fn align_sequence(&self, dna_seq: Dna, align_params: &AlignmentParameters) -> Result<Sequence> {
         let mut seq = Sequence {
             sequence: dna_seq.clone(),
             v_genes: align_all_vgenes(&dna_seq, self, align_params),
@@ -625,7 +633,7 @@ impl Modelable for Model {
         seq
     }
 
-        /// Check if the model is nearly identical to another model
+    /// Check if the model is nearly identical to another model
     /// relative precision of 1e-4 to allow for numerical errors
     fn similar_to(&self, m: Model) -> bool {
         (self.seg_vs == m.seg_vs)
@@ -660,12 +668,19 @@ impl Modelable for Model {
             && self.p_dj.relative_eq(&m.p_dj, 1e-4, 1e-4)
             && self.p_vdj.relative_eq(&m.p_vdj, 1e-4, 1e-4)
     }
-
-
 }
 
-
 impl Model {
+    pub fn get_p_vj(&self) -> Array2<f64> {
+        self.p_vdj.sum_axis(Axis(1))
+    }
+
+    pub fn get_p_d_given_j(&self) -> Array2<f64> {
+        let pdj = self.p_vdj.sum_axis(Axis(0));
+        let pj = pdj.sum_axis(Axis(0)).insert_axis(Axis(0));
+        pdj / pj
+    }
+
     pub fn write_v_anchors(&self) -> Result<String> {
         let mut wtr = csv::Writer::from_writer(vec![]);
         wtr.write_record(["gene", "anchor_index", "function"])?;
@@ -1260,11 +1275,11 @@ impl Model {
             // create the complete CDR3 sequence
             let cdr3_seq = event.to_cdr3(self);
 
-	    // if the cdr3 is empty (too much cutting) we assume the resulting sequence
-	    // is not functional
-	    if functional && cdr3_seq.len() == 0 {
-		continue;
-	    }
+            // if the cdr3 is empty (too much cutting) we assume the resulting sequence
+            // is not functional
+            if functional && cdr3_seq.len() == 0 {
+                continue;
+            }
 
             // translate
             let cdr3_seq_aa: Option<AminoAcid> = cdr3_seq.translate().ok();
@@ -1292,8 +1307,6 @@ impl Model {
         }
     }
 
-
-
     pub fn get_v_gene(&self, event: &InfEvent) -> String {
         self.seg_vs[event.v_index].name.clone()
     }
@@ -1305,8 +1318,6 @@ impl Model {
     pub fn get_d_gene(&self, event: &InfEvent) -> String {
         self.seg_ds[event.d_index].name.clone()
     }
-
-    
 
     fn make_d_genes_alignments(
         &self,
@@ -1350,22 +1361,8 @@ impl Model {
         ))
     }
 
-
-    pub fn load_features(&mut self, feature: &Features) -> Result<()> {
-        self.p_vdj = feature.vdj.probas.clone();
-        self.p_del_v_given_v = feature.delv.probas.clone();
-        self.set_p_vdj(&feature.vdj.probas.clone())?;
-        self.p_del_j_given_j = feature.delj.probas.clone();
-        self.p_del_d5_del_d3 = feature.deld.probas.clone();
-        (self.p_ins_vd, self.markov_coefficients_vd) = feature.insvd.get_parameters();
-        (self.p_ins_dj, self.markov_coefficients_dj) = feature.insdj.get_parameters();
-        self.error_rate = feature.error.error_rate;
-
-        Ok(())
-    }
-
-    pub fn update(&mut self, feature: &Features) -> Result<()> {
-        self.load_features(feature)?;
+    pub fn update(&mut self, feature: &impl FeaturesInsDelVDJ) -> Result<()> {
+        feature.update_model(self)?;
         self.initialize()?;
         Ok(())
     }
@@ -1397,7 +1394,6 @@ impl Model {
         self.p_j_given_v = self.p_j_given_v.normalize_distribution()?;
         Ok(())
     }
-
 }
 
 impl ModelGen for Model {
