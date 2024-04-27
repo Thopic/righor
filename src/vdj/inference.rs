@@ -430,7 +430,9 @@ impl FeaturesInsDelVDJ for Features {
             }
 
             // Divide all the proba by P(R) (the probability of the sequence)
-            self.cleanup(result.likelihood)?;
+            if result.likelihood > 0. {
+                self.cleanup(result.likelihood)?;
+            }
         }
 
         // Return the result
@@ -513,7 +515,9 @@ impl Features {
             }
         }
 
-        self.cleanup(result.likelihood)?;
+        if result.likelihood > 0. {
+            self.cleanup(result.likelihood)?;
+        }
 
         // Return the result
         Ok(result)

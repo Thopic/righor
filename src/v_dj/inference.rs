@@ -173,7 +173,9 @@ impl FeaturesInsDelVDJ for Features {
             agg_ins_vd.disaggregate(&sequence.sequence, self, ip);
             agg_ins_dj.disaggregate(&sequence.sequence, self, ip);
         }
-        self.cleanup(result.likelihood)?;
+        if result.likelihood > 0. {
+            self.cleanup(result.likelihood)?;
+        }
         // Return the result
         Ok(result)
     }
