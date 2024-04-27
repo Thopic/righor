@@ -36,7 +36,6 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_distr::Distribution;
-#[allow(unused_imports)]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::BufReader;
@@ -433,7 +432,7 @@ impl Modelable for Model {
 
         if ip.complete_vdj_inference {
             let features = sequences
-                .iter()
+                .par_iter()
                 .map(|sequence| {
                     let mut feature = Features::new(self)?;
                     let _ = feature.infer(sequence, &ip)?;
@@ -444,7 +443,7 @@ impl Modelable for Model {
             self.update(&avg_features)?;
         } else {
             let features = sequences
-                .iter()
+                .par_iter()
                 .map(|sequence| {
                     let mut feature = v_dj::Features::new(self)?;
                     let _ = feature.infer(sequence, &ip)?;
@@ -691,7 +690,7 @@ impl Model {
         _inference_params: &InferenceParameters,
     ) -> Result<()> {
         let features = sequences
-            .iter()
+            .par_iter()
             .map(|sequence| {
                 let mut feature = Features::new(self)?;
                 let _ = feature.infer_brute_force(sequence)?;

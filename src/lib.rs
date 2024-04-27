@@ -29,6 +29,7 @@ fn righor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<CategoricalFeature2g1>()?;
     m.add_class::<InsertionFeature>()?;
     m.add_class::<ErrorSingleNucleotide>()?;
+    m.add_class::<vdj::Sequence>()?;
     m.add_submodule(vdj_submod)?;
     m.add_submodule(vj_submod)?;
 

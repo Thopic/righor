@@ -2,7 +2,15 @@ use anyhow::{anyhow, Result};
 
 use ndarray::{s, Array, Array1, Array2, Array3, Dimension};
 
+use rayon;
 use serde::{Deserialize, Serialize};
+
+pub fn fix_number_threads(nb_threads: usize) {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(nb_threads)
+        .build_global()
+        .unwrap();
+}
 
 pub fn count_differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> usize {
     vec1.iter()
