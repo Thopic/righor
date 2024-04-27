@@ -81,7 +81,7 @@ pub trait Modelable {
     /// Run one round of expectation-maximization on the current model and return the next model.
     fn infer(
         &mut self,
-        sequences: &Vec<Sequence>,
+        sequences: &[Sequence],
         inference_params: &InferenceParameters,
     ) -> Result<()>;
 

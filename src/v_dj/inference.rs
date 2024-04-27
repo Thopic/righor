@@ -2,8 +2,8 @@ use crate::shared::feature::*;
 use crate::shared::InferenceParameters;
 use crate::v_dj::AggregatedFeatureStartDAndJ;
 use crate::vdj::{
-    inference::FeaturesInsDelVDJ, AggregatedFeatureEndV, AggregatedFeatureSpanD, FeatureDJ,
-    FeatureVD, InfEvent, Model, ResultInference, Sequence,
+    inference::FeaturesInsDelVDJ, AggregatedFeatureEndV, AggregatedFeatureSpanD,
+    AggregatedFeatureStartJ, FeatureDJ, FeatureVD, InfEvent, Model, ResultInference, Sequence,
 };
 use anyhow::Result;
 use ndarray::Axis;
@@ -106,6 +106,14 @@ impl FeaturesInsDelVDJ for Features {
             features_v.push(feature_v);
         }
 
+        let mut features_j = Vec::new();
+        for jal in &sequence.j_genes {
+            let feature_j = AggregatedFeatureStartJ::new(jal, self, ip);
+            if let Some(feat_j) = feature_j {
+                features_j.push(feat_j);
+            }
+        }
+
         let mut features_d = Vec::new();
         for d_idx in 0..self.d.dim().0 {
             let feature_d =
@@ -121,9 +129,9 @@ impl FeaturesInsDelVDJ for Features {
         }
 
         let mut features_dj = Vec::new();
-        for jal in &sequence.j_genes {
+        for feature_j in &features_j {
             let feature_dj =
-                AggregatedFeatureStartDAndJ::new(jal, &features_d, &agg_ins_dj, self, ip);
+                AggregatedFeatureStartDAndJ::new(feature_j, &features_d, &agg_ins_dj, self, ip);
             features_dj.push(feature_dj);
         }
 
@@ -144,11 +152,17 @@ impl FeaturesInsDelVDJ for Features {
                     None => continue,
                 }
             }
-            for (jal, dj) in sequence.j_genes.iter().zip(features_dj.iter_mut()) {
+            for (feature_j, dj) in features_j.iter_mut().zip(features_dj.iter_mut()) {
                 match dj {
-                    Some(f) => f.disaggregate(jal, &mut features_d, &mut agg_ins_dj, self, ip),
+                    Some(f) => {
+                        f.disaggregate(feature_j, &mut features_d, &mut agg_ins_dj, self, ip)
+                    }
                     None => continue,
                 }
+            }
+
+            for (jal, j) in sequence.j_genes.iter().zip(features_j.iter_mut()) {
+                j.disaggregate(jal, self, ip)
             }
 
             for (d_idx, d) in features_d.iter_mut().enumerate() {

@@ -227,7 +227,7 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
             .ok_or(anyhow!("Cannot average empty vector"))?
             .probas_dirty;
         for feat in iter {
-            average_proba = average_proba + &feat.probas_dirty;
+            average_proba += &feat.probas_dirty;
             len += 1;
         }
         CategoricalFeature2::new(&(average_proba / (len as f64)))
@@ -403,7 +403,6 @@ impl ErrorSingleNucleotide {
             total_lengths_dirty: 0.,
             total_errors_dirty: 0.,
             total_probas_dirty: 0.,
-            ..Default::default()
         })
     }
 }

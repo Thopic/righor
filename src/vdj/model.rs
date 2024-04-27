@@ -36,6 +36,7 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_distr::Distribution;
+#[allow(unused_imports)]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::BufReader;
@@ -422,7 +423,7 @@ impl Modelable for Model {
 
     fn infer(
         &mut self,
-        sequences: &Vec<Sequence>,
+        sequences: &[Sequence],
         inference_params: &InferenceParameters,
     ) -> Result<()> {
         let mut ip = inference_params.clone();
@@ -686,8 +687,8 @@ impl Modelable for Model {
 impl Model {
     pub fn infer_brute_force(
         &mut self,
-        sequences: &Vec<Sequence>,
-        inference_params: &InferenceParameters,
+        sequences: &[Sequence],
+        _inference_params: &InferenceParameters,
     ) -> Result<()> {
         let features = sequences
             .iter()
@@ -704,7 +705,7 @@ impl Model {
 
     pub fn evaluate_brute_force(&mut self, sequence: &Sequence) -> Result<ResultInference> {
         let mut feature = Features::new(self)?;
-        let mut result = feature.infer_brute_force(sequence)?;
+        let result = feature.infer_brute_force(sequence)?;
         Ok(result)
     }
 
@@ -1314,7 +1315,7 @@ impl Model {
 
             // if the cdr3 is empty (too much cutting) we assume the resulting sequence
             // is not functional
-            if functional && cdr3_seq.len() == 0 {
+            if functional && cdr3_seq.is_empty() {
                 continue;
             }
 

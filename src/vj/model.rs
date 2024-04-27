@@ -346,7 +346,7 @@ impl Modelable for Model {
 
     fn infer(
         &mut self,
-        sequences: &Vec<Sequence>,
+        sequences: &[Sequence],
         inference_params: &InferenceParameters,
     ) -> Result<()> {
         self.inner.infer(sequences, inference_params)?;

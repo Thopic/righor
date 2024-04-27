@@ -43,12 +43,13 @@ fn main() -> Result<()> {
     let mut uniform_model = igor_model.uniform()?;
     let align_params = righor::AlignmentParameters::default();
     let inference_params = righor::InferenceParameters::default();
-    let mut inference_params_2 = righor::InferenceParameters::default();
-
-    inference_params_2.complete_vdj_inference = true;
+    let mut _inference_params_2 = righor::InferenceParameters {
+        complete_vdj_inference: true,
+        ..Default::default()
+    };
 
     let mut seq = Vec::new();
-    for _ in tqdm!(0..1000) {
+    for _ in tqdm!(0..50) {
         let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
         let als = uniform_model.align_sequence(s.clone(), &align_params)?;
         if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
@@ -68,17 +69,17 @@ fn main() -> Result<()> {
         // );
     }
 
-    for ii in tqdm![0..5] {
+    for _ii in tqdm![0..5] {
         uniform_model.infer(&seq, &inference_params)?;
     }
 
-    let mut uniform_model2 = igor_model.uniform()?;
+    // let mut uniform_model2 = igor_model.uniform()?;
 
-    for ii in tqdm![0..5] {
-        uniform_model2.infer(&seq, &inference_params_2)?;
-    }
-    println!("{:?}", uniform_model2.p_ins_vd);
-    println!("{:?}", uniform_model.p_ins_vd);
-    println!("{:?}", igor_model.p_ins_vd);
+    // for ii in tqdm![0..5] {
+    //     uniform_model2.infer(&seq, &inference_params_2)?;
+    // }
+    // println!("{:?}", uniform_model2.p_ins_vd);
+    // println!("{:?}", uniform_model.p_ins_vd);
+    // println!("{:?}", igor_model.p_ins_vd);
     Ok(())
 }

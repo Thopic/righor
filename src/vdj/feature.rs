@@ -3,7 +3,8 @@ use crate::shared::feature::Feature;
 use crate::shared::utils::difference_as_i64;
 use crate::shared::{DAlignment, Dna, InferenceParameters, VJAlignment};
 use crate::vdj::inference::FeaturesInsDelVDJ;
-use crate::vdj::{Features, Sequence};
+use crate::vdj::Sequence;
+
 use itertools::iproduct;
 
 /// Contains the probability of the V gene ending at position e_v
@@ -18,8 +19,6 @@ pub struct AggregatedFeatureEndV {
 
     // Contains all the likelihood
     likelihood: RangeArray1,
-    // sum of all the likelihood on v/delv
-    total_likelihood: f64,
 
     // Dirty likelihood (will be updated as we go through the inference)
     dirty_likelihood: RangeArray1,
@@ -35,8 +34,6 @@ pub struct AggregatedFeatureStartJ {
 
     // Contains all the likelihood
     likelihood: RangeArray1,
-    // sum of all the likelihood on j/delj
-    total_likelihood: f64,
 
     // Dirty likelihood (will be updated as we go through the inference)
     dirty_likelihood: RangeArray1,
@@ -56,7 +53,6 @@ pub struct AggregatedFeatureSpanD {
     likelihood: RangeArray2,
     // Dirty likelihood, will be updated as we go through the inference
     dirty_likelihood: RangeArray2,
-    total_likelihood: f64,
 }
 
 impl AggregatedFeatureEndV {
@@ -92,10 +88,13 @@ impl AggregatedFeatureEndV {
             end_v3: likelihood.max,
             dirty_likelihood: RangeArray1::zeros(likelihood.dim()),
             likelihood,
-            total_likelihood,
             index: v.index,
             start_gene: v.start_gene,
         })
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (i64, &f64)> + '_ {
+        self.likelihood.iter().filter(|&(_, &v)| v != 0.0)
     }
 
     pub fn likelihood(&self, ev: i64) -> f64 {
@@ -124,8 +123,6 @@ impl AggregatedFeatureEndV {
                     .likelihood((v.nb_errors(delv), v.length_with_deletion(delv)));
 
             if ll > ip.min_likelihood {
-                let proba_params_given_ev = ll / self.total_likelihood; // P(parameters|ev)
-
                 let dirty_proba = self.dirty_likelihood.get(v_end); // P(ev)
                 if dirty_proba > 0. {
                     // here we want to compute P(delV | V)
@@ -145,18 +142,20 @@ impl AggregatedFeatureEndV {
 impl AggregatedFeatureStartJ {
     pub fn new(
         j: &VJAlignment,
-        feat: &Features,
+        feat: &impl FeaturesInsDelVDJ,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureStartJ> {
-        let mut likelihood =
-            RangeArray1::zeros((j.start_seq as i64, (j.start_seq + feat.delj.dim().0) as i64));
+        let mut likelihood = RangeArray1::zeros((
+            j.start_seq as i64,
+            (j.start_seq + feat.delj().dim().0) as i64,
+        ));
 
         let mut total_likelihood = 0.;
-        for delj in 0..feat.delj.dim().0 {
+        for delj in 0..feat.delj().dim().0 {
             let j_start = (j.start_seq + delj) as i64;
-            let ll_delj = feat.delj.likelihood((delj, j.index));
+            let ll_delj = feat.delj().likelihood((delj, j.index));
             let ll_errj = feat
-                .error
+                .error()
                 .likelihood((j.nb_errors(delj), j.length_with_deletion(delj)));
             let ll = ll_delj * ll_errj;
             if ll > ip.min_likelihood {
@@ -173,10 +172,14 @@ impl AggregatedFeatureStartJ {
             end_j5: likelihood.max,
             dirty_likelihood: RangeArray1::zeros(likelihood.dim()),
             likelihood,
-            total_likelihood,
+
             index: j.index,
             start_seq: j.start_seq,
         })
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (i64, &f64)> + '_ {
+        self.likelihood.iter().filter(|&(_, &v)| v != 0.0)
     }
 
     pub fn likelihood(&self, sj: i64) -> f64 {
@@ -191,7 +194,12 @@ impl AggregatedFeatureStartJ {
         *self.dirty_likelihood.get_mut(sj) += likelihood;
     }
 
-    pub fn disaggregate(&self, j: &VJAlignment, feat: &mut Features, ip: &InferenceParameters) {
+    pub fn disaggregate(
+        &self,
+        j: &VJAlignment,
+        feat: &mut impl FeaturesInsDelVDJ,
+        ip: &InferenceParameters,
+    ) {
         for delj in 0..feat.delj().dim().0 {
             let j_start = (j.start_seq + delj) as i64;
             let ll = feat.delj().likelihood((delj, j.index))
@@ -277,13 +285,26 @@ impl AggregatedFeatureSpanD {
             end_d3: likelihoods.max.1,
             dirty_likelihood: RangeArray2::zeros(likelihoods.dim()),
             likelihood: likelihoods,
-            total_likelihood,
             index: dindex,
         })
     }
 
     pub fn likelihood(&self, sd: i64, ed: i64) -> f64 {
         self.likelihood.get((sd, ed))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (i64, i64, &f64)> + '_ {
+        self.likelihood.iter() //.filter(|&(_, _, &v)| v != 0.0)
+    }
+
+    pub fn iter_fixed_dend(&self, dend: i64) -> impl Iterator<Item = (i64, &f64)> + '_ {
+        let iteropt = if (dend < self.likelihood.min.1) || (dend >= self.likelihood.max.1) {
+            None
+        } else {
+            Some(self.likelihood.iter_fixed_2nd(dend))
+        };
+        iteropt.into_iter().flatten()
+        //  .filter(|&(_, &v)| v != 0.0)
     }
 
     pub fn max_likelihood(&self) -> f64 {
@@ -377,6 +398,10 @@ impl FeatureVD {
         })
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (i64, i64, &f64)> + '_ {
+        self.likelihood.iter().filter(|&(_, _, &v)| v != 0.0)
+    }
+
     pub fn max_ev(&self) -> i64 {
         self.likelihood.max.0
     }
@@ -432,7 +457,6 @@ impl FeatureVD {
 pub struct FeatureDJ {
     likelihood: RangeArray2,
     dirty_likelihood: RangeArray2,
-    total_likelihood: f64,
 }
 
 impl FeatureDJ {
@@ -464,8 +488,6 @@ impl FeatureDJ {
             + feat.delj().dim().0 as i64
             - 1;
 
-        let mut total_likelihood = 0.;
-
         let mut likelihoods =
             RangeArray2::zeros(((min_end_d, min_start_j), (max_end_d + 1, max_start_j + 1)));
 
@@ -478,7 +500,6 @@ impl FeatureDJ {
                     let likelihood = feat.insdj().likelihood(&ins_dj_plus_last);
                     if likelihood > ip.min_likelihood {
                         *likelihoods.get_mut((ed, sj)) = likelihood;
-                        total_likelihood += likelihood;
                     }
                 }
             }
@@ -487,7 +508,6 @@ impl FeatureDJ {
         Some(FeatureDJ {
             dirty_likelihood: RangeArray2::zeros(likelihoods.dim()),
             likelihood: likelihoods,
-            total_likelihood,
         })
     }
 
@@ -497,6 +517,10 @@ impl FeatureDJ {
 
     pub fn max_likelihood(&self) -> f64 {
         self.likelihood.max_value()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (i64, i64, &f64)> + '_ {
+        self.likelihood.iter().filter(|&(_, _, &v)| v != 0.0)
     }
 
     pub fn max_ed(&self) -> i64 {
