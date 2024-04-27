@@ -1,8 +1,8 @@
 use crate::shared::data_structures::{RangeArray1, RangeArray2};
 use crate::shared::feature::Feature;
 use crate::shared::utils::difference_as_i64;
-use crate::shared::{DAlignment, Dna, InferenceParameters, VJAlignment};
-use crate::vdj::inference::FeaturesInsDelVDJ;
+use crate::shared::{DAlignment, Dna, FeaturesTrait, InferenceParameters, VJAlignment};
+
 use crate::vdj::Sequence;
 
 use itertools::iproduct;
@@ -58,7 +58,7 @@ pub struct AggregatedFeatureSpanD {
 impl AggregatedFeatureEndV {
     pub fn new(
         v: &VJAlignment,
-        feat: &impl FeaturesInsDelVDJ,
+        feat: &impl FeaturesTrait,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureEndV> {
         let mut likelihood = RangeArray1::zeros((
@@ -112,7 +112,7 @@ impl AggregatedFeatureEndV {
     pub fn disaggregate(
         &self,
         v: &VJAlignment,
-        feat: &mut impl FeaturesInsDelVDJ,
+        feat: &mut impl FeaturesTrait,
         ip: &InferenceParameters,
     ) {
         for delv in 0..feat.delv().dim().0 {
@@ -142,7 +142,7 @@ impl AggregatedFeatureEndV {
 impl AggregatedFeatureStartJ {
     pub fn new(
         j: &VJAlignment,
-        feat: &impl FeaturesInsDelVDJ,
+        feat: &impl FeaturesTrait,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureStartJ> {
         let mut likelihood = RangeArray1::zeros((
@@ -197,7 +197,7 @@ impl AggregatedFeatureStartJ {
     pub fn disaggregate(
         &self,
         j: &VJAlignment,
-        feat: &mut impl FeaturesInsDelVDJ,
+        feat: &mut impl FeaturesTrait,
         ip: &InferenceParameters,
     ) {
         for delj in 0..feat.delj().dim().0 {
@@ -224,7 +224,7 @@ impl AggregatedFeatureStartJ {
 impl AggregatedFeatureSpanD {
     pub fn new(
         ds: &Vec<DAlignment>,
-        feat: &impl FeaturesInsDelVDJ,
+        feat: &impl FeaturesTrait,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureSpanD> {
         if ds.is_empty() {
@@ -318,7 +318,7 @@ impl AggregatedFeatureSpanD {
     pub fn disaggregate(
         &self,
         ds: &[DAlignment],
-        feat: &mut impl FeaturesInsDelVDJ,
+        feat: &mut impl FeaturesTrait,
         ip: &InferenceParameters,
     ) {
         // Now with startD and end D
@@ -362,7 +362,7 @@ pub struct FeatureVD {
 impl FeatureVD {
     pub fn new(
         sequence: &Sequence,
-        feat: &impl FeaturesInsDelVDJ,
+        feat: &impl FeaturesTrait,
         ip: &InferenceParameters,
     ) -> Option<FeatureVD> {
         if sequence.v_genes.is_empty() || sequence.d_genes.is_empty() {
@@ -433,7 +433,7 @@ impl FeatureVD {
     pub fn disaggregate(
         &self,
         sequence: &Dna,
-        feat: &mut impl FeaturesInsDelVDJ,
+        feat: &mut impl FeaturesTrait,
         ip: &InferenceParameters,
     ) {
         for ev in self.likelihood.lower().0..self.likelihood.upper().0 {
@@ -462,7 +462,7 @@ pub struct FeatureDJ {
 impl FeatureDJ {
     pub fn new(
         sequence: &Sequence,
-        feat: &impl FeaturesInsDelVDJ,
+        feat: &impl FeaturesTrait,
         ip: &InferenceParameters,
     ) -> Option<FeatureDJ> {
         if sequence.d_genes.is_empty() || sequence.j_genes.is_empty() {
@@ -546,7 +546,7 @@ impl FeatureDJ {
     pub fn disaggregate(
         &self,
         sequence: &Dna,
-        feat: &mut impl FeaturesInsDelVDJ,
+        feat: &mut impl FeaturesTrait,
         ip: &InferenceParameters,
     ) {
         for ed in self.likelihood.lower().0..self.likelihood.upper().0 {

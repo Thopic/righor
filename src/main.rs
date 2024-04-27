@@ -51,7 +51,7 @@ fn main() -> Result<()> {
     let mut seq = Vec::new();
     for _ in tqdm!(0..50) {
         let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
-        let als = uniform_model.align_sequence(s.clone(), &align_params)?;
+        let als = uniform_model.align_sequence(&s.clone(), &align_params)?;
         if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
             seq.push(als.clone());
         }

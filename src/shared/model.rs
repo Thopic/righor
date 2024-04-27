@@ -1,6 +1,6 @@
 use crate::shared::{AlignmentParameters, InferenceParameters};
-use crate::shared::{Dna, Gene};
-use crate::vdj::{ResultInference, Sequence};
+use crate::shared::{Dna, Gene, ResultInference};
+use crate::vdj::Sequence;
 use anyhow::{anyhow, Result};
 use rand::Rng;
 use std::path::Path;
@@ -85,16 +85,30 @@ pub trait Modelable {
         inference_params: &InferenceParameters,
     ) -> Result<()>;
 
+    fn align_and_infer(
+        &mut self,
+        sequences: &[Dna],
+        alignment_params: &AlignmentParameters,
+        inference_params: &InferenceParameters,
+    ) -> Result<()>;
+
+    fn align_and_infer_from_cdr3(
+        &mut self,
+        sequences: &[(Dna, Vec<Gene>, Vec<Gene>)],
+        inference_params: &InferenceParameters,
+    ) -> Result<()>;
+
     /// Given a cdr3 sequence + V/J genes return a "aligned" `Sequence` object
     fn align_from_cdr3(
         &self,
-        cdr3_seq: Dna,
-        vgenes: Vec<Gene>,
-        jgenes: Vec<Gene>,
+        cdr3_seq: &Dna,
+        vgenes: &Vec<Gene>,
+        jgenes: &Vec<Gene>,
     ) -> Result<Sequence>;
 
     /// Align one nucleotide sequence and return a `Sequence` object
-    fn align_sequence(&self, dna_seq: Dna, align_params: &AlignmentParameters) -> Result<Sequence>;
+    fn align_sequence(&self, dna_seq: &Dna, align_params: &AlignmentParameters)
+        -> Result<Sequence>;
 
     /// Recreate the full sequence from the CDR3/vgene/jgene
     fn recreate_full_sequence(&self, dna_cdr3: &Dna, vgene: &Gene, jgene: &Gene) -> Dna;

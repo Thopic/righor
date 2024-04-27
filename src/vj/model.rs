@@ -3,15 +3,12 @@ use crate::shared::parser::{
 };
 use crate::shared::utils::{sorted_and_complete, sorted_and_complete_0start};
 use crate::shared::{
-    distributions::calc_steady_state_dist, AlignmentParameters, Dna, Gene, InferenceParameters,
-    ModelGen, RecordModel,
+    distributions::calc_steady_state_dist, AlignmentParameters, Dna, Gene, InfEvent,
+    InferenceParameters, ModelGen, RecordModel, ResultInference,
 };
 
 use crate::shared::Modelable;
-use crate::vdj::{
-    inference::{Features, InfEvent, ResultInference},
-    Model as ModelVDJ, Sequence,
-};
+use crate::vdj::{inference::Features, Model as ModelVDJ, Sequence};
 use crate::vj::StaticEvent;
 use anyhow::{anyhow, Result};
 use ndarray::{array, Array1, Array2, Array3, Axis};
@@ -354,20 +351,47 @@ impl Modelable for Model {
         Ok(())
     }
 
+    fn align_and_infer(
+        &mut self,
+        sequences: &[Dna],
+        align_params: &AlignmentParameters,
+        inference_params: &InferenceParameters,
+    ) -> Result<()> {
+        self.inner
+            .align_and_infer(sequences, align_params, inference_params)?;
+        self.update_outer_model()?;
+        Ok(())
+    }
+
+    fn align_and_infer_from_cdr3(
+        &mut self,
+        sequences: &[(Dna, Vec<Gene>, Vec<Gene>)],
+        inference_params: &InferenceParameters,
+    ) -> Result<()> {
+        self.inner
+            .align_and_infer_from_cdr3(sequences, inference_params)?;
+        self.update_outer_model()?;
+        Ok(())
+    }
+
     fn similar_to(&self, m: Model) -> bool {
         self.inner.similar_to(m.inner)
     }
 
     fn align_from_cdr3(
         &self,
-        cdr3_seq: Dna,
-        vgenes: Vec<Gene>,
-        jgenes: Vec<Gene>,
+        cdr3_seq: &Dna,
+        vgenes: &Vec<Gene>,
+        jgenes: &Vec<Gene>,
     ) -> Result<Sequence> {
         self.inner.align_from_cdr3(cdr3_seq, vgenes, jgenes)
     }
 
-    fn align_sequence(&self, dna_seq: Dna, align_params: &AlignmentParameters) -> Result<Sequence> {
+    fn align_sequence(
+        &self,
+        dna_seq: &Dna,
+        align_params: &AlignmentParameters,
+    ) -> Result<Sequence> {
         self.inner.align_sequence(dna_seq, align_params)
     }
 

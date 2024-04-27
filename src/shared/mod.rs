@@ -12,7 +12,8 @@ pub mod utils;
 
 pub use feature::{
     CategoricalFeature1, CategoricalFeature1g1, CategoricalFeature1g2, CategoricalFeature2,
-    CategoricalFeature2g1, ErrorSingleNucleotide, InsertionFeature,
+    CategoricalFeature2g1, ErrorSingleNucleotide, FeaturesGeneric, FeaturesTrait, InfEvent,
+    InsertionFeature, ResultInference,
 };
 pub use gene::{genes_matching, Gene, ModelGen};
 pub use model::Modelable;

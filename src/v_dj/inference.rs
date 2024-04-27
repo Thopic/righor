@@ -1,9 +1,9 @@
 use crate::shared::feature::*;
-use crate::shared::InferenceParameters;
+use crate::shared::{FeaturesGeneric, FeaturesTrait, InferenceParameters, ResultInference};
 use crate::v_dj::AggregatedFeatureStartDAndJ;
 use crate::vdj::{
-    inference::FeaturesInsDelVDJ, AggregatedFeatureEndV, AggregatedFeatureSpanD,
-    AggregatedFeatureStartJ, FeatureDJ, FeatureVD, InfEvent, Model, ResultInference, Sequence,
+    AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
+    Model, Sequence,
 };
 use anyhow::Result;
 use ndarray::Axis;
@@ -21,7 +21,11 @@ pub struct Features {
     pub error: ErrorSingleNucleotide,
 }
 
-impl FeaturesInsDelVDJ for Features {
+impl FeaturesTrait for Features {
+    fn generic(&self) -> FeaturesGeneric {
+        FeaturesGeneric::VxDJ(self.clone())
+    }
+
     fn delv(&self) -> &CategoricalFeature1g1 {
         &self.delv
     }
@@ -179,6 +183,19 @@ impl FeaturesInsDelVDJ for Features {
         // Return the result
         Ok(result)
     }
+
+    fn average(features: Vec<Features>) -> Result<Features> {
+        Ok(Features {
+            vj: CategoricalFeature2::average(features.iter().map(|a| a.vj.clone()))?,
+            d: CategoricalFeature1g1::average(features.iter().map(|a| a.d.clone()))?,
+            delv: CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?,
+            delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
+            deld: CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?,
+            insvd: InsertionFeature::average(features.iter().map(|a| a.insvd.clone()))?,
+            insdj: InsertionFeature::average(features.iter().map(|a| a.insdj.clone()))?,
+            error: ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?,
+        })
+    }
 }
 
 impl Features {
@@ -272,19 +289,6 @@ impl Features {
 }
 
 impl Features {
-    pub fn average(features: Vec<Features>) -> Result<Features> {
-        Ok(Features {
-            vj: CategoricalFeature2::average(features.iter().map(|a| a.vj.clone()))?,
-            d: CategoricalFeature1g1::average(features.iter().map(|a| a.d.clone()))?,
-            delv: CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?,
-            delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
-            deld: CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?,
-            insvd: InsertionFeature::average(features.iter().map(|a| a.insvd.clone()))?,
-            insdj: InsertionFeature::average(features.iter().map(|a| a.insdj.clone()))?,
-            error: ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?,
-        })
-    }
-
     pub fn normalize(&mut self) -> Result<()> {
         self.vj = self.vj.normalize()?;
         self.d = self.d.normalize()?;
