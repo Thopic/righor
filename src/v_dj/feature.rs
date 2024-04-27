@@ -1,10 +1,10 @@
 use crate::shared::data_structures::RangeArray1;
 use crate::shared::feature::Feature;
-use crate::shared::{DAlignment, InferenceParameters, VJAlignment};
+use crate::shared::{InferenceParameters, VJAlignment};
 use crate::v_dj::Features;
-use crate::vdj::feature::FeatureDJ;
-use itertools::iproduct;
-use std::collections::HashMap;
+use crate::vdj::feature::{AggregatedFeatureSpanD, FeatureDJ};
+
+use std::cmp;
 
 // Contains the probability of the DJ gene group starting  position
 pub struct AggregatedFeatureStartDAndJ {
@@ -15,7 +15,7 @@ pub struct AggregatedFeatureStartDAndJ {
     pub start_d5: i64,
     pub end_d5: i64,
 
-    // Contains all the likelihood  P(d5)
+    // Contains all the likelihood  P(d5, j)
     likelihood: RangeArray1,
     // Dirty likelihood, will be updated as we go through the inference
     dirty_likelihood: RangeArray1,
@@ -30,53 +30,64 @@ pub struct AggregatedFeatureStartDAndJ {
 
 impl AggregatedFeatureStartDAndJ {
     pub fn new(
-        j: &VJAlignment,
-        ds: &Vec<DAlignment>,
+        jal: &VJAlignment,
+        feature_ds: &Vec<AggregatedFeatureSpanD>,
         feat_insdj: &FeatureDJ,
         feat: &Features,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureStartDAndJ> {
         // define the likelihood object with the right length
         let mut likelihood = RangeArray1::zeros((
-            ds.iter().map(|x| x.pos).min().unwrap() as i64,
-            ds.iter().map(|x| x.pos).max().unwrap() as i64 + feat.deld.dim().0 as i64,
+            feature_ds.iter().map(|x| x.start_d5).min().unwrap() as i64,
+            feature_ds.iter().map(|x| x.end_d5).max().unwrap() as i64,
         ));
 
         // for every parameters, iterate over delj / d / deld3 / deld5
         let mut total_likelihood = 0.;
 
-        // hashmap to find the most likely d_start / j_end at the end
-        let mut total_likelihood_d_end = HashMap::new();
-        let mut total_likelihood_j_start = HashMap::new();
-        let mut total_likelihood_d_index = HashMap::new();
+        // to find the most likely events
+        let mut most_likely_d_end = 0;
+        let mut most_likely_d_index = 0;
+        let mut most_likely_j_start = 0;
+        let mut best_likelihood = 0.;
 
-        for d in ds {
-            for (deld5, deld3) in iproduct!(0..feat.deld.dim().0, 0..feat.deld.dim().1) {
-                for delj in 0..feat.delj.dim().0 {
-                    let j_start = (j.start_seq + delj) as i64;
-                    let d_start = (d.pos + deld5) as i64;
-                    let d_end = (d.pos + d.len() - deld3) as i64;
-                    if d_start > d_end {
-                        continue;
+        let mut likelihood_dstart = 0.;
+
+        for d in feature_ds {
+            for delj in 0..feat.delj.dim().0 {
+                let (min_ed, max_ed) = (
+                    cmp::max(d.start_d3, feat_insdj.min_ed()),
+                    cmp::min(d.end_d3, feat_insdj.max_ed()),
+                );
+                let j_start = (jal.start_seq + delj) as i64;
+                let ll_dj = feat.d.likelihood((d.index, jal.index));
+                let ll_delj = feat.delj.likelihood((delj, jal.index));
+                let ll_error_j = feat
+                    .error
+                    .likelihood((jal.nb_errors(delj), jal.length_with_deletion(delj)));
+
+                if ll_dj * ll_delj * ll_error_j < ip.min_likelihood {
+                    continue;
+                }
+                for d_start in d.start_d5..d.end_d5 {
+                    for d_end in cmp::max(d_start - 1, min_ed)..max_ed {
+                        let ll_d = d.likelihood(d_start, d_end);
+                        let ll_insdj = feat_insdj.likelihood(d_end, j_start);
+                        let ll = ll_dj * ll_insdj * ll_delj * ll_d * ll_error_j;
+
+                        if ll > ip.min_likelihood {
+                            if ll > best_likelihood {
+                                most_likely_d_end = d_end;
+                                most_likely_d_index = d.index;
+                                most_likely_j_start = j_start;
+                                best_likelihood = ll;
+                            }
+                            total_likelihood += ll;
+                            likelihood_dstart += ll;
+                        }
                     }
-
-                    let ll_dj = feat.d.likelihood((d.index, j.index));
-                    let ll_insdj = feat_insdj.likelihood(d_end, j_start);
-                    let ll_delj = feat.delj.likelihood((delj, j.index));
-                    let ll_deld = feat.deld.likelihood((deld5, deld3, d.index));
-                    let ll_error = feat.error.likelihood((
-                        d.nb_errors(deld5, deld3) + j.nb_errors(delj),
-                        d.length_with_deletion(deld5, deld3) + j.length_with_deletion(delj),
-                    ));
-
-                    let ll = ll_dj * ll_delj * ll_deld * ll_error * ll_insdj;
-                    if ll > ip.min_likelihood {
-                        *total_likelihood_d_end.entry(d_end).or_insert(0.) += ll;
-                        *total_likelihood_j_start.entry(j_start).or_insert(0.) += ll;
-                        *total_likelihood_d_index.entry(d.index).or_insert(0.) += ll;
-                        *likelihood.get_mut(d_start) = ll;
-                        total_likelihood += ll;
-                    }
+                    *likelihood.get_mut(d_start) += likelihood_dstart;
+                    likelihood_dstart = 0.;
                 }
             }
         }
@@ -84,30 +95,18 @@ impl AggregatedFeatureStartDAndJ {
         if total_likelihood == 0. {
             return None;
         }
+
         Some(AggregatedFeatureStartDAndJ {
             start_d5: likelihood.min,
             end_d5: likelihood.max,
             dirty_likelihood: RangeArray1::zeros(likelihood.dim()),
             likelihood,
             total_likelihood,
-            index: j.index,
-            start_seq: j.start_seq,
-            // error handling is fine, if one of these is empty then total_likelihood is 0
-            most_likely_d_end: total_likelihood_d_end
-                .iter()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(k, _v)| *k)
-                .unwrap(),
-            most_likely_j_start: total_likelihood_j_start
-                .iter()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(k, _v)| *k)
-                .unwrap(),
-            most_likely_d_index: total_likelihood_d_index
-                .iter()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(k, _v)| *k)
-                .unwrap(),
+            index: jal.index,
+            start_seq: jal.start_seq,
+            most_likely_d_end,
+            most_likely_j_start,
+            most_likely_d_index,
         })
     }
 
@@ -125,63 +124,52 @@ impl AggregatedFeatureStartDAndJ {
 
     pub fn disaggregate(
         &self,
-        j: &VJAlignment,
-        ds: &Vec<DAlignment>,
+        jal: &VJAlignment,
+        feature_ds: &mut Vec<AggregatedFeatureSpanD>,
         feat_insdj: &mut FeatureDJ,
         feat: &mut Features,
         ip: &InferenceParameters,
     ) {
-        for d in ds {
-            for (deld5, deld3) in iproduct!(0..feat.deld.dim().0, 0..feat.deld.dim().1) {
-                for delj in 0..feat.delj.dim().0 {
-                    let j_start = (j.start_seq + delj) as i64;
-                    let d_start = (d.pos + deld5) as i64;
-                    let d_end = (d.pos + d.len() - deld3) as i64;
+        for agg_deld in feature_ds.iter_mut() {
+            for delj in 0..feat.delj.dim().0 {
+                let (min_ed, max_ed) = (
+                    cmp::max(agg_deld.start_d3, feat_insdj.min_ed()),
+                    cmp::min(agg_deld.end_d3, feat_insdj.max_ed()),
+                );
+                let j_start = (jal.start_seq + delj) as i64;
+                let ll_dj = feat.d.likelihood((agg_deld.index, jal.index));
+                let ll_delj = feat.delj.likelihood((delj, jal.index));
+                let ll_error_j = feat
+                    .error
+                    .likelihood((jal.nb_errors(delj), jal.length_with_deletion(delj)));
 
-                    let nb_err = d.nb_errors(deld5, deld3) + j.nb_errors(delj);
+                if ll_dj * ll_delj * ll_error_j < ip.min_likelihood {
+                    continue;
+                }
 
-                    let ll_dj = feat.d.likelihood((d.index, j.index));
-                    let ll_insdj = feat_insdj.likelihood(d_end, j_start);
-                    let ll_delj = feat.delj.likelihood((delj, j.index));
-                    let ll_deld = feat.deld.likelihood((deld5, deld3, d.index));
-                    let ll_error = feat.error.likelihood((
-                        nb_err,
-                        d.length_with_deletion(deld5, deld3) + j.length_with_deletion(delj),
-                    ));
+                for d_start in agg_deld.start_d5..agg_deld.end_d5 {
+                    for d_end in cmp::max(d_start - 1, min_ed)..max_ed {
+                        let ll_deld = agg_deld.likelihood(d_start, d_end);
+                        let ll_insdj = feat_insdj.likelihood(d_end, j_start);
+                        let ll = ll_dj * ll_insdj * ll_delj * ll_deld * ll_error_j;
 
-                    let ll = ll_dj * ll_delj * ll_deld * ll_error * ll_insdj;
+                        if ll > ip.min_likelihood {
+                            let dirty_proba = self.dirty_likelihood.get(d_start);
+                            let corrected_proba = dirty_proba * ll / self.likelihood(d_start);
 
-                    if ll > ip.min_likelihood {
-                        let proba_params_given_sd = ll / self.total_likelihood;
-                        let likelihood = ll;
-                        let dirty_proba = self.dirty_likelihood.get(d_start);
-                        if dirty_proba > 0. {
-                            let corrected_proba = dirty_proba * proba_params_given_sd;
-
-                            feat.d.dirty_update((d.index, j.index), corrected_proba);
-
-                            feat.deld
-                                .dirty_update((deld5, deld3, d.index), corrected_proba);
-
-                            feat.error.dirty_update(
-                                (nb_err, d.length_with_deletion(deld5, deld3)),
-                                corrected_proba,
-                            );
-
-                            if ip.infer_insertions {
-                                feat_insdj.dirty_update(d_end, j_start, likelihood);
+                            if dirty_proba > 0. {
+                                feat.d
+                                    .dirty_update((agg_deld.index, jal.index), corrected_proba);
+                                if ip.infer_insertions {
+                                    feat_insdj.dirty_update(d_end, j_start, corrected_proba);
+                                }
+                                feat.delj.dirty_update((delj, jal.index), corrected_proba);
+                                agg_deld.dirty_update(d_start, d_end, corrected_proba);
+                                feat.error.dirty_update(
+                                    (jal.nb_errors(delj), jal.length_with_deletion(delj)),
+                                    corrected_proba,
+                                );
                             }
-
-                            feat.delj.dirty_update((delj, j.index), corrected_proba);
-
-                            feat.error.dirty_update(
-                                (
-                                    j.nb_errors(delj) + nb_err,
-                                    j.length_with_deletion(delj)
-                                        + d.length_with_deletion(deld5, deld3),
-                                ),
-                                corrected_proba,
-                            )
                         }
                     }
                 }

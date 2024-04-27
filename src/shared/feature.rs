@@ -23,11 +23,8 @@ use pyo3::pyclass;
 pub trait Feature<T> {
     fn dirty_update(&mut self, observation: T, likelihood: f64);
     fn likelihood(&self, observation: T) -> f64;
-    fn cleanup(&self) -> Result<Self>
-    where
-        Self: Sized;
-
-    fn average(iter: impl Iterator<Item = Self> + ExactSizeIterator) -> Result<Self>
+    fn scale_dirty(&mut self, factor: f64);
+    fn average(iter: impl Iterator<Item = Self> + ExactSizeIterator + Clone) -> Result<Self>
     where
         Self: Sized;
 }
@@ -47,19 +44,20 @@ impl Feature<usize> for CategoricalFeature1 {
     fn likelihood(&self, observation: usize) -> f64 {
         self.probas[[observation]]
     }
-    fn cleanup(&self) -> Result<CategoricalFeature1> {
-        CategoricalFeature1::new(&self.probas_dirty)
+
+    fn scale_dirty(&mut self, factor: f64) {
+        self.probas_dirty *= factor;
     }
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1> + ExactSizeIterator,
+        mut iter: impl Iterator<Item = CategoricalFeature1> + ExactSizeIterator + Clone,
     ) -> Result<CategoricalFeature1> {
         let mut len = 1;
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas;
+            .probas_dirty;
         for feat in iter {
-            average_proba = average_proba + feat.probas;
+            average_proba = average_proba + feat.probas_dirty;
             len += 1;
         }
         CategoricalFeature1::new(&(average_proba / (len as f64)))
@@ -103,24 +101,19 @@ impl Feature<(usize, usize)> for CategoricalFeature1g1 {
     fn likelihood(&self, observation: (usize, usize)) -> f64 {
         self.probas[[observation.0, observation.1]]
     }
-    fn cleanup(&self) -> Result<CategoricalFeature1g1> {
-        Ok(CategoricalFeature1g1 {
-            probas_dirty: Array2::<f64>::zeros(self.probas.dim()),
-            probas: self.probas_dirty.normalize_distribution_double()?,
-        })
-        //        CategoricalFeature1g1::new(&self.probas_dirty)
+    fn scale_dirty(&mut self, factor: f64) {
+        self.probas_dirty *= factor;
     }
-
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1g1> + ExactSizeIterator,
+        mut iter: impl Iterator<Item = CategoricalFeature1g1> + ExactSizeIterator + Clone,
     ) -> Result<CategoricalFeature1g1> {
         let mut len = 1;
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas;
+            .probas_dirty;
         for feat in iter {
-            average_proba += &feat.probas;
+            average_proba += &feat.probas_dirty;
             len += 1;
         }
         CategoricalFeature1g1::new(&(average_proba / (len as f64)))
@@ -163,24 +156,22 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature1g2 {
     fn likelihood(&self, observation: (usize, usize, usize)) -> f64 {
         self.probas[[observation.0, observation.1, observation.2]]
     }
-    fn cleanup(&self) -> Result<CategoricalFeature1g2> {
-        Ok(CategoricalFeature1g2 {
-            probas_dirty: Array3::<f64>::zeros(self.probas.dim()),
-            probas: self.probas_dirty.normalize_distribution_3()?,
-        })
-        //        CategoricalFeature1g2::new(&self.probas_dirty)
+
+    fn scale_dirty(&mut self, factor: f64) {
+        self.probas_dirty *= factor;
     }
 
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1g2> + ExactSizeIterator,
+        mut iter: impl Iterator<Item = CategoricalFeature1g2> + ExactSizeIterator + Clone,
     ) -> Result<CategoricalFeature1g2> {
         let mut len = 1;
+
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas;
+            .probas_dirty;
         for feat in iter {
-            average_proba += &feat.probas;
+            average_proba += &feat.probas_dirty;
             len += 1;
         }
         CategoricalFeature1g2::new(&(average_proba / (len as f64)))
@@ -223,19 +214,20 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
     fn likelihood(&self, observation: (usize, usize)) -> f64 {
         self.probas[[observation.0, observation.1]]
     }
-    fn cleanup(&self) -> Result<CategoricalFeature2> {
-        CategoricalFeature2::new(&self.probas_dirty)
+
+    fn scale_dirty(&mut self, factor: f64) {
+        self.probas_dirty *= factor;
     }
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature2> + ExactSizeIterator,
+        mut iter: impl Iterator<Item = CategoricalFeature2> + ExactSizeIterator + Clone,
     ) -> Result<CategoricalFeature2> {
         let mut len = 1;
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas;
+            .probas_dirty;
         for feat in iter {
-            average_proba = average_proba + feat.probas;
+            average_proba = average_proba + &feat.probas_dirty;
             len += 1;
         }
         CategoricalFeature2::new(&(average_proba / (len as f64)))
@@ -244,14 +236,17 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
 
 impl CategoricalFeature2 {
     pub fn new(probabilities: &Array2<f64>) -> Result<CategoricalFeature2> {
+        let probas = probabilities.normalize_distribution_double()?;
+
         Ok(CategoricalFeature2 {
-            probas: probabilities.normalize_distribution_double()?,
+            probas,
             probas_dirty: Array2::<f64>::zeros(probabilities.dim()),
         })
     }
     pub fn dim(&self) -> (usize, usize) {
         self.probas.dim()
     }
+
     pub fn normalize(&self) -> Result<Self> {
         Self::new(&self.probas)
     }
@@ -278,24 +273,20 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
     fn likelihood(&self, observation: (usize, usize, usize)) -> f64 {
         self.probas[[observation.0, observation.1, observation.2]]
     }
-    fn cleanup(&self) -> Result<CategoricalFeature2g1> {
-        Ok(CategoricalFeature2g1 {
-            probas_dirty: Array3::<f64>::zeros(self.probas.dim()),
-            probas: self.probas_dirty.normalize_distribution_3()?,
-        })
-        // let m = CategoricalFeature2g1::new(&self.probas_dirty)?;
-        // Ok(m)
+
+    fn scale_dirty(&mut self, factor: f64) {
+        self.probas_dirty *= factor;
     }
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature2g1> + ExactSizeIterator,
+        mut iter: impl Iterator<Item = CategoricalFeature2g1> + ExactSizeIterator + Clone,
     ) -> Result<CategoricalFeature2g1> {
         let mut len = 1;
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas;
+            .probas_dirty;
         for feat in iter {
-            average_proba = average_proba + feat.probas;
+            average_proba = average_proba + feat.probas_dirty;
             len += 1;
         }
         CategoricalFeature2g1::new(&(average_proba / (len as f64)))
@@ -338,20 +329,21 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature3 {
     fn likelihood(&self, observation: (usize, usize, usize)) -> f64 {
         self.probas[[observation.0, observation.1, observation.2]]
     }
-    fn cleanup(&self) -> Result<CategoricalFeature3> {
-        let m = CategoricalFeature3::new(&self.probas_dirty)?;
-        Ok(m)
+
+    fn scale_dirty(&mut self, factor: f64) {
+        self.probas_dirty *= factor;
     }
+
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature3> + ExactSizeIterator,
+        mut iter: impl Iterator<Item = CategoricalFeature3> + ExactSizeIterator + Clone,
     ) -> Result<CategoricalFeature3> {
         let mut len = 1;
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas;
+            .probas_dirty;
         for feat in iter {
-            average_proba = average_proba + feat.probas;
+            average_proba = average_proba + feat.probas_dirty;
             len += 1;
         }
         CategoricalFeature3::new(&(average_proba / (len as f64)))
@@ -360,11 +352,14 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature3 {
 
 impl CategoricalFeature3 {
     pub fn new(probabilities: &Array3<f64>) -> Result<CategoricalFeature3> {
+        let probas = probabilities.normalize_distribution_3()?;
+
         Ok(CategoricalFeature3 {
             probas_dirty: Array3::<f64>::zeros(probabilities.dim()),
-            probas: probabilities.normalize_distribution_3()?,
+            probas,
         })
     }
+
     pub fn dim(&self) -> (usize, usize, usize) {
         self.probas.dim()
     }
@@ -386,8 +381,8 @@ pub struct ErrorSingleNucleotide {
     pub error_rate: f64,
     logrs3: f64,
     log1mr: f64,
-    total_lengths: f64, // For each sequence, this saves Σ P(E) L(S(E))
-    total_errors: f64,  // For each sequence, this saves Σ P(E) N_{err}(S(E))
+    // total_lengths: f64, // For each sequence, this saves Σ P(E) L(S(E))
+    // total_errors: f64,  // For each sequence, this saves Σ P(E) N_{err}(S(E))
     // useful for dirty updating
     total_lengths_dirty: f64,
     total_errors_dirty: f64,
@@ -434,35 +429,41 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
             + ((observation.1 - observation.0) as f64) * self.log1mr)
             .exp2()
     }
-    fn cleanup(&self) -> Result<ErrorSingleNucleotide> {
-        // estimate the error_rate of the sequence from the dirty
-        // estimate.
-        let error_rate = if self.total_lengths_dirty == 0. {
-            return ErrorSingleNucleotide::new(0.);
-        } else {
-            self.total_errors_dirty / self.total_lengths_dirty
-        };
 
-        Ok(ErrorSingleNucleotide {
-            error_rate,
-            logrs3: (error_rate / 3.).log2(),
-            log1mr: (1. - error_rate).log2(),
-            total_lengths: self.total_lengths_dirty / self.total_probas_dirty,
-            total_errors: self.total_errors_dirty / self.total_probas_dirty,
-            total_probas_dirty: 0.,
-            total_lengths_dirty: 0.,
-            total_errors_dirty: 0.,
-        })
+    fn scale_dirty(&mut self, factor: f64) {
+        self.total_errors_dirty *= factor;
+        self.total_lengths_dirty *= factor;
     }
+
+    // fn cleanup(&self) -> Result<ErrorSingleNucleotide> {
+    //     // estimate the error_rate of the sequence from the dirty
+    //     // estimate.
+    //     let error_rate = if self.total_lengths_dirty == 0. {
+    //         return ErrorSingleNucleotide::new(0.);
+    //     } else {
+    //         self.total_errors_dirty / self.total_lengths_dirty
+    //     };
+
+    //     Ok(ErrorSingleNucleotide {
+    //         error_rate,
+    //         logrs3: (error_rate / 3.).log2(),
+    //         log1mr: (1. - error_rate).log2(),
+    //         total_lengths: self.total_lengths_dirty / self.total_probas_dirty,
+    //         total_errors: self.total_errors_dirty / self.total_probas_dirty,
+    //         total_probas_dirty: 0.,
+    //         total_lengths_dirty: 0.,
+    //         total_errors_dirty: 0.,
+    //     })
+    // }
     fn average(
-        mut iter: impl Iterator<Item = ErrorSingleNucleotide> + ExactSizeIterator,
+        mut iter: impl Iterator<Item = ErrorSingleNucleotide> + ExactSizeIterator + Clone,
     ) -> Result<ErrorSingleNucleotide> {
         let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut sum_err = first_feat.total_errors;
-        let mut sum_length = first_feat.total_lengths;
+        let mut sum_err = first_feat.total_errors_dirty;
+        let mut sum_length = first_feat.total_lengths_dirty;
         for feat in iter {
-            sum_err += feat.total_errors;
-            sum_length += feat.total_lengths;
+            sum_err += feat.total_errors_dirty;
+            sum_length += feat.total_lengths_dirty;
         }
         if sum_length == 0. {
             return ErrorSingleNucleotide::new(0.);
@@ -483,8 +484,8 @@ pub struct InsertionFeature {
     transition_matrix_internal: Array2<f64>,
 
     // for updating
-    transition_matrix_dirty: Array2<f64>,
-    length_distribution_dirty: Array1<f64>,
+    pub transition_matrix_dirty: Array2<f64>,
+    pub length_distribution_dirty: Array1<f64>,
     //  initial_distribution_dirty: Array1<f64>,
 }
 
@@ -539,38 +540,44 @@ impl Feature<&Dna> for InsertionFeature {
         // );
         proba * self.length_distribution[len]
     }
-    fn cleanup(&self) -> Result<InsertionFeature> {
-        let mut m = InsertionFeature {
-            length_distribution: self.length_distribution_dirty.normalize_distribution()?,
-            // we shouldn't normalize the transition matrix per line, because bias on
-            // the auto-transition X -> X
-            transition_matrix: self
-                .transition_matrix_dirty
-                .normalize_distribution_double()?,
-            transition_matrix_dirty: Array2::<f64>::zeros(self.transition_matrix.dim()),
-            length_distribution_dirty: Array1::<f64>::zeros(self.length_distribution.dim()),
-            transition_matrix_internal: Array2::<f64>::zeros((5, 5)),
-        };
 
-        m.define_internal();
-        Ok(m)
-        // println!("{:?}", self.transition_matrix_dirty);
-
-        // InsertionFeature::new(
-        //     &self.length_distribution_dirty,
-        //     &self.transition_matrix_dirty,
-        // )
+    fn scale_dirty(&mut self, factor: f64) {
+        self.length_distribution_dirty *= factor;
+        self.transition_matrix_dirty *= factor;
     }
+
+    // fn cleanup(&self) -> Result<InsertionFeature> {
+    //     let mut m = InsertionFeature {
+    //         length_distribution: self.length_distribution_dirty.normalize_distribution()?,
+    //         // we shouldn't normalize the transition matrix per line, because bias on
+    //         // the auto-transition X -> X
+    //         transition_matrix: self
+    //             .transition_matrix_dirty
+    //             .normalize_distribution_double()?,
+    //         transition_matrix_dirty: Array2::<f64>::zeros(self.transition_matrix.dim()),
+    //         length_distribution_dirty: Array1::<f64>::zeros(self.length_distribution.dim()),
+    //         transition_matrix_internal: Array2::<f64>::zeros((5, 5)),
+    //     };
+
+    //     m.define_internal();
+    //     Ok(m)
+    //     // println!("{:?}", self.transition_matrix_dirty);
+
+    //     // InsertionFeature::new(
+    //     //     &self.length_distribution_dirty,
+    //     //     &self.transition_matrix_dirty,
+    //     // )
+    // }
     fn average(
-        mut iter: impl Iterator<Item = InsertionFeature> + ExactSizeIterator,
+        mut iter: impl Iterator<Item = InsertionFeature> + ExactSizeIterator + Clone,
     ) -> Result<InsertionFeature> {
         let mut len = 1;
         let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut average_length = first_feat.length_distribution;
-        let mut average_mat = first_feat.transition_matrix;
+        let mut average_length = first_feat.length_distribution_dirty;
+        let mut average_mat = first_feat.transition_matrix_dirty;
         for feat in iter {
-            average_mat = average_mat + feat.transition_matrix;
-            average_length = average_length + feat.length_distribution;
+            average_mat = average_mat + feat.transition_matrix_dirty;
+            average_length = average_length + feat.length_distribution_dirty;
             len += 1;
         }
         InsertionFeature::new(

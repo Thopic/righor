@@ -23,6 +23,20 @@ pub struct RecordModel {
     pub description: String,
 }
 
+/// Normalize the distribution on the last axis
+pub trait NormalizeLast {
+    fn normalize_last(&self) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+/// Normalize the distribution on the two last axis
+pub trait NormalizeLast2 {
+    fn normalize_last_2(&self) -> Result<Self>
+    where
+        Self: Sized;
+}
+
 /// Normalize the distribution on the first three axis
 pub trait Normalize3 {
     fn normalize_distribution_3(&self) -> Result<Self>
@@ -134,23 +148,80 @@ impl Normalize for Array1<f64> {
 /// Normalize the elements of the array along the second axis
 /// equivalent of a/a.sum(axis=1)[:, np.newaxis] in numpy
 pub fn normalize_transition_matrix(tm: &Array2<f64>) -> Result<Array2<f64>> {
-    if tm.iter().any(|&x| !x.is_finite()) {
-        return Err(anyhow!("Array contains non-positive or non-finite values"));
-    }
-    let mut normalized = Array2::<f64>::zeros(tm.dim());
-    for kk in 0..tm.dim().0 {
-        let sum = tm.slice(s![kk, ..]).sum();
-        if sum.abs() == 0.0f64 {
-            for ii in 0..tm.dim().1 {
-                normalized[[kk, ii]] = 0.; //1. / ((tm.dim().1) as f64);
-            }
-        } else {
-            for ii in 0..tm.dim().1 {
-                normalized[[kk, ii]] = tm[[kk, ii]] / sum;
+    tm.normalize_last()
+}
+
+/// Normalize the elements of an array along the last axis
+impl NormalizeLast for Array2<f64> {
+    fn normalize_last(&self) -> Result<Self> {
+        if self.iter().any(|&x| !x.is_finite()) {
+            return Err(anyhow!("Array contains non-positive or non-finite values"));
+        }
+        let mut normalized = Array2::<f64>::zeros(self.dim());
+        for ii in 0..self.dim().0 {
+            let sum = self.slice(s![ii, ..]).sum();
+            if sum.abs() == 0.0f64 {
+                for kk in 0..self.dim().1 {
+                    normalized[[ii, kk]] = 0.;
+                }
+            } else {
+                for kk in 0..self.dim().1 {
+                    normalized[[ii, kk]] = self[[ii, kk]] / sum;
+                }
             }
         }
+        Ok(normalized)
     }
-    Ok(normalized)
+}
+
+/// Normalize the elements of an array along the last axis
+impl NormalizeLast for Array3<f64> {
+    fn normalize_last(&self) -> Result<Self> {
+        if self.iter().any(|&x| !x.is_finite()) {
+            return Err(anyhow!("Array contains non-positive or non-finite values"));
+        }
+        let mut normalized = Array3::<f64>::zeros(self.dim());
+        for ii in 0..self.dim().0 {
+            for jj in 0..self.dim().1 {
+                let sum = self.slice(s![ii, jj, ..]).sum();
+                if sum.abs() == 0.0f64 {
+                    for kk in 0..self.dim().2 {
+                        normalized[[ii, jj, kk]] = 0.;
+                    }
+                } else {
+                    for kk in 0..self.dim().2 {
+                        normalized[[ii, jj, kk]] = self[[ii, jj, kk]] / sum;
+                    }
+                }
+            }
+        }
+        Ok(normalized)
+    }
+}
+
+/// Normalize the elements of an array along the two last axis
+impl NormalizeLast2 for Array3<f64> {
+    fn normalize_last_2(&self) -> Result<Self> {
+        let mut normalized = Array3::<f64>::zeros(self.dim());
+        for ii in 0..self.dim().0 {
+            let sum = self.slice(s![ii, .., ..]).sum();
+
+            if sum.abs() == 0.0f64 {
+                for jj in 0..self.dim().1 {
+                    for kk in 0..self.dim().2 {
+                        normalized[[ii, jj, kk]] = 0.;
+                    }
+                }
+            } else {
+                for jj in 0..self.dim().1 {
+                    for kk in 0..self.dim().2 {
+                        normalized[[ii, jj, kk]] = self[[ii, jj, kk]] / sum;
+                    }
+                }
+            }
+        }
+        Ok(normalized)
+    }
 }
 
 impl Normalize for Array2<f64> {

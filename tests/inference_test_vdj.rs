@@ -1,6 +1,156 @@
 use anyhow::Result;
+use righor::shared::{AlignmentParameters, InferenceParameters};
+use righor::Modelable;
 
 mod common;
+
+#[test]
+fn infer_comparison_v_dj_vdj_simple_model() -> Result<()> {
+    let mut model = common::simple_model_vdj();
+    let mut model2 = model.clone();
+    let mut generator = righor::vdj::Generator::new(model.clone(), Some(48), None, None)?;
+    let ifp = InferenceParameters::default();
+    let mut ifp_2 = InferenceParameters::default();
+    ifp_2.complete_vdj_inference = true;
+    let alp = AlignmentParameters::default();
+    let mut alignments = Vec::new();
+    for _ in 0..1 {
+        let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
+        let als = model.align_sequence(s.clone(), &alp)?;
+        alignments.push(als);
+    }
+
+    model.infer(&alignments.clone(), &ifp)?;
+    model2.infer(&alignments.clone(), &ifp_2)?;
+
+    // println!("{}", model.p_ins_vd);
+    // println!("{}", model2.p_ins_vd);
+    assert!(model.p_ins_vd.abs_diff_eq(&model2.p_ins_vd, 1e-12));
+    Ok(())
+}
+
+#[test]
+fn infer_vs_brute_force() -> Result<()> {
+    let mut model = common::simple_model_vdj();
+    model.error_rate = 0.1;
+    let mut uniform_model = model.uniform()?.clone();
+    let mut generator = righor::vdj::Generator::new(model.clone(), Some(42), None, None)?;
+    let mut ifp = InferenceParameters::default();
+    ifp.complete_vdj_inference = true;
+    let alp = AlignmentParameters::default();
+    let mut alignments = Vec::new();
+    for _ in 0..2 {
+        let generated = generator.generate(false);
+        let s = righor::Dna::from_string(&generated.full_seq)?;
+        let als = model.align_sequence(s.clone(), &alp)?;
+        alignments.push(als.clone());
+        let a1 = uniform_model.evaluate(&als.clone(), &ifp)?.likelihood;
+        let a2 = uniform_model.evaluate_brute_force(&als.clone())?.likelihood;
+        assert!((a1 - a2).abs() < 1e-12);
+    }
+
+    let mut inferred_model = model.uniform()?;
+    //    inferred_model.error_rate = 0.;
+    for _ in 0..1 {
+        inferred_model.infer_brute_force(&alignments.clone(), &ifp)?;
+    }
+    let mut inferred_model2 = model.uniform()?;
+    //    inferred_model2.error_rate = 0.;
+    for _ in 0..1 {
+        inferred_model2.infer(&alignments.clone(), &ifp)?;
+    }
+
+    println!("{:?}", inferred_model.p_ins_vd);
+    println!("{:?}", inferred_model2.p_ins_vd);
+    println!("");
+    println!("{:?}", inferred_model.p_ins_dj);
+    println!("{:?}", inferred_model2.p_ins_dj);
+    println!("");
+
+    println!("{:?}", inferred_model.p_del_v_given_v);
+    println!("{:?}", inferred_model2.p_del_v_given_v);
+    println!("");
+    println!("{:?}", inferred_model.p_del_j_given_j);
+    println!("{:?}", inferred_model2.p_del_j_given_j);
+    println!("");
+    println!("{:?}", inferred_model.p_vdj);
+    println!("{:?}", inferred_model2.p_vdj);
+
+    println!("");
+    println!("{:?}", inferred_model.p_del_d5_del_d3);
+    println!("{:?}", inferred_model2.p_del_d5_del_d3);
+
+    println!("");
+    println!("{:?}", inferred_model.error_rate);
+    println!("{:?}", inferred_model2.error_rate);
+
+    assert!(inferred_model2
+        .p_ins_vd
+        .abs_diff_eq(&inferred_model.p_ins_vd, 1e-12));
+
+    println!("{}", inferred_model2.similar_to(inferred_model));
+    Ok(())
+}
+
+#[test]
+fn full_inference_simple_model() -> Result<()> {
+    let mut model = common::simple_model_vdj();
+    model.error_rate = 0.1;
+    let mut generator = righor::vdj::Generator::new(model.clone(), Some(48), None, None)?;
+    let mut ifp = InferenceParameters::default();
+    ifp.complete_vdj_inference = true;
+    let alp = AlignmentParameters::default();
+    let mut alignments = Vec::new();
+    for _ in 0..1000 {
+        let generated = generator.generate(false);
+        let s = righor::Dna::from_string(&generated.full_seq)?;
+        let als = model.align_sequence(s.clone(), &alp)?;
+        alignments.push(als);
+    }
+
+    println!("INFERENCE");
+    let mut inferred_model = model.uniform()?;
+    inferred_model.error_rate = 0.3;
+    for _ in 0..10 {
+        let result = inferred_model.infer(&alignments.clone(), &ifp)?;
+    }
+
+    println!("{}", inferred_model.error_rate);
+    println!("{}", model.error_rate);
+
+    Ok(())
+}
+
+// #[test]
+// fn test_infer_vs_brute_force() -> Result<()> {
+//     let mut model = common::simple_model_vdj();
+//     let mut generator = righor::vdj::Generator::new(model.clone(), Some(48), None, None)?;
+//     let mut ifp = InferenceParameters::default();
+//     ifp.complete_vdj_inference = false;
+//     let alp = AlignmentParameters::default();
+//     let mut alignments = Vec::new();
+//     for _ in 0..4 {
+//         let generated = generator.generate(false);
+//         let s = righor::Dna::from_string(&generated.full_seq)?;
+//         let als = model.align_sequence(s.clone(), &alp)?;
+//         alignments.push(als);
+//     }
+
+//     let mut inferred_model = model.uniform()?;
+//     inferred_model.error_rate = 0.;
+//     for _ in 0..1 {
+//         inferred_model.infer_brute_force(&alignments.clone(), &ifp)?;
+//     }
+//     let mut inferred_model2 = model.uniform()?;
+//     inferred_model2.error_rate = 0.;
+//     for _ in 0..1 {
+//         inferred_model2.infer(&alignments.clone(), &ifp)?;
+//     }
+
+//     println!("{:?}", inferred_model2.p_ins_dj);
+//     println!("{:?}", inferred_model.p_ins_dj);
+//     Ok(())
+// }
 
 // TATCTCTGTGCCAGCAGCTTAGCGGACTAGCGGGAGGGCATAGCAATCAGCCCCAGCATTTTGGTGATGGGACTCGACTCTCCATCCTAG
 // TATCTCTGTGCCAGCAGCTTAGC

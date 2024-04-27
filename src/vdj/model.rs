@@ -377,9 +377,15 @@ impl Modelable for Model {
         sequence: &Sequence,
         inference_params: &InferenceParameters,
     ) -> Result<ResultInference> {
-        let mut feature = Features::new(self)?;
-        let mut result = feature.infer(sequence, inference_params)?;
-        result.fill_event(self, sequence)?;
+        let mut result = if inference_params.complete_vdj_inference {
+            let mut feature = Features::new(self)?;
+            feature.infer(sequence, inference_params)?
+        } else {
+            let mut feature = v_dj::Features::new(self)?;
+            feature.infer(sequence, inference_params)?
+        };
+
+        //        result.fill_event(self, sequence)?;
 
         // compute the pgen if needed
         if self.error_rate == 0. {
@@ -387,23 +393,30 @@ impl Modelable for Model {
             result.pgen = result.likelihood;
         }
 
-        if inference_params.compute_pgen && inference_params.store_best_event {
-            // if there is error, we use the reconstructed sequence to infer everything
-            let event = result
-                .get_best_event()
-                .ok_or(anyhow!("Error with pgen inference"))?;
-            let seq_without_err = event
-                .reconstructed_sequence
-                .ok_or(anyhow!("Error with pgen inference"))?;
-            // full sequence, so default alignment parameters should be fine.
-            let aligned_seq =
-                self.align_sequence(seq_without_err, &AlignmentParameters::default())?;
-            let mut feature = Features::new(self)?;
-            feature.error.error_rate = 0.; // remove the error
-            result.pgen = feature.infer(&aligned_seq, inference_params)?.likelihood;
-        }
+        // if inference_params.compute_pgen && inference_params.store_best_event {
+        //     // if there is error, we use the reconstructed sequence to infer everything
+        //     let event = result
+        //         .get_best_event()
+        //         .ok_or(anyhow!("Error with pgen inference"))?;
+        //     let seq_without_err = event
+        //         .reconstructed_sequence
+        //         .ok_or(anyhow!("Error with pgen inference"))?;
+        //     // full sequence, so default alignment parameters should be fine.
+        //     let aligned_seq =
+        //         self.align_sequence(seq_without_err, &AlignmentParameters::default())?;
 
-        result.features = Some(feature.clone());
+        //     result.pgen = if inference_params.complete_vdj_inference {
+        //         let mut feature = Features::new(self)?;
+        //         feature.error.error_rate = 0.; // remove the error
+        //         feature.infer(&aligned_seq, inference_params)?.likelihood
+        //     } else {
+        //         let mut feature = v_dj::Features::new(self)?;
+        //         feature.error.error_rate = 0.; // remove the error
+        //         feature.infer(&aligned_seq, inference_params)?.likelihood
+        //     };
+        // }
+
+        result.features = None; //Some(feature.clone());
         Ok(result)
     }
 
@@ -419,7 +432,7 @@ impl Modelable for Model {
 
         if ip.complete_vdj_inference {
             let features = sequences
-                .par_iter()
+                .iter()
                 .map(|sequence| {
                     let mut feature = Features::new(self)?;
                     let _ = feature.infer(sequence, &ip)?;
@@ -430,7 +443,7 @@ impl Modelable for Model {
             self.update(&avg_features)?;
         } else {
             let features = sequences
-                .par_iter()
+                .iter()
                 .map(|sequence| {
                     let mut feature = v_dj::Features::new(self)?;
                     let _ = feature.infer(sequence, &ip)?;
@@ -671,6 +684,30 @@ impl Modelable for Model {
 }
 
 impl Model {
+    pub fn infer_brute_force(
+        &mut self,
+        sequences: &Vec<Sequence>,
+        inference_params: &InferenceParameters,
+    ) -> Result<()> {
+        let features = sequences
+            .iter()
+            .map(|sequence| {
+                let mut feature = Features::new(self)?;
+                let _ = feature.infer_brute_force(sequence)?;
+                Ok(feature)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let avg_features = Features::average(features)?;
+        self.update(&avg_features)?;
+        Ok(())
+    }
+
+    pub fn evaluate_brute_force(&mut self, sequence: &Sequence) -> Result<ResultInference> {
+        let mut feature = Features::new(self)?;
+        let mut result = feature.infer_brute_force(sequence)?;
+        Ok(result)
+    }
+
     pub fn get_p_vj(&self) -> Array2<f64> {
         self.p_vdj.sum_axis(Axis(1))
     }
@@ -678,7 +715,7 @@ impl Model {
     pub fn get_p_d_given_j(&self) -> Array2<f64> {
         let pdj = self.p_vdj.sum_axis(Axis(0));
         let pj = pdj.sum_axis(Axis(0)).insert_axis(Axis(0));
-        pdj / pj
+        (pdj / pj).mapv(|x| if x.is_nan() { 0.0 } else { x })
     }
 
     pub fn write_v_anchors(&self) -> Result<String> {

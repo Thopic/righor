@@ -1,5 +1,6 @@
 use ndarray::array;
 use righor::vdj;
+use righor::Modelable;
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -13,7 +14,7 @@ pub fn simple_model_vdj() -> vdj::Model {
     };
     let gj1 = righor::Gene {
         name: "J1".to_string(),
-        seq: righor::Dna::from_string("GGGGGGCAGTCAGT").unwrap(),
+        seq: righor::Dna::from_string("GGGGGGCAGTCAGAGGAGAAACAAAGACTTAT").unwrap(),
         seq_with_pal: None,
         functional: "(F)".to_string(),
         cdr3_pos: Some(11),
@@ -30,9 +31,7 @@ pub fn simple_model_vdj() -> vdj::Model {
         seg_vs: vec![gv1],
         seg_js: vec![gj1],
         seg_ds: vec![gd1],
-        p_v: array![1.],
-        p_j_given_v: array![[1.]],
-        p_d_given_vj: array![[[1.]]],
+        p_vdj: array![[[1.]]],
         p_ins_vd: array![0.4, 0.2, 0.1, 0.1, 0.1, 0.05, 0.05],
         p_ins_dj: array![0.4, 0.2, 0.1, 0.1, 0.1, 0.05, 0.05],
         p_del_v_given_v: array![[0.1], [0.2], [0.4], [0.1], [0.05], [0.1], [0.05],],
@@ -54,8 +53,6 @@ pub fn simple_model_vdj() -> vdj::Model {
             [0.25, 0.25, 0.25, 0.25],
             [0.25, 0.25, 0.25, 0.25]
         ],
-        first_nt_bias_ins_vd: array![0.25, 0.25, 0.25, 0.25],
-        first_nt_bias_ins_dj: array![0.25, 0.25, 0.25, 0.25],
         range_del_v: (-2, 4),
         range_del_j: (-2, 4),
         range_del_d3: (-1, 1),

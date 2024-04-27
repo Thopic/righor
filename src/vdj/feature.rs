@@ -125,13 +125,16 @@ impl AggregatedFeatureEndV {
 
             if ll > ip.min_likelihood {
                 let proba_params_given_ev = ll / self.total_likelihood; // P(parameters|ev)
+
                 let dirty_proba = self.dirty_likelihood.get(v_end); // P(ev)
                 if dirty_proba > 0. {
-                    feat.delv_mut()
-                        .dirty_update((delv, v.index), dirty_proba * proba_params_given_ev);
+                    // here we want to compute P(delV | V)
+                    // at that point the V gene proba should be already updated
+                    feat.delv_mut().dirty_update((delv, v.index), dirty_proba);
+
                     feat.error_mut().dirty_update(
                         (v.nb_errors(delv), v.length_with_deletion(delv)),
-                        dirty_proba * proba_params_given_ev,
+                        dirty_proba,
                     );
                 }
             }
@@ -189,24 +192,20 @@ impl AggregatedFeatureStartJ {
     }
 
     pub fn disaggregate(&self, j: &VJAlignment, feat: &mut Features, ip: &InferenceParameters) {
-        for delj in 0..feat.delj.dim().0 {
+        for delj in 0..feat.delj().dim().0 {
             let j_start = (j.start_seq + delj) as i64;
-            let ll = feat.delj.likelihood((delj, j.index))
+            let ll = feat.delj().likelihood((delj, j.index))
                 * feat
-                    .error
+                    .error()
                     .likelihood((j.nb_errors(delj), j.length_with_deletion(delj)));
-
             if ll > ip.min_likelihood {
-                let proba_params_given_sj = ll / self.total_likelihood; // P(delj, j, errors ...|sj)
-                let likelihood = ll;
                 let dirty_proba = self.dirty_likelihood.get(j_start);
                 if dirty_proba > 0. {
-                    feat.delj
-                        .dirty_update((delj, j.index), dirty_proba * proba_params_given_sj);
+                    feat.delj_mut().dirty_update((delj, j.index), dirty_proba);
 
-                    feat.error.dirty_update(
+                    feat.error_mut().dirty_update(
                         (j.nb_errors(delj), j.length_with_deletion(delj)),
-                        dirty_proba * likelihood / self.total_likelihood,
+                        dirty_proba,
                     )
                 }
             }
@@ -217,7 +216,7 @@ impl AggregatedFeatureStartJ {
 impl AggregatedFeatureSpanD {
     pub fn new(
         ds: &Vec<DAlignment>,
-        feat: &Features,
+        feat: &impl FeaturesInsDelVDJ,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureSpanD> {
         if ds.is_empty() {
@@ -229,12 +228,13 @@ impl AggregatedFeatureSpanD {
             (
                 // min start, min end
                 ds.iter().map(|x| x.pos).min().unwrap() as i64,
-                ds.iter().map(|x| x.pos + x.len()).min().unwrap() as i64 - feat.deld.dim().1 as i64
+                ds.iter().map(|x| x.pos + x.len()).min().unwrap() as i64
+                    - feat.deld().dim().1 as i64
                     + 1,
             ),
             (
                 // max start, max end
-                ds.iter().map(|x| x.pos).max().unwrap() as i64 + feat.deld.dim().0 as i64,
+                ds.iter().map(|x| x.pos).max().unwrap() as i64 + feat.deld().dim().0 as i64,
                 ds.iter().map(|x| x.pos + x.len()).max().unwrap() as i64 + 1,
             ),
         ));
@@ -245,15 +245,15 @@ impl AggregatedFeatureSpanD {
                 panic!("AggregatedFeatureSpanD received different genes.");
             }
 
-            for (deld5, deld3) in iproduct!(0..feat.deld.dim().0, 0..feat.deld.dim().1) {
+            for (deld5, deld3) in iproduct!(0..feat.deld().dim().0, 0..feat.deld().dim().1) {
                 let d_start = (d.pos + deld5) as i64;
                 let d_end = (d.pos + d.len() - deld3) as i64;
                 if d_start > d_end {
                     continue;
                 }
 
-                let ll_deld = feat.deld.likelihood((deld5, deld3, d.index));
-                let ll_errord = feat.error.likelihood((
+                let ll_deld = feat.deld().likelihood((deld5, deld3, d.index));
+                let ll_errord = feat.error().likelihood((
                     d.nb_errors(deld5, deld3),
                     d.length_with_deletion(deld5, deld3),
                 ));
@@ -294,33 +294,37 @@ impl AggregatedFeatureSpanD {
         *self.dirty_likelihood.get_mut((sd, ed)) += likelihood;
     }
 
-    pub fn disaggregate(&self, ds: &[DAlignment], feat: &mut Features, ip: &InferenceParameters) {
+    pub fn disaggregate(
+        &self,
+        ds: &[DAlignment],
+        feat: &mut impl FeaturesInsDelVDJ,
+        ip: &InferenceParameters,
+    ) {
         // Now with startD and end D
         for d in ds.iter() {
-            for (deld5, deld3) in iproduct!(0..feat.deld.dim().0, 0..feat.deld.dim().1) {
+            for (deld5, deld3) in iproduct!(0..feat.deld().dim().0, 0..feat.deld().dim().1) {
                 let d_start = (d.pos + deld5) as i64;
                 let d_end = (d.pos + d.len() - deld3) as i64;
                 if d_start > d_end {
                     continue;
                 }
                 let nb_err = d.nb_errors(deld5, deld3);
-                let likelihood = feat.deld.likelihood((deld5, deld3, d.index))
+                let likelihood = feat.deld().likelihood((deld5, deld3, d.index))
                     * feat
-                        .error
+                        .error()
                         .likelihood((nb_err, d.length_with_deletion(deld5, deld3)));
 
                 if likelihood > ip.min_likelihood {
-                    let proba_params_given_dspan = likelihood / self.total_likelihood;
                     let dirty_proba = self.dirty_likelihood.get((d_start, d_end));
+                    let corrected_proba =
+                        dirty_proba * likelihood / self.likelihood(d_start, d_end);
                     if dirty_proba > 0. {
-                        feat.deld.dirty_update(
-                            (deld5, deld3, d.index),
-                            dirty_proba * proba_params_given_dspan,
-                        );
+                        feat.deld_mut()
+                            .dirty_update((deld5, deld3, d.index), corrected_proba);
 
-                        feat.error.dirty_update(
+                        feat.error_mut().dirty_update(
                             (nb_err, d.length_with_deletion(deld5, deld3)),
-                            dirty_proba * proba_params_given_dspan,
+                            corrected_proba,
                         );
                     }
                 }
@@ -428,6 +432,7 @@ impl FeatureVD {
 pub struct FeatureDJ {
     likelihood: RangeArray2,
     dirty_likelihood: RangeArray2,
+    total_likelihood: f64,
 }
 
 impl FeatureDJ {
@@ -459,6 +464,8 @@ impl FeatureDJ {
             + feat.delj().dim().0 as i64
             - 1;
 
+        let mut total_likelihood = 0.;
+
         let mut likelihoods =
             RangeArray2::zeros(((min_end_d, min_start_j), (max_end_d + 1, max_start_j + 1)));
 
@@ -471,6 +478,7 @@ impl FeatureDJ {
                     let likelihood = feat.insdj().likelihood(&ins_dj_plus_last);
                     if likelihood > ip.min_likelihood {
                         *likelihoods.get_mut((ed, sj)) = likelihood;
+                        total_likelihood += likelihood;
                     }
                 }
             }
@@ -479,6 +487,7 @@ impl FeatureDJ {
         Some(FeatureDJ {
             dirty_likelihood: RangeArray2::zeros(likelihoods.dim()),
             likelihood: likelihoods,
+            total_likelihood,
         })
     }
 
@@ -520,12 +529,15 @@ impl FeatureDJ {
             for sj in self.likelihood.lower().1..self.likelihood.upper().1 {
                 if sj >= ed
                     && ((sj - ed) as usize) < feat.insdj().max_nb_insertions()
-                    && self.likelihood(ed, sj) > ip.min_likelihood
+                    && (self.dirty_likelihood.get((ed, sj)) > 0.)
                 {
                     let mut ins_dj_plus_last = sequence.extract_padded_subsequence(ed, sj + 1);
                     ins_dj_plus_last.reverse();
-                    feat.insdj_mut()
-                        .dirty_update(&ins_dj_plus_last, self.dirty_likelihood.get((ed, sj)));
+                    let likelihood = feat.insdj().likelihood(&ins_dj_plus_last);
+                    if likelihood > ip.min_likelihood {
+                        feat.insdj_mut()
+                            .dirty_update(&ins_dj_plus_last, self.dirty_likelihood.get((ed, sj)));
+                    }
                 }
             }
         }

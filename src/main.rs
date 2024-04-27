@@ -24,49 +24,61 @@ fn main() -> Result<()> {
     // )?;
 
     //TODO: modify before release
-    let igor_model = righor::vdj::Model::load_from_name(
+    let mut igor_model = righor::vdj::Model::load_from_name(
         "human",
-        "igh",
+        "trb",
         None,
-        Path::new("/home/thomas/Downloads/righor.data/data/models"),
+        Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
     )?;
     let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
 
-    for _ in 0..1000000 {
+    for _ in 0..100 {
         generator.generate_without_errors(true);
     }
-    // igor_model.save_model(Path::new("tmp/"));
 
-    // let mut new_model = righor::vj::Model::load_from_files(
-    //     Path::new("tmp/model_params.txt"),
-    //     Path::new("tmp/model_marginals.txt"),
-    //     Path::new("tmp/V_gene_CDR3_anchors.csv"),
-    //     Path::new("tmp/J_gene_CDR3_anchors.csv"),
-    // )?;
+    igor_model.save_model(Path::new("../tmp/"))?;
+    igor_model.error_rate = 0.;
 
-    // println!("{}", igor_model.similar_to(new_model));
+    let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
+    let mut uniform_model = igor_model.uniform()?;
+    let align_params = righor::AlignmentParameters::default();
+    let inference_params = righor::InferenceParameters::default();
+    let mut inference_params_2 = righor::InferenceParameters::default();
 
-    // igor_model.error_rate = 0.;
+    inference_params_2.complete_vdj_inference = true;
 
-    // let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
-    // let mut uniform_model = igor_model.uniform()?;
-    // let align_params = righor::AlignmentParameters::default();
-    // let inference_params = righor::InferenceParameters::default();
+    let mut seq = Vec::new();
+    for _ in tqdm!(0..1000) {
+        let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
+        let als = uniform_model.align_sequence(s.clone(), &align_params)?;
+        if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
+            seq.push(als.clone());
+        }
+        // println!(
+        //     "{}",
+        //     igor_model
+        //         .evaluate(&als.clone(), &inference_params)?
+        //         .likelihood
+        // );
+        // println!(
+        //     "{}",
+        //     igor_model
+        //         .evaluate(&als.clone(), &inference_params_2)?
+        //         .likelihood
+        // );
+    }
 
-    // let mut seq = Vec::new();
-    // for _ in tqdm!(0..1) {
-    //     let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
-    //     let als = uniform_model.align_sequence(s.clone(), &align_params)?;
-    //     if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
-    //         seq.push(als);
-    //     }
-    // }
-    // for ii in 0..5 {
-    //     let _ = uniform_model.infer(&seq, &inference_params);
-    //     println!("{:?}", ii);
-    // }
+    for ii in tqdm![0..5] {
+        uniform_model.infer(&seq, &inference_params)?;
+    }
 
-    // println!("{:?}", uniform_model.p_ins_vd);
+    let mut uniform_model2 = igor_model.uniform()?;
 
+    for ii in tqdm![0..5] {
+        uniform_model2.infer(&seq, &inference_params_2)?;
+    }
+    println!("{:?}", uniform_model2.p_ins_vd);
+    println!("{:?}", uniform_model.p_ins_vd);
+    println!("{:?}", igor_model.p_ins_vd);
     Ok(())
 }

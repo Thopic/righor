@@ -2,8 +2,8 @@ use crate::shared::feature::*;
 use crate::shared::InferenceParameters;
 use crate::v_dj::AggregatedFeatureStartDAndJ;
 use crate::vdj::{
-    inference::FeaturesInsDelVDJ, AggregatedFeatureEndV, FeatureDJ, FeatureVD, InfEvent, Model,
-    ResultInference, Sequence,
+    inference::FeaturesInsDelVDJ, AggregatedFeatureEndV, AggregatedFeatureSpanD, FeatureDJ,
+    FeatureVD, InfEvent, Model, ResultInference, Sequence,
 };
 use anyhow::Result;
 use ndarray::Axis;
@@ -62,7 +62,6 @@ impl FeaturesInsDelVDJ for Features {
     fn update_model(&self, model: &mut Model) -> Result<()> {
         let pvj = self.vj.probas.clone();
         let pd_given_j = self.d.probas.clone();
-
         model.p_vdj = pvj.insert_axis(Axis(1)) * pd_given_j.insert_axis(Axis(0));
         model.p_del_v_given_v = self.delv.probas.clone();
         model.set_p_vdj(&model.p_vdj.clone())?;
@@ -91,11 +90,11 @@ impl FeaturesInsDelVDJ for Features {
     /// likelihood of the sequence and update the parameters
     fn infer(&mut self, sequence: &Sequence, ip: &InferenceParameters) -> Result<ResultInference> {
         // Estimate the likelihood of all possible insertions
-        let mut ins_vd = match FeatureVD::new(sequence, self, ip) {
+        let mut agg_ins_vd = match FeatureVD::new(sequence, self, ip) {
             Some(ivd) => ivd,
             None => return Ok(ResultInference::impossible()),
         };
-        let mut ins_dj = match FeatureDJ::new(sequence, self, ip) {
+        let mut agg_ins_dj = match FeatureDJ::new(sequence, self, ip) {
             Some(idj) => idj,
             None => return Ok(ResultInference::impossible()),
         };
@@ -107,10 +106,24 @@ impl FeaturesInsDelVDJ for Features {
             features_v.push(feature_v);
         }
 
+        let mut features_d = Vec::new();
+        for d_idx in 0..self.d.dim().0 {
+            let feature_d =
+                AggregatedFeatureSpanD::new(&sequence.get_specific_dgene(d_idx), self, ip);
+            if let Some(feat_d) = feature_d {
+                features_d.push(feat_d);
+            }
+        }
+
+        if features_d.is_empty() {
+            println!("This probably shouldn't happen...");
+            return Ok(ResultInference::impossible());
+        }
+
         let mut features_dj = Vec::new();
         for jal in &sequence.j_genes {
             let feature_dj =
-                AggregatedFeatureStartDAndJ::new(jal, &sequence.d_genes, &ins_dj, self, ip);
+                AggregatedFeatureStartDAndJ::new(jal, &features_d, &agg_ins_dj, self, ip);
             features_dj.push(feature_dj);
         }
 
@@ -119,15 +132,11 @@ impl FeaturesInsDelVDJ for Features {
         // Main loop
         for v in features_v.iter_mut().filter_map(|x| x.as_mut()) {
             for dj in features_dj.iter_mut().filter_map(|x| x.as_mut()) {
-                self.infer_given_vdj(v, dj, &mut ins_vd, ip, &mut result)?;
+                self.infer_given_vdj(v, dj, &mut agg_ins_vd, ip, &mut result)?;
             }
         }
 
         if ip.infer {
-            // disaggregate the insertion features
-            ins_vd.disaggregate(&sequence.sequence, self, ip);
-            ins_dj.disaggregate(&sequence.sequence, self, ip);
-
             // disaggregate the v/dj features
             for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
                 match v {
@@ -137,15 +146,20 @@ impl FeaturesInsDelVDJ for Features {
             }
             for (jal, dj) in sequence.j_genes.iter().zip(features_dj.iter_mut()) {
                 match dj {
-                    Some(f) => f.disaggregate(jal, &sequence.d_genes, &mut ins_dj, self, ip),
+                    Some(f) => f.disaggregate(jal, &mut features_d, &mut agg_ins_dj, self, ip),
                     None => continue,
                 }
             }
 
-            // Move the dirty proba for the next cycle, normalize everything
-            self.cleanup()?;
-        }
+            for (d_idx, d) in features_d.iter_mut().enumerate() {
+                d.disaggregate(&sequence.get_specific_dgene(d_idx), self, ip);
+            }
 
+            // disaggregate the insertion features
+            agg_ins_vd.disaggregate(&sequence.sequence, self, ip);
+            agg_ins_dj.disaggregate(&sequence.sequence, self, ip);
+        }
+        self.cleanup(result.likelihood)?;
         // Return the result
         Ok(result)
     }
@@ -184,11 +198,7 @@ impl Features {
             for sd in cmp::max(ev, min_sd)..max_sd {
                 let likelihood_ins_vd = ins_vd.likelihood(ev, sd);
                 let likelihood_dj = feature_dj.likelihood(sd);
-                let likelihood = likelihood_v
-                    * likelihood_ins_vd
-                    * likelihood_dj
-                    * likelihood_ins_vd
-                    * likelihood_vj;
+                let likelihood = likelihood_v * likelihood_ins_vd * likelihood_dj * likelihood_vj;
 
                 if likelihood > cutoff {
                     current_result.likelihood += likelihood;
@@ -231,16 +241,16 @@ impl Features {
         Ok(())
     }
 
-    pub fn cleanup(&mut self) -> Result<()> {
+    pub fn cleanup(&mut self, likelihood: f64) -> Result<()> {
         // Compute the new marginals for the next round
-        self.vj = self.vj.cleanup()?;
-        self.d = self.d.cleanup()?;
-        self.delv = self.delv.cleanup()?;
-        self.delj = self.delj.cleanup()?;
-        self.deld = self.deld.cleanup()?;
-        self.insvd = self.insvd.cleanup()?;
-        self.insdj = self.insdj.cleanup()?;
-        self.error = self.error.cleanup()?;
+        self.vj.scale_dirty(1. / likelihood);
+        self.d.scale_dirty(1. / likelihood);
+        self.delv.scale_dirty(1. / likelihood);
+        self.delj.scale_dirty(1. / likelihood);
+        self.deld.scale_dirty(1. / likelihood);
+        self.insvd.scale_dirty(1. / likelihood);
+        self.insdj.scale_dirty(1. / likelihood);
+        self.error.scale_dirty(1. / likelihood);
         Ok(())
     }
 }

@@ -1,10 +1,12 @@
 use crate::shared::feature::*;
+use crate::shared::utils::difference_as_i64;
 use crate::shared::{Dna, InferenceParameters};
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
     Model, Sequence,
 };
 use anyhow::{anyhow, Result};
+
 use std::cmp;
 
 //#[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -202,6 +204,7 @@ impl ResultInference {
                     .sequence
                     .extract_padded_subsequence(event.end_d, event.start_j),
             );
+
             event.d_segment = Some(
                 sequence
                     .sequence
@@ -276,7 +279,6 @@ pub trait FeaturesInsDelVDJ {
     fn insvd_mut(&mut self) -> &mut InsertionFeature;
     fn insdj_mut(&mut self) -> &mut InsertionFeature;
     fn error_mut(&mut self) -> &mut ErrorSingleNucleotide;
-
     fn new(model: &Model) -> Result<Self>
     where
         Self: Sized;
@@ -427,8 +429,8 @@ impl FeaturesInsDelVDJ for Features {
                 }
             }
 
-            // Move the dirty proba for the next cycle, normalize everything
-            self.cleanup()?;
+            // Divide all the proba by P(R) (the probability of the sequence)
+            self.cleanup(result.likelihood)?;
         }
 
         // Return the result
@@ -437,6 +439,86 @@ impl FeaturesInsDelVDJ for Features {
 }
 
 impl Features {
+    /// Brute-force inference
+    /// for test-purpose only
+    pub fn infer_brute_force(&mut self, sequence: &Sequence) -> Result<ResultInference> {
+        let mut result = ResultInference::impossible();
+
+        // Main loop
+        for val in sequence.v_genes.clone() {
+            for jal in sequence.j_genes.clone() {
+                for dal in sequence.d_genes.clone() {
+                    for delv in 0..self.delv.dim().0 {
+                        for delj in 0..self.delj.dim().0 {
+                            for deld5 in 0..self.deld().dim().0 {
+                                for deld3 in 0..self.deld().dim().1 {
+                                    let d_start = (dal.pos + deld5) as i64;
+                                    let d_end = (dal.pos + dal.len() - deld3) as i64;
+                                    let j_start = (jal.start_seq + delj) as i64;
+                                    let v_end = difference_as_i64(val.end_seq, delv);
+                                    if (d_start > d_end) || (j_start < d_end) || (d_start < v_end) {
+                                        continue;
+                                    }
+
+                                    let mut ins_dj_plus_last =
+                                        sequence.get_subsequence(d_end, j_start + 1);
+                                    ins_dj_plus_last.reverse();
+                                    let ins_vd_plus_first =
+                                        sequence.get_subsequence(v_end - 1, d_start);
+
+                                    let nb_errors = val.nb_errors(delv)
+                                        + jal.nb_errors(delj)
+                                        + dal.nb_errors(deld5, deld3);
+
+                                    let length_w_del = val.length_with_deletion(delv)
+                                        + jal.length_with_deletion(delj)
+                                        + dal.length_with_deletion(deld5, deld3);
+
+                                    let ll = self.vdj.likelihood((val.index, dal.index, jal.index))
+                                        * self.delv().likelihood((delv, val.index))
+                                        * self.delj().likelihood((delj, jal.index))
+                                        * self.deld().likelihood((deld5, deld3, dal.index))
+                                        * self.insdj().likelihood(&ins_dj_plus_last)
+                                        * self.insvd().likelihood(&ins_vd_plus_first)
+                                        * self.error().likelihood((nb_errors, length_w_del));
+
+                                    // println!(
+                                    //     "{:.1e}\t{:.1e}\t{:.1e}\t{:.1e}\t{:.1e}\t{:.1e}\t{:.1e}",
+                                    //     self.vdj.likelihood((val.index, dal.index, jal.index)),
+                                    //     self.delv().likelihood((delv, val.index)),
+                                    //     self.delj().likelihood((delj, jal.index)),
+                                    //     self.deld().likelihood((deld5, deld3, dal.index)),
+                                    //     self.insdj().likelihood(&ins_dj_plus_last),
+                                    //     self.insvd().likelihood(&ins_vd_plus_first),
+                                    //     self.error().likelihood((nb_errors, length_w_del))
+                                    // );
+
+                                    if ll > 0. {
+                                        result.likelihood += ll;
+                                        self.vdj
+                                            .dirty_update((val.index, dal.index, jal.index), ll);
+                                        self.delv_mut().dirty_update((delv, val.index), ll);
+                                        self.delj_mut().dirty_update((delj, jal.index), ll);
+                                        self.deld_mut().dirty_update((deld5, deld3, dal.index), ll);
+                                        self.insdj_mut().dirty_update(&ins_dj_plus_last, ll);
+                                        self.insvd_mut().dirty_update(&ins_vd_plus_first, ll);
+                                        self.error_mut()
+                                            .dirty_update((nb_errors, length_w_del), ll);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.cleanup(result.likelihood)?;
+
+        // Return the result
+        Ok(result)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn infer_given_vdj(
         &mut self,
@@ -546,15 +628,15 @@ impl Features {
         Ok(())
     }
 
-    pub fn cleanup(&mut self) -> Result<()> {
+    pub fn cleanup(&mut self, likelihood: f64) -> Result<()> {
         // Compute the new marginals for the next round
-        self.vdj = self.vdj.cleanup()?;
-        self.delv = self.delv.cleanup()?;
-        self.delj = self.delj.cleanup()?;
-        self.deld = self.deld.cleanup()?;
-        self.insvd = self.insvd.cleanup()?;
-        self.insdj = self.insdj.cleanup()?;
-        self.error = self.error.cleanup()?;
+        self.vdj.scale_dirty(1. / likelihood);
+        self.delv.scale_dirty(1. / likelihood);
+        self.delj.scale_dirty(1. / likelihood);
+        self.deld.scale_dirty(1. / likelihood);
+        self.insvd.scale_dirty(1. / likelihood);
+        self.insdj.scale_dirty(1. / likelihood);
+        self.error.scale_dirty(1. / likelihood);
         Ok(())
     }
 }

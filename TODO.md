@@ -15,6 +15,8 @@
 - add some checks so that people don't mix up the V and J files
 - allow restricted models (P(V) P(DJ))
 - allow to fix number of cores used (```rayon::ThreadPoolBuilder::new().num_threads(4).build_global().unwrap();``` -> make a function set_nb_threads(nb))
+- I should probably change the way I'm doing the inference (the feature object should contains ref to other features ?)
+
 
 Before version change checklist:
 - is righor-py using the cargo package or the local version ?
