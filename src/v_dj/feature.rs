@@ -59,20 +59,26 @@ impl AggregatedFeatureStartDAndJ {
         feature_ds.iter().for_each(|agg_d| {
             let ll_dj = feat.d.likelihood((agg_d.index, feature_j.index)); // P(D|J)
             feat_insdj.iter().for_each(|(d_end, j_start, ll_ins_dj)| {
-                let ll_ins_jd = feature_j.likelihood(j_start) * ll_ins_dj * ll_dj;
-                agg_d.iter_fixed_dend(d_end).for_each(|(d_start, ll_deld)| {
-                    let ll = ll_ins_jd * ll_deld;
-                    if ll > ip.min_likelihood {
-                        if ll > best_likelihood {
-                            most_likely_d_end = d_end;
-                            most_likely_d_index = agg_d.index;
-                            most_likely_j_start = j_start;
-                            best_likelihood = ll;
+                // j_start doesn't come from the iterator of feature_j
+                // so we need to be careful here
+                if (j_start >= feature_j.start_j5) && (j_start < feature_j.end_j5) {
+                    let ll_ins_jd = feature_j.likelihood(j_start) * ll_ins_dj * ll_dj;
+
+                    // iter_fixed_dend has the checks included
+                    agg_d.iter_fixed_dend(d_end).for_each(|(d_start, ll_deld)| {
+                        let ll = ll_ins_jd * ll_deld;
+                        if ll > ip.min_likelihood {
+                            if ll > best_likelihood {
+                                most_likely_d_end = d_end;
+                                most_likely_d_index = agg_d.index;
+                                most_likely_j_start = j_start;
+                                best_likelihood = ll;
+                            }
+                            *likelihood.get_mut(d_start) += ll;
+                            total_likelihood += ll;
                         }
-                        *likelihood.get_mut(d_start) += ll;
-                        total_likelihood += ll;
-                    }
-                });
+                    });
+                }
             });
         });
 

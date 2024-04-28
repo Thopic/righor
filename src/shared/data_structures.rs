@@ -1,6 +1,6 @@
 //! Contains data structures (RangeArray for now)
 //! RangeArray are array structures (similar to ndarray)
-//! containing f64 indexed by i64, with fast, unsafe, access
+//! containing f64 indexed by i64, with fast access
 
 fn max_vector(arr: &[f64]) -> Option<f64> {
     arr.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied()
@@ -49,7 +49,9 @@ impl RangeArray1Stack {
     pub fn get(&self, idx: i64) -> f64 {
         debug_assert!(idx >= self.min && idx < self.max);
         //unsafe because improve perf
-        unsafe { *self.array.get_unchecked((idx - self.min) as usize) }
+        //        unsafe {
+        *self.array.get((idx - self.min) as usize).unwrap()
+        //}
     }
 
     pub fn dim(&self) -> (i64, i64) {
@@ -83,7 +85,9 @@ impl RangeArray1Stack {
     pub fn get_mut(&mut self, idx: i64) -> &mut f64 {
         debug_assert!(idx >= self.min && idx < self.max);
         //unsafe because improve perf
-        unsafe { self.array.get_unchecked_mut((idx - self.min) as usize) }
+        //        unsafe {
+        self.array.get_mut((idx - self.min) as usize).unwrap()
+        //}
     }
 
     pub fn mut_map<F>(&mut self, mut f: F)
@@ -131,7 +135,9 @@ impl RangeArray1 {
     pub fn get(&self, idx: i64) -> f64 {
         debug_assert!(idx >= self.min && idx < self.max);
         //unsafe because improve perf
-        unsafe { *self.array.get_unchecked((idx - self.min) as usize) }
+        //        unsafe {
+        *self.array.get((idx - self.min) as usize).unwrap()
+        //}
     }
 
     pub fn max_value(&self) -> f64 {
@@ -169,7 +175,9 @@ impl RangeArray1 {
     pub fn get_mut(&mut self, idx: i64) -> &mut f64 {
         debug_assert!(idx >= self.min && idx < self.max);
         //unsafe because improve perf
-        unsafe { self.array.get_unchecked_mut((idx - self.min) as usize) }
+        //        unsafe {
+        self.array.get_mut((idx - self.min) as usize).unwrap()
+        //}
     }
 
     pub fn mut_map<F>(&mut self, mut f: F)
@@ -242,13 +250,16 @@ impl RangeArray3 {
                 && idx.2 >= self.min.2
                 && idx.2 < self.max.2
         );
-        unsafe {
-            *self.array.get_unchecked(
+        //        unsafe {
+        *self
+            .array
+            .get(
                 (idx.0 - self.min.0) as usize
                     + ((idx.1 - self.min.1) as usize) * self.nb0
                     + ((idx.2 - self.min.2) as usize) * self.nb1 * self.nb0,
             )
-        }
+            .unwrap()
+        //        }
     }
 
     pub fn get_mut(&mut self, idx: (i64, i64, i64)) -> &mut f64 {
@@ -260,13 +271,15 @@ impl RangeArray3 {
                 && idx.2 >= self.min.2
                 && idx.2 < self.max.2
         );
-        unsafe {
-            self.array.get_unchecked_mut(
+        //        unsafe {
+        self.array
+            .get_mut(
                 (idx.0 - self.min.0) as usize
                     + ((idx.1 - self.min.1) as usize) * self.nb0
                     + ((idx.2 - self.min.2) as usize) * self.nb1 * self.nb0,
             )
-        }
+            .unwrap()
+        //        }
     }
 
     pub fn dim(&self) -> ((i64, i64, i64), (i64, i64, i64)) {
@@ -378,21 +391,23 @@ impl RangeArray2 {
         debug_assert!(
             idx.0 >= self.min.0 && idx.0 < self.max.0 && idx.1 >= self.min.1 && idx.1 < self.max.1
         );
-        unsafe {
-            *self
-                .array
-                .get_unchecked((idx.0 - self.min.0 + (idx.1 - self.min.1) * self.nb0) as usize)
-        }
+        //        unsafe {
+        *self
+            .array
+            .get((idx.0 - self.min.0 + (idx.1 - self.min.1) * self.nb0) as usize)
+            .unwrap()
+        //      }
     }
 
     pub fn get_mut(&mut self, idx: (i64, i64)) -> &mut f64 {
         debug_assert!(
             idx.0 >= self.min.0 && idx.0 < self.max.0 && idx.1 >= self.min.1 && idx.1 < self.max.1
         );
-        unsafe {
-            self.array
-                .get_unchecked_mut((idx.0 - self.min.0 + (idx.1 - self.min.1) * self.nb0) as usize)
-        }
+        //    unsafe {
+        self.array
+            .get_mut((idx.0 - self.min.0 + (idx.1 - self.min.1) * self.nb0) as usize)
+            .unwrap()
+        //  }
     }
 
     pub fn dim(&self) -> ((i64, i64), (i64, i64)) {

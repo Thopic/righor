@@ -10,6 +10,7 @@ use anyhow::{anyhow, Result};
 use kdam::tqdm;
 use ndarray::array;
 use ndarray::Axis;
+
 use righor::Modelable;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -49,28 +50,29 @@ fn main() -> Result<()> {
     };
 
     let mut seq = Vec::new();
-    for _ in tqdm!(0..50) {
+    for _ in tqdm!(0..10000) {
         let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
-        let als = uniform_model.align_sequence(&s.clone(), &align_params)?;
-        if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
-            seq.push(als.clone());
-        }
-        // println!(
-        //     "{}",
-        //     igor_model
-        //         .evaluate(&als.clone(), &inference_params)?
-        //         .likelihood
-        // );
-        // println!(
-        //     "{}",
-        //     igor_model
-        //         .evaluate(&als.clone(), &inference_params_2)?
-        //         .likelihood
-        // );
-    }
+        seq.push(s)
 
-    for _ii in tqdm![0..5] {
-        uniform_model.infer(&seq, &inference_params)?;
+        // let als = uniform_model.align_sequence(&s.clone(), &align_params)?;
+        // if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
+        //     seq.push(als.clone());
+    }
+    // println!(
+    //     "{}",
+    //     igor_model
+    //         .evaluate(&als.clone(), &inference_params)?
+    //         .likelihood
+    // );
+    // println!(
+    //     "{}",
+    //     igor_model
+    //         .evaluate(&als.clone(), &inference_params_2)?
+    //         .likelihood
+    // );
+
+    for _ii in tqdm![0..6] {
+        uniform_model.align_and_infer(&seq, &align_params, &inference_params)?;
     }
 
     // let mut uniform_model2 = igor_model.uniform()?;
