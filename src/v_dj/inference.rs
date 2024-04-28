@@ -2,8 +2,7 @@ use crate::shared::feature::*;
 use crate::shared::{FeaturesGeneric, FeaturesTrait, InferenceParameters, ResultInference};
 use crate::v_dj::AggregatedFeatureStartDAndJ;
 use crate::vdj::{
-    AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
-    Model, Sequence,
+    AggregatedFeatureEndV, AggregatedFeatureSpanD, FeatureDJ, FeatureVD, Model, Sequence,
 };
 use anyhow::Result;
 use ndarray::Axis;
@@ -110,33 +109,25 @@ impl FeaturesTrait for Features {
             features_v.push(feature_v);
         }
 
-        let mut features_j = Vec::new();
-        for jal in &sequence.j_genes {
-            let feature_j = AggregatedFeatureStartJ::new(jal, self, ip);
-            if let Some(feat_j) = feature_j {
-                features_j.push(feat_j);
-            }
-        }
-
         let mut features_d = Vec::new();
         for d_idx in 0..self.d.dim().0 {
             let feature_d =
                 AggregatedFeatureSpanD::new(&sequence.get_specific_dgene(d_idx), self, ip);
-            if let Some(feat_d) = feature_d {
-                features_d.push(feat_d);
+            if feature_d.is_some() {
+                features_d.push(feature_d.unwrap());
             }
+        }
+
+        let mut features_dj = Vec::new();
+        for jal in &sequence.j_genes {
+            let feature_dj =
+                AggregatedFeatureStartDAndJ::new(jal, &features_d, &agg_ins_dj, self, ip);
+            features_dj.push(feature_dj);
         }
 
         if features_d.is_empty() {
             println!("This probably shouldn't happen...");
             return Ok(ResultInference::impossible());
-        }
-
-        let mut features_dj = Vec::new();
-        for feature_j in &features_j {
-            let feature_dj =
-                AggregatedFeatureStartDAndJ::new(feature_j, &features_d, &agg_ins_dj, self, ip);
-            features_dj.push(feature_dj);
         }
 
         let mut result = ResultInference::impossible();
@@ -156,19 +147,12 @@ impl FeaturesTrait for Features {
                     None => continue,
                 }
             }
-            for (feature_j, dj) in features_j.iter_mut().zip(features_dj.iter_mut()) {
+            for (jal, dj) in sequence.j_genes.iter().zip(features_dj.iter_mut()) {
                 match dj {
-                    Some(f) => {
-                        f.disaggregate(feature_j, &mut features_d, &mut agg_ins_dj, self, ip)
-                    }
+                    Some(f) => f.disaggregate(jal, &mut features_d, &mut agg_ins_dj, self, ip),
                     None => continue,
                 }
             }
-
-            for (jal, j) in sequence.j_genes.iter().zip(features_j.iter_mut()) {
-                j.disaggregate(jal, self, ip)
-            }
-
             for (d_idx, d) in features_d.iter_mut().enumerate() {
                 d.disaggregate(&sequence.get_specific_dgene(d_idx), self, ip);
             }
@@ -208,7 +192,7 @@ impl Features {
         ip: &InferenceParameters,
         current_result: &mut ResultInference,
     ) -> Result<()> {
-        let likelihood_vj = self.vj.likelihood((feature_v.index, feature_dj.index));
+        let likelihood_vj = self.vj.likelihood((feature_v.index, feature_dj.j_index()));
 
         let mut cutoff = ip
             .min_likelihood
@@ -243,8 +227,8 @@ impl Features {
                             let event = InfEvent {
                                 v_index: feature_v.index,
                                 v_start_gene: feature_v.start_gene,
-                                j_index: feature_dj.index,
-                                j_start_seq: feature_dj.start_seq,
+                                j_index: feature_dj.j_index(),
+                                j_start_seq: feature_dj.j_start_seq(),
                                 d_index: feature_dj.most_likely_d_index,
                                 end_v: ev,
                                 start_d: sd,
@@ -265,7 +249,7 @@ impl Features {
                             ins_vd.dirty_update(ev, sd, likelihood);
                         }
                         self.vj
-                            .dirty_update((feature_v.index, feature_dj.index), likelihood);
+                            .dirty_update((feature_v.index, feature_dj.j_index()), likelihood);
                     }
                 }
             }

@@ -1,6 +1,6 @@
 use crate::shared::data_structures::RangeArray1;
 use crate::shared::feature::Feature;
-use crate::shared::InferenceParameters;
+use crate::shared::{InferenceParameters, VJAlignment};
 use crate::v_dj::Features;
 use crate::vdj::feature::{AggregatedFeatureSpanD, FeatureDJ};
 use crate::vdj::AggregatedFeatureStartJ;
@@ -9,9 +9,6 @@ use std::cmp;
 
 // Contains the probability of the DJ gene group starting  position
 pub struct AggregatedFeatureStartDAndJ {
-    pub index: usize,     // store the index of the J gene
-    pub start_seq: usize, // store the start of the J gene
-
     // range of possible values
     pub start_d5: i64,
     pub end_d5: i64,
@@ -20,6 +17,9 @@ pub struct AggregatedFeatureStartDAndJ {
     likelihood: RangeArray1,
     // Dirty likelihood, will be updated as we go through the inference
     dirty_likelihood: RangeArray1,
+
+    // Store the associated J feature
+    feature_j: AggregatedFeatureStartJ,
 
     // most likely start and end of the insertion sequence
     pub most_likely_d_end: i64,
@@ -30,12 +30,16 @@ pub struct AggregatedFeatureStartDAndJ {
 
 impl AggregatedFeatureStartDAndJ {
     pub fn new(
-        feature_j: &AggregatedFeatureStartJ,
+        j_alignment: &VJAlignment,
         feature_ds: &[AggregatedFeatureSpanD],
         feat_insdj: &FeatureDJ,
         feat: &Features,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureStartDAndJ> {
+        let Some(feature_j) = AggregatedFeatureStartJ::new(j_alignment, feat, ip) else {
+            return None;
+        };
+
         // define the likelihood object with the right length
         let mut likelihood = RangeArray1::zeros((
             feature_ds.iter().map(|x| x.start_d5).min().unwrap(),
@@ -91,12 +95,19 @@ impl AggregatedFeatureStartDAndJ {
             end_d5: likelihood.max,
             dirty_likelihood: RangeArray1::zeros(likelihood.dim()),
             likelihood,
-            index: feature_j.index,
-            start_seq: feature_j.start_seq,
+            feature_j: feature_j,
             most_likely_d_end,
             most_likely_j_start,
             most_likely_d_index,
         })
+    }
+
+    pub fn j_start_seq(&self) -> usize {
+        self.feature_j.start_seq
+    }
+
+    pub fn j_index(&self) -> usize {
+        self.feature_j.index
     }
 
     pub fn likelihood(&self, sd: i64) -> f64 {
@@ -112,16 +123,16 @@ impl AggregatedFeatureStartDAndJ {
     }
 
     pub fn disaggregate(
-        &self,
-        feature_j: &mut AggregatedFeatureStartJ,
+        &mut self,
+        j_alignment: &VJAlignment,
         feature_ds: &mut [AggregatedFeatureSpanD],
         feat_insdj: &mut FeatureDJ,
         feat: &mut Features,
         ip: &InferenceParameters,
     ) {
         let (min_sj, max_sj) = (
-            cmp::max(feature_j.start_j5, feat_insdj.min_sj()),
-            cmp::min(feature_j.end_j5, feat_insdj.max_sj()),
+            cmp::max(self.feature_j.start_j5, feat_insdj.min_sj()),
+            cmp::min(self.feature_j.end_j5, feat_insdj.max_sj()),
         );
 
         for agg_deld in feature_ds.iter_mut() {
@@ -130,12 +141,12 @@ impl AggregatedFeatureStartDAndJ {
                 cmp::min(agg_deld.end_d3, feat_insdj.max_ed()),
             );
 
-            let ll_dj = feat.d.likelihood((agg_deld.index, feature_j.index));
+            let ll_dj = feat.d.likelihood((agg_deld.index, self.feature_j.index));
             for d_start in agg_deld.start_d5..agg_deld.end_d5 {
                 let dirty_proba = self.dirty_likelihood.get(d_start);
                 let ratio_old_new = dirty_proba / self.likelihood(d_start);
                 for j_start in min_sj..max_sj {
-                    let ll_j = feature_j.likelihood(j_start);
+                    let ll_j = self.feature_j.likelihood(j_start);
                     if ll_dj * ll_j < ip.min_likelihood {
                         continue;
                     }
@@ -151,13 +162,13 @@ impl AggregatedFeatureStartDAndJ {
 
                             if dirty_proba > 0. {
                                 feat.d.dirty_update(
-                                    (agg_deld.index, feature_j.index),
+                                    (agg_deld.index, self.feature_j.index),
                                     corrected_proba,
                                 );
                                 if ip.infer_insertions {
                                     feat_insdj.dirty_update(d_end, j_start, corrected_proba);
                                 }
-                                feature_j.dirty_update(j_start, corrected_proba);
+                                self.feature_j.dirty_update(j_start, corrected_proba);
                                 agg_deld.dirty_update(d_start, d_end, corrected_proba);
                             }
                         }
@@ -165,5 +176,6 @@ impl AggregatedFeatureStartDAndJ {
                 }
             }
         }
+        self.feature_j.disaggregate(j_alignment, feat, ip)
     }
 }

@@ -50,7 +50,7 @@ fn main() -> Result<()> {
     };
 
     let mut seq = Vec::new();
-    for _ in tqdm!(0..10000) {
+    for _ in tqdm!(0..200) {
         let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
         seq.push(s)
 
