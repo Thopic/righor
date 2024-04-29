@@ -546,28 +546,6 @@ impl Feature<&Dna> for InsertionFeature {
         self.transition_matrix_dirty *= factor;
     }
 
-    // fn cleanup(&self) -> Result<InsertionFeature> {
-    //     let mut m = InsertionFeature {
-    //         length_distribution: self.length_distribution_dirty.normalize_distribution()?,
-    //         // we shouldn't normalize the transition matrix per line, because bias on
-    //         // the auto-transition X -> X
-    //         transition_matrix: self
-    //             .transition_matrix_dirty
-    //             .normalize_distribution_double()?,
-    //         transition_matrix_dirty: Array2::<f64>::zeros(self.transition_matrix.dim()),
-    //         length_distribution_dirty: Array1::<f64>::zeros(self.length_distribution.dim()),
-    //         transition_matrix_internal: Array2::<f64>::zeros((5, 5)),
-    //     };
-
-    //     m.define_internal();
-    //     Ok(m)
-    //     // println!("{:?}", self.transition_matrix_dirty);
-
-    //     // InsertionFeature::new(
-    //     //     &self.length_distribution_dirty,
-    //     //     &self.transition_matrix_dirty,
-    //     // )
-    // }
     fn average(
         mut iter: impl Iterator<Item = InsertionFeature> + ExactSizeIterator + Clone,
     ) -> Result<InsertionFeature> {
@@ -636,8 +614,9 @@ impl InsertionFeature {
             }
         }
         for ii in 0..5 {
-            self.transition_matrix_internal[[ii, 4]] = 0.;
-            self.transition_matrix_internal[[4, ii]] = 0.;
+            self.transition_matrix_internal[[ii, 4]] = 1.;
+            self.transition_matrix_internal[[4, ii]] =
+                self.transition_matrix.sum_axis(Axis(0))[[ii]];
         }
     }
 }
@@ -929,121 +908,3 @@ pub trait FeaturesTrait: Send + Sync + DynClone {
 }
 
 dyn_clone::clone_trait_object!(FeaturesTrait);
-
-// // This is really stupid, fcking rust
-// impl FeaturesTrait for FeaturesGeneric {
-//     fn delv(&self) -> &CategoricalFeature1g1 {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.delv(),
-//             FeaturesGeneric::VxDJ(a) => a.delv(),
-//         }
-//     }
-
-//     fn delj(&self) -> &CategoricalFeature1g1 {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.delj(),
-//             FeaturesGeneric::VxDJ(a) => a.delj(),
-//         }
-//     }
-//     fn deld(&self) -> &CategoricalFeature2g1 {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.deld(),
-//             FeaturesGeneric::VxDJ(a) => a.deld(),
-//         }
-//     }
-//     fn insvd(&self) -> &InsertionFeature {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.insvd(),
-//             FeaturesGeneric::VxDJ(a) => a.insvd(),
-//         }
-//     }
-//     fn insdj(&self) -> &InsertionFeature {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.insdj(),
-//             FeaturesGeneric::VxDJ(a) => a.insdj(),
-//         }
-//     }
-//     fn error(&self) -> &ErrorSingleNucleotide {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.error(),
-//             FeaturesGeneric::VxDJ(a) => a.error(),
-//         }
-//     }
-//     fn delv_mut(&mut self) -> &mut CategoricalFeature1g1 {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.delv_mut(),
-//             FeaturesGeneric::VxDJ(a) => a.delv_mut(),
-//         }
-//     }
-//     fn delj_mut(&mut self) -> &mut CategoricalFeature1g1 {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.delj_mut(),
-//             FeaturesGeneric::VxDJ(a) => a.delj_mut(),
-//         }
-//     }
-//     fn deld_mut(&mut self) -> &mut CategoricalFeature2g1 {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.deld_mut(),
-//             FeaturesGeneric::VxDJ(a) => a.deld_mut(),
-//         }
-//     }
-//     fn insvd_mut(&mut self) -> &mut InsertionFeature {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.insvd_mut(),
-//             FeaturesGeneric::VxDJ(a) => a.insvd_mut(),
-//         }
-//     }
-//     fn insdj_mut(&mut self) -> &mut InsertionFeature {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.insdj_mut(),
-//             FeaturesGeneric::VxDJ(a) => a.insdj_mut(),
-//         }
-//     }
-//     fn error_mut(&mut self) -> &mut ErrorSingleNucleotide {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.error_mut(),
-//             FeaturesGeneric::VxDJ(a) => a.error_mut(),
-//         }
-//     }
-//     fn generic(&self) -> FeaturesGeneric {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.generic(),
-//             FeaturesGeneric::VxDJ(a) => a.generic(),
-//         }
-//     }
-
-//     fn new(model: &vdj::Model) -> Result<FeaturesGeneric> {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => FeaturesGeneric::VDJ(vdj::Features::new(model)),
-//             FeaturesGeneric::VxDJ(a) => FeaturesGeneric::VxDJ(v_dj::Features::new(model)),
-//         }
-//     }
-
-//     fn infer(
-//         &mut self,
-//         sequence: &vdj::Sequence,
-//         ip: &InferenceParameters,
-//     ) -> Result<ResultInference> {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.infer(sequence, ip),
-//             FeaturesGeneric::VxDJ(a) => a.infer(sequence, ip),
-//         }
-//     }
-
-//     fn update_model(&self, model: &mut vdj::Model) -> Result<()> {
-//         match self {
-//             FeaturesGeneric::VDJ(a) => a.update_model(model),
-//             FeaturesGeneric::VxDJ(a) => a.update_model(model),
-//         }
-//     }
-//     fn average(features: Vec<FeaturesGeneric>) -> Result<FeaturesGeneric> {
-//         if features.len() == 0 {
-//             return vdj::Features::average(features);
-//         }
-
-//         match self {
-//             FeaturesGeneric::VDJ(a) => vdj::Features::average(features),
-//             FeaturesGeneric::VxDJ(a) => v_dj::Features::average(features),
-//         }
-//     }
-// }
