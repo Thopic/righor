@@ -558,6 +558,14 @@ impl Feature<&Dna> for InsertionFeature {
             average_length = average_length + feat.length_distribution_dirty;
             len += 1;
         }
+
+        // the error rate correction can make some value of the transition matrix negative
+        // (shouldn't happen in theory, but that's life)
+        // we fix those to 1e-4 (not 0, so that they are not blocked)
+        // normalisation should take care of the rest.
+        let sum = average_mat.clone().sum();
+        average_mat.mapv_inplace(|a| if a < 0.0 { 1e-4 * sum } else { a });
+
         InsertionFeature::new(
             &(average_length / (len as f64)),
             &(average_mat / (len as f64)),
@@ -568,7 +576,7 @@ impl Feature<&Dna> for InsertionFeature {
 impl InsertionFeature {
     pub fn correct_for_uniform_error_rate(&self, r: f64) -> InsertionFeature {
         // The error rate make the inferred value of the transition rate wrong
-        // we correct it by
+        // we correct it using the current error rate estimate.
 
         let rho = 4. * r / 3.;
         let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));

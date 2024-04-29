@@ -171,8 +171,6 @@ impl FeaturesTrait for Features {
     fn average(features: Vec<Features>) -> Result<Features> {
         let error = ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?;
 
-        let insdj_test = InsertionFeature::average(features.iter().map(|a| a.insdj.clone()))?;
-
         // correct the markov insertion profile first
         let insvd = InsertionFeature::average(
             features
