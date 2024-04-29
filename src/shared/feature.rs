@@ -620,8 +620,10 @@ impl InsertionFeature {
         }
         for ii in 0..5 {
             self.transition_matrix_internal[[ii, 4]] = 1.;
-            self.transition_matrix_internal[[4, ii]] =
-                self.transition_matrix.sum_axis(Axis(0))[[ii]];
+            if ii < 4 {
+                self.transition_matrix_internal[[4, ii]] =
+                    self.transition_matrix.sum_axis(Axis(0))[[ii]];
+            }
         }
     }
 }

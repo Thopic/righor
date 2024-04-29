@@ -17,7 +17,7 @@ fn evaluate_simple_model_vdj() -> Result<()> {
     let alp = AlignmentParameters::default();
     for _ in 0..100 {
         let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
-        let als = model.align_sequence(s.clone(), &alp)?;
+        let als = model.align_sequence(&s.clone(), &alp)?;
 
         let likelihood_model_vdj = model.evaluate(&als.clone(), &ifp_2)?.likelihood;
         let likelihood_model_v_dj = model.evaluate(&als.clone(), &ifp)?.likelihood;

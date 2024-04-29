@@ -18,7 +18,7 @@ fn infer_comparison_v_dj_vdj_simple_model() -> Result<()> {
     let mut alignments = Vec::new();
     for _ in 0..1 {
         let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
-        let als = model.align_sequence(s.clone(), &alp)?;
+        let als = model.align_sequence(&s.clone(), &alp)?;
         alignments.push(als);
     }
 
@@ -47,7 +47,7 @@ fn infer_vs_brute_force() -> Result<()> {
     for _ in 0..2 {
         let generated = generator.generate(false);
         let s = righor::Dna::from_string(&generated.full_seq)?;
-        let als = model.align_sequence(s.clone(), &alp)?;
+        let als = model.align_sequence(&s.clone(), &alp)?;
         alignments.push(als.clone());
         let a1 = uniform_model.evaluate(&als.clone(), &ifp)?.likelihood;
         let a2 = uniform_model.evaluate_brute_force(&als.clone())?.likelihood;
@@ -112,7 +112,7 @@ fn full_inference_simple_model() -> Result<()> {
     for _ in 0..1000 {
         let generated = generator.generate(false);
         let s = righor::Dna::from_string(&generated.full_seq)?;
-        let als = model.align_sequence(s.clone(), &alp)?;
+        let als = model.align_sequence(&s.clone(), &alp)?;
         alignments.push(als);
     }
 
