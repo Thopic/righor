@@ -3,7 +3,7 @@ use crate::shared::{nucleotides_inv, Dna, InferenceParameters};
 use crate::{v_dj, vdj};
 use anyhow::{anyhow, Result};
 use dyn_clone::DynClone;
-use ndarray::{Array1, Array2, Array3};
+use ndarray::{Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
@@ -566,6 +566,11 @@ impl Feature<&Dna> for InsertionFeature {
 }
 
 impl InsertionFeature {
+    pub fn correct_for_uniform_error_rate(&mut self, r: f64) {
+        let matrix = 1. / (1. - r) * (Array2::eye(4) + r / 4. * Array2::ones((4, 4)));
+        self.transition_matrix = matrix.dot(&self.transition_matrix.dot(&matrix));
+    }
+
     pub fn check(&self) {
         if self.transition_matrix_internal.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
