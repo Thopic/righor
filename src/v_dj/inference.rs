@@ -170,10 +170,17 @@ impl FeaturesTrait for Features {
 
     fn average(features: Vec<Features>) -> Result<Features> {
         let error = ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?;
-        let mut insvd = InsertionFeature::average(features.iter().map(|a| a.insvd.clone()))?;
-        let mut insdj = InsertionFeature::average(features.iter().map(|a| a.insdj.clone()))?;
-        insvd.correct_for_uniform_error_rate(error.error_rate);
-        insdj.correct_for_uniform_error_rate(error.error_rate);
+
+        let insvd = InsertionFeature::average(
+            features
+                .iter()
+                .map(|a| a.insvd.correct_for_uniform_error_rate(error.error_rate)),
+        )?;
+        let insdj = InsertionFeature::average(
+            features
+                .iter()
+                .map(|a| a.insdj.correct_for_uniform_error_rate(error.error_rate)),
+        )?;
 
         Ok(Features {
             vj: CategoricalFeature2::average(features.iter().map(|a| a.vj.clone()))?,

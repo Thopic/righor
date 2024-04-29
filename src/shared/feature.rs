@@ -566,9 +566,11 @@ impl Feature<&Dna> for InsertionFeature {
 }
 
 impl InsertionFeature {
-    pub fn correct_for_uniform_error_rate(&mut self, r: f64) {
+    pub fn correct_for_uniform_error_rate(&self, r: f64) -> InsertionFeature {
         let matrix = 1. / (1. - r) * (Array2::eye(4) + r / 4. * Array2::ones((4, 4)));
-        self.transition_matrix = matrix.dot(&self.transition_matrix.dot(&matrix));
+        let mut insfeat = self.clone();
+        insfeat.transition_matrix_dirty = matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
+        insfeat
     }
 
     pub fn check(&self) {
