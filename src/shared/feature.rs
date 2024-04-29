@@ -567,8 +567,11 @@ impl Feature<&Dna> for InsertionFeature {
 
 impl InsertionFeature {
     pub fn correct_for_uniform_error_rate(&self, r: f64) -> InsertionFeature {
+        // The error rate make the inferred value of the transition rate wrong
+        // we correct it by
+
         let rho = 4. * r / 3.;
-        let matrix = 1. / (1. - rho) * (Array2::eye(4) + rho / 4. * Array2::ones((4, 4)));
+        let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
         let mut insfeat = self.clone();
         insfeat.transition_matrix_dirty = matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
         insfeat

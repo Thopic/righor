@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     }
 
     igor_model.save_model(Path::new("../tmp/"))?;
-    igor_model.error_rate = 0.;
+    igor_model.error_rate = 0.2;
 
     let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
     let mut uniform_model = igor_model.uniform()?;
