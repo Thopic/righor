@@ -6,6 +6,7 @@ use dyn_clone::DynClone;
 use ndarray::{Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
+use std::fmt::Debug;
 
 // This class define different type of Feature
 // Feature are used during the expectation maximization process
@@ -676,7 +677,7 @@ pub enum FeaturesGeneric {
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ResultInference {
     pub likelihood: f64,
     pub pgen: f64,
@@ -684,6 +685,18 @@ pub struct ResultInference {
     pub best_likelihood: f64,
     pub features: Option<Box<dyn FeaturesTrait>>,
 }
+
+// impl fmt::Debug for ResultInference {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         f.debug_struct("Point")
+//             .field("likelihood", &self.likelihood)
+//             .field("pgen", &self.pgen)
+// 	    .field("best_event", &self.best_event)
+// 	    .field("best_likelihood", &self.best_likelihood)
+// 	    .field("features", &self.features)
+//          .finish()
+//     }
+// }
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
@@ -900,7 +913,7 @@ impl ResultInference {
     }
 }
 
-pub trait FeaturesTrait: Send + Sync + DynClone {
+pub trait FeaturesTrait: Send + Sync + DynClone + Debug {
     fn delv(&self) -> &CategoricalFeature1g1;
     fn delj(&self) -> &CategoricalFeature1g1;
     fn deld(&self) -> &CategoricalFeature2g1;

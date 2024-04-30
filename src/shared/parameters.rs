@@ -4,6 +4,7 @@ use bio::alignment::{pairwise, Alignment};
 use pyo3::prelude::*;
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Clone, Debug)]
 pub struct AlignmentParameters {
     // Structure containing all the parameters for the alignment
     // of the V and J genes
@@ -84,6 +85,13 @@ impl AlignmentParameters {
             min_score_j,
             max_error_d,
             left_v_cutoff, // shorten the V gene for alignment (improve speed)
+        }
+    }
+
+    pub fn default_evaluate() -> AlignmentParameters {
+        AlignmentParameters {
+            left_v_cutoff: 1000, // long cutoff
+            ..Default::default()
         }
     }
 
@@ -176,6 +184,13 @@ impl InferenceParameters {
     pub fn new(min_likelihood: f64) -> Self {
         Self {
             min_likelihood,
+            ..Default::default()
+        }
+    }
+
+    pub fn default_evaluate() -> InferenceParameters {
+        InferenceParameters {
+            min_likelihood: -1000.0f64,
             ..Default::default()
         }
     }

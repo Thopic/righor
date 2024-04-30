@@ -665,21 +665,29 @@ impl Model {
         let mut feature = T::new(self)?;
         let mut result = feature.infer(sequence, inference_params)?;
         result.fill_event(self, sequence)?;
+        result.features = Some(Box::new(feature) as Box<dyn FeaturesTrait + Send>);
 
         // compute the pgen if needed
         if self.error_rate == 0. {
             // no error: likelihood = pgen
             result.pgen = result.likelihood;
+            return Ok(result);
+        }
+
+        if result.likelihood == 0. {
+            // likelihood is 0, so pgen is also 0
+            result.pgen = 0.;
+            return Ok(result);
         }
 
         if inference_params.compute_pgen && inference_params.store_best_event {
             // if there is error, we use the reconstructed sequence to infer everything
             let event = result
                 .get_best_event()
-                .ok_or(anyhow!("Error with pgen inference"))?;
-            let seq_without_err = event
-                .reconstructed_sequence
-                .ok_or(anyhow!("Error with pgen inference"))?;
+                .ok_or(anyhow!("Error with event extraction during pgen inference"))?;
+            let seq_without_err = event.reconstructed_sequence.ok_or(anyhow!(
+                "Error with event reconstruction during pgen inference"
+            ))?;
             // full sequence, so default alignment parameters should be fine.
             let aligned_seq =
                 self.align_sequence(&seq_without_err, &AlignmentParameters::default())?;
@@ -689,7 +697,6 @@ impl Model {
             result.pgen = feature.infer(&aligned_seq, inference_params)?.likelihood;
         }
 
-        result.features = Some(Box::new(feature) as Box<dyn FeaturesTrait + Send>);
         Ok(result)
     }
 
