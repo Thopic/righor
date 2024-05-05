@@ -3,7 +3,7 @@ name = "righor"
 version = "0.2.3"
 edition = "2021"
 license = "MIT"
-homepage = "https://github.com/Thopic/righor"
+repository = "https://github.com/Thopic/righor"
 description = "Righor creates model of Ig/TCR sequences from sequencing data."
 
 
