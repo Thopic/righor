@@ -57,20 +57,12 @@ print(generation_result.recombination_event)
 Evaluate a given sequence:
 
 ```py
+## Evaluate a given sequence
+
 my_sequence = "ACCCTCCAGTCTGCCAGGCCCTCACATACCTCTCAGTACCTCTGTGCCAGCAGTGAGGACAGGGACGTCACTGAAGCTTTCTTTGGACAAGGCACC"
 
-# first align the sequence
-align_params = righor.AlignmentParameters() # default alignment parameters
-aligned_sequence = igor_model.align_sequence(my_sequence, align_params)
-
-# we can also align a sequence from a CDR3 and a list of V-genes and J-genes (much faster)
-# v_genes = righor.genes_matching("TRBV1", igor_model)
-# j_genes = righor.genes_matching("TRBJ1", igor_model)
-# igor_model.align_cdr3('TGTGTGAGAGATATTGTAGTAGTACCAGCTGCTAACCGCTTTCCTTCTTACTACTACTACTACTACATGGACGTCTGG', v_genes, j_genes)
-
-# then evaluate it
-infer_params = righor.InferenceParameters() # default inference parameters
-result_inference = igor_model.evaluate(aligned_sequence, infer_params)
+# evaluate the sequence
+result_inference = igor_model.evaluate(my_sequence)
 
 # Most likely scenario
 best_event = result_inference.best_event
@@ -83,17 +75,20 @@ print(f"Pgen: {result_inference.pgen:.1e}")
 Infer a model:
 
 ```py
+# Inference of a model 
+# use a very small number of sequences to keep short (takes ~30s)
+
 # here we just generate the sequences needed
 generator = igor_model.generator()
 example_seq = generator.generate(False)
-sequences = [generator.generate(False).full_seq for _ in range(1000)]
+sequences = [generator.generate(False).full_seq for _ in range(500)]
 
-# define parameters for the alignment and the inference
+# define parameters for the alignment and the inference (also possible for the evaluation)
 align_params = righor.AlignmentParameters()
-align_params.left_v_cutoff = 40
+align_params.left_v_cutoff = 70
 infer_params = righor.InferenceParameters()
 
-# generate an uniform model as a starting point
+# generate an uniform model as a starting point 
 # (it's generally *much* faster to start from an already inferred model)
 model = igor_model.copy()
 model.p_ins_vd = np.ones(model.p_ins_vd.shape)
@@ -112,7 +107,25 @@ for ii in tqdm(range(35)):
     models[ii+1].infer(aligned_sequences, infer_params)
 ```
 
+Visualize and save the model
+```py
+# visualisation of the results
+fig = righor.plot_vdj(*[models[ii] for ii in [10, 2, 1, 0]] + [igor_model],
+            plots_kws=[{'label':f'Round #{ii}', 'alpha':0.8} for ii in [10,2, 1, 0]] + [{'label':f'og'}] )
+# save the model in the Igor format
+# will return an error if the directory already exists
+models[10].save_model('test_save')
+# load the model
+igor_model = righor.vdj.Model.load_model_from_files('test_save/model_params.txt',
+                                          'test_save/model_marginals.txt',
+                                          'test_save/V_gene_CDR3_anchors.csv',
+                                          'test_save/J_gene_CDR3_anchors.csv')
 
+# save the model in json format (one file)
+models[10].save_json('test_save.json')
+# load the model in json
+igor_model = righor.vdj.Model.load_json('test_save.json')
+```
 Extra stuff:
 ------------
 
