@@ -19,6 +19,8 @@
 - Could there be a problem with the D gene distribution ?
 
 
+- righor-py, better "load_model" function
+- problem in the CDR3 generation
 
 Before version change checklist:
 - is righor-py using the cargo package or the local version ?

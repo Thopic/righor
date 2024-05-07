@@ -7,9 +7,9 @@ use crate::shared::Modelable;
 
 use crate::shared::{
     sequence::NUCLEOTIDES, utils::count_differences, utils::sorted_and_complete,
-    utils::sorted_and_complete_0start, utils::Normalize, AlignmentParameters, AminoAcid,
-    DAlignment, Dna, FeaturesTrait, Gene, InfEvent, InferenceParameters, ModelGen, RecordModel,
-    ResultInference, VJAlignment,
+    utils::sorted_and_complete_0start, utils::Normalize, utils::Normalize3, AlignmentParameters,
+    AminoAcid, DAlignment, Dna, FeaturesTrait, Gene, InfEvent, InferenceParameters, ModelGen,
+    RecordModel, ResultInference, VJAlignment,
 };
 
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
@@ -430,7 +430,7 @@ impl Modelable for Model {
         let mut m = self.clone();
 
         let dim = self.p_vdj.dim();
-        m.p_vdj = Array3::<f64>::zeros((vs.len(), dim.1, dim.2));
+        let mut p_vdj = Array3::<f64>::zeros((vs.len(), dim.1, dim.2));
         m.seg_vs = Vec::new();
         m.p_del_v_given_v = Array2::<f64>::zeros((self.p_del_v_given_v.dim().0, vs.len()));
 
@@ -441,7 +441,7 @@ impl Modelable for Model {
                 m.seg_vs.push(vgene);
                 for id in 0..dim.1 {
                     for ij in 0..dim.2 {
-                        m.p_vdj[[iv_restr, id, ij]] = self.p_vdj[[iv, id, ij]];
+                        p_vdj[[iv_restr, id, ij]] = self.p_vdj[[iv, id, ij]];
                     }
                 }
                 for idelv in 0..self.p_del_v_given_v.dim().0 {
@@ -450,6 +450,9 @@ impl Modelable for Model {
                 iv_restr += 1;
             }
         }
+
+        p_vdj = p_vdj.normalize_distribution_3()?;
+        m.set_p_vdj(&p_vdj.clone())?;
         m.initialize()?;
         Ok(m)
     }
