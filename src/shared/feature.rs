@@ -376,7 +376,7 @@ impl CategoricalFeature3 {
     }
 }
 
-// Most basic error model
+// Most basic error feature
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 pub struct ErrorSingleNucleotide {
