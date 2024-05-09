@@ -10,6 +10,7 @@ use anyhow::{anyhow, Result};
 use kdam::tqdm;
 use ndarray::array;
 use ndarray::Axis;
+use righor::shared::ModelGen;
 use std::fs::File;
 
 use righor::Modelable;
@@ -18,20 +19,20 @@ use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
 fn main() -> Result<()> {
-    // let mut igor_model = righor::vdj::Model::load_from_files(
-    //     Path::new("models/human_T_beta/model_params.txt"),
-    //     Path::new("models/human_T_beta/model_marginals.txt"),
-    //     Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
-    //     Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
-    // )?;
+    let mut igor_model = righor::vdj::Model::load_from_files(
+        Path::new("../Berk_round_15/model_params.txt"),
+        Path::new("../Berk_round_15/model_marginals.txt"),
+        Path::new("../Berk_round_15/V_gene_CDR3_anchors.csv"),
+        Path::new("../Berk_round_15/J_gene_CDR3_anchors.csv"),
+    )?;
 
     //TODO: modify before release
-    let mut igor_model = righor::vdj::Model::load_from_name(
-        "human",
-        "trb",
-        None,
-        Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
-    )?;
+    // let mut igor_model = righor::vdj::Model::load_from_name(
+    //     "human",
+    //     "igh",
+    //     None,
+    //     Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
+    // )?;
 
     let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
     let mut align_params = righor::AlignmentParameters::default();
@@ -44,6 +45,18 @@ fn main() -> Result<()> {
     println!("{:?}", al.best_v_alignment());
     let result = igor_model.evaluate(&al, &inference_params);
     println!("{:?}", result);
+
+    for v in igor_model.get_v_segments() {
+        let mut gen = righor::vdj::Generator::new(
+            igor_model.clone(),
+            Some(42),
+            Some(vec![v]),
+            Some(igor_model.clone().get_j_segments()),
+        )?;
+        for _ in 0..100 {
+            println!("{:?}", gen.generate(false));
+        }
+    }
 
     // let file = File::open("test_sequences.txt")?;
     // let reader = BufReader::new(file);
