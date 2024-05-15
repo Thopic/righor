@@ -6,13 +6,13 @@ use crate::shared::Dna;
 use crate::shared::ErrorAlignment;
 use crate::shared::StaticEvent;
 use anyhow::{anyhow, Result};
-use memoize::memoize;
+use itertools::izip;
+
 use ndarray::Array1;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::hash;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ErrorParameters {
@@ -523,6 +523,10 @@ pub struct FeatureErrorUniform {
 
     probas_dirty: Array1<f64>,
 
+    // Some help function to try to improve speed
+    log_mid_bins_3: Array1<f64>,
+    log_1_minus_mid_bins: Array1<f64>,
+
     /// used to scale the nucleotide transition matrix for the insertions
     total_lengths_dirty: f64,
     total_errors_dirty: f64,
@@ -534,33 +538,45 @@ impl Feature<ErrorAlignment> for FeatureErrorUniform {
         self.total_errors_dirty += likelihood * (observation.nb_errors as f64);
 
         let mut p = 0.;
-        for (i, pi) in self.probas.iter().enumerate() {
-            let r = (self.bins[i + 1] + self.bins[i]) / 2.;
+        for (pi, logrs3, log1mr) in izip!(
+            &self.probas,
+            &self.log_mid_bins_3,
+            &self.log_1_minus_mid_bins
+        ) {
             p += pi
-                * (r / 3.).powi(observation.nb_errors as i32)
-                * (1. - r).powi((observation.sequence_length - observation.nb_errors) as i32);
+                * (logrs3 * observation.nb_errors as f64
+                    + log1mr * ((observation.sequence_length - observation.nb_errors) as f64))
+                    .exp2();
         }
 
-        for (i, pi) in self.probas.iter().enumerate() {
-            let r = (self.bins[i + 1] + self.bins[i]) / 2.;
-            self.probas_dirty[i] += likelihood
+        let scaled_likelihood = likelihood / p;
+
+        for (i, (pi, logrs3, log1mr)) in izip!(
+            &self.probas,
+            &self.log_mid_bins_3,
+            &self.log_1_minus_mid_bins
+        )
+        .enumerate()
+        {
+            self.probas_dirty[i] += scaled_likelihood
                 * pi
-                * (r / 3.).powi(observation.nb_errors as i32)
-                * (1. - r).powi((observation.sequence_length - observation.nb_errors) as i32)
-                / p;
+                * (logrs3 * observation.nb_errors as f64
+                    + log1mr * ((observation.sequence_length - observation.nb_errors) as f64))
+                    .exp2();
         }
     }
 
     fn likelihood(&self, observation: ErrorAlignment) -> f64 {
         let mut p = 0.;
-        for (i, pi) in self.probas.iter().enumerate() {
-            let ri = (self.bins[i + 1] + self.bins[i]) / 2.;
+        for (pi, logrs3, log1mr) in izip!(
+            &self.probas,
+            &self.log_mid_bins_3,
+            &self.log_1_minus_mid_bins
+        ) {
             p += pi
-                * poisson_proba(
-                    Hashablef64(ri),
-                    observation.nb_errors as i32,
-                    observation.sequence_length as i32,
-                )
+                * (logrs3 * observation.nb_errors as f64
+                    + log1mr * ((observation.sequence_length - observation.nb_errors) as f64))
+                    .exp2();
         }
         p
     }
@@ -568,7 +584,7 @@ impl Feature<ErrorAlignment> for FeatureErrorUniform {
     fn scale_dirty(&mut self, factor: f64) {
         self.total_errors_dirty *= factor;
         self.total_lengths_dirty *= factor;
-        self.probas *= factor
+        self.probas_dirty *= factor
     }
 
     fn average(
@@ -592,36 +608,20 @@ impl Feature<ErrorAlignment> for FeatureErrorUniform {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-struct Hashablef64(f64);
-
-impl PartialEq for Hashablef64 {
-    fn eq(&self, other: &Hashablef64) -> bool {
-        self.0.to_bits() == other.0.to_bits()
-    }
-}
-impl hash::Hash for Hashablef64 {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: hash::Hasher,
-    {
-        self.0.to_bits().hash(state)
-    }
-}
-
-impl Eq for Hashablef64 {}
-
-#[memoize]
-fn poisson_proba(r: Hashablef64, n: i32, l: i32) -> f64 {
-    (r.0 / 3.).powi(n) * (1. - r.0).powi(l - n)
-}
-
 impl FeatureErrorUniform {
     pub fn new(probabilities: &Array1<f64>, bins: Vec<f64>) -> Result<FeatureErrorUniform> {
+        let mut mid_bins = Array1::<f64>::zeros(bins.len() - 1);
+        for i in 0..mid_bins.len() {
+            mid_bins[i] = (bins[i] + bins[i + 1]) / 2.;
+        }
+
         Ok(FeatureErrorUniform {
             probas_dirty: Array1::<f64>::zeros(probabilities.dim()),
             bins,
             probas: probabilities.normalize_distribution()?,
+            log_mid_bins_3: (mid_bins.clone() / 3.).mapv_into(|v| v.log2()),
+            log_1_minus_mid_bins: (1. - mid_bins).mapv_into(|v| v.log2()),
+
             total_errors_dirty: 0.,
             total_lengths_dirty: 0.,
         })
