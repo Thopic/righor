@@ -1,6 +1,6 @@
 use crate::shared::feature::*;
 use crate::shared::utils::difference_as_i64;
-use crate::shared::InferenceParameters;
+use crate::shared::{errors::FeatureError, InferenceParameters};
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
     Model, Sequence,
@@ -17,52 +17,11 @@ pub struct Features {
     pub deld: CategoricalFeature2g1, // d5, d3, d
     pub insvd: InsertionFeature,
     pub insdj: InsertionFeature,
-    pub error: ErrorSingleNucleotide,
+    pub error: FeatureError,
 }
 
-impl FeaturesTrait for Features {
-    fn generic(&self) -> FeaturesGeneric {
-        FeaturesGeneric::VDJ(self.clone())
-    }
-
-    fn delv(&self) -> &CategoricalFeature1g1 {
-        &self.delv
-    }
-    fn delj(&self) -> &CategoricalFeature1g1 {
-        &self.delj
-    }
-    fn deld(&self) -> &CategoricalFeature2g1 {
-        &self.deld
-    }
-    fn insvd(&self) -> &InsertionFeature {
-        &self.insvd
-    }
-    fn insdj(&self) -> &InsertionFeature {
-        &self.insdj
-    }
-    fn error(&self) -> &ErrorSingleNucleotide {
-        &self.error
-    }
-    fn delv_mut(&mut self) -> &mut CategoricalFeature1g1 {
-        &mut self.delv
-    }
-    fn delj_mut(&mut self) -> &mut CategoricalFeature1g1 {
-        &mut self.delj
-    }
-    fn deld_mut(&mut self) -> &mut CategoricalFeature2g1 {
-        &mut self.deld
-    }
-    fn insvd_mut(&mut self) -> &mut InsertionFeature {
-        &mut self.insvd
-    }
-    fn insdj_mut(&mut self) -> &mut InsertionFeature {
-        &mut self.insdj
-    }
-    fn error_mut(&mut self) -> &mut ErrorSingleNucleotide {
-        &mut self.error
-    }
-
-    fn update_model(&self, model: &mut Model) -> Result<()> {
+impl Features {
+    pub fn update_model(&self, model: &mut Model) -> Result<()> {
         model.p_vdj = self.vdj.probas.clone();
         model.p_del_v_given_v = self.delv.probas.clone();
         model.set_p_vdj(&self.vdj.probas.clone())?;
@@ -70,11 +29,11 @@ impl FeaturesTrait for Features {
         model.p_del_d5_del_d3 = self.deld.probas.clone();
         (model.p_ins_vd, model.markov_coefficients_vd) = self.insvd.get_parameters();
         (model.p_ins_dj, model.markov_coefficients_dj) = self.insdj.get_parameters();
-        model.error_rate = self.error.error_rate;
+        model.error = self.error.get_parameters()?;
         Ok(())
     }
 
-    fn new(model: &Model) -> Result<Features> {
+    pub fn new(model: &Model) -> Result<Features> {
         Ok(Features {
             vdj: CategoricalFeature3::new(&model.p_vdj)?,
             delv: CategoricalFeature1g1::new(&model.p_del_v_given_v)?,
@@ -82,19 +41,35 @@ impl FeaturesTrait for Features {
             deld: CategoricalFeature2g1::new(&model.p_del_d5_del_d3)?, // dim: (d5, d3, d)
             insvd: InsertionFeature::new(&model.p_ins_vd, &model.markov_coefficients_vd)?,
             insdj: InsertionFeature::new(&model.p_ins_dj, &model.markov_coefficients_dj)?,
-            error: ErrorSingleNucleotide::new(model.error_rate)?,
+            error: model.error.get_feature()?,
         })
     }
 
     /// Core function, iterate over all realistic scenarios to compute the
     /// likelihood of the sequence and update the parameters
-    fn infer(&mut self, sequence: &Sequence, ip: &InferenceParameters) -> Result<ResultInference> {
+    pub fn infer(
+        &mut self,
+        sequence: &Sequence,
+        ip: &InferenceParameters,
+    ) -> Result<ResultInference> {
         // Estimate the likelihood of all possible insertions
-        let mut ins_vd = match FeatureVD::new(sequence, self, ip) {
+        let mut ins_vd = match FeatureVD::new(
+            sequence,
+            &self.insvd,
+            self.delv.dim().0,
+            self.deld.dim().0,
+            ip,
+        ) {
             Some(ivd) => ivd,
             None => return Ok(ResultInference::impossible()),
         };
-        let mut ins_dj = match FeatureDJ::new(sequence, self, ip) {
+        let mut ins_dj = match FeatureDJ::new(
+            sequence,
+            &self.insdj,
+            self.deld.dim().1,
+            self.delj.dim().0,
+            ip,
+        ) {
             Some(idj) => idj,
             None => return Ok(ResultInference::impossible()),
         };
@@ -102,20 +77,24 @@ impl FeaturesTrait for Features {
         // Define the aggregated features for this sequence:
         let mut features_d = Vec::new();
         for d_idx in 0..self.vdj.dim().1 {
-            let feature_d =
-                AggregatedFeatureSpanD::new(&sequence.get_specific_dgene(d_idx), self, ip);
+            let feature_d = AggregatedFeatureSpanD::new(
+                &sequence.get_specific_dgene(d_idx),
+                &self.deld,
+                &self.error,
+                ip,
+            );
             features_d.push(feature_d);
         }
 
         let mut features_v = Vec::new();
         for val in &sequence.v_genes {
-            let feature_v = AggregatedFeatureEndV::new(val, self, ip);
+            let feature_v = AggregatedFeatureEndV::new(val, &self.delv, &self.error, ip);
             features_v.push(feature_v);
         }
 
         let mut features_j = Vec::new();
         for jal in &sequence.j_genes {
-            let feature_j = AggregatedFeatureStartJ::new(jal, self, ip);
+            let feature_j = AggregatedFeatureStartJ::new(jal, &self.delj, &self.error, ip);
             features_j.push(feature_j);
         }
 
@@ -130,28 +109,33 @@ impl FeaturesTrait for Features {
             }
         }
 
-        if ip.infer {
+        if ip.infer_features {
             // disaggregate the insertion features
-            ins_vd.disaggregate(&sequence.sequence, self, ip);
-            ins_dj.disaggregate(&sequence.sequence, self, ip);
+            ins_vd.disaggregate(&sequence.sequence, &mut self.insvd, ip);
+            ins_dj.disaggregate(&sequence.sequence, &mut self.insdj, ip);
 
             // disaggregate the v/d/j features
             for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
                 match v {
-                    Some(f) => f.disaggregate(val, self, ip),
+                    Some(f) => f.disaggregate(val, &mut self.delv, &mut self.error, ip),
                     None => continue,
                 }
             }
             for (jal, j) in sequence.j_genes.iter().zip(features_j.iter_mut()) {
                 match j {
-                    Some(f) => f.disaggregate(jal, self, ip),
+                    Some(f) => f.disaggregate(jal, &mut self.delj, &mut self.error, ip),
                     None => continue,
                 }
             }
 
             for (d_idx, d) in features_d.iter_mut().enumerate() {
                 match d {
-                    Some(f) => f.disaggregate(&sequence.get_specific_dgene(d_idx), self, ip),
+                    Some(f) => f.disaggregate(
+                        &sequence.get_specific_dgene(d_idx),
+                        &mut self.deld,
+                        &mut self.error,
+                        ip,
+                    ),
                     None => continue,
                 }
             }
@@ -166,18 +150,14 @@ impl FeaturesTrait for Features {
         Ok(result)
     }
 
-    fn average(features: Vec<Features>) -> Result<Features> {
-        let error = ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?;
+    pub fn average(features: Vec<Features>) -> Result<Features> {
+        let error = FeatureError::average(features.iter().map(|a| a.error.clone()))?;
 
         let insvd = InsertionFeature::average(
-            features
-                .iter()
-                .map(|a| a.insvd.correct_for_uniform_error_rate(error.error_rate)),
+            features.iter().map(|a| a.insvd.correct_for_error(&a.error)),
         )?;
         let insdj = InsertionFeature::average(
-            features
-                .iter()
-                .map(|a| a.insdj.correct_for_uniform_error_rate(error.error_rate)),
+            features.iter().map(|a| a.insdj.correct_for_error(&a.error)),
         )?;
 
         Ok(Features {
@@ -204,8 +184,8 @@ impl Features {
                 for dal in sequence.d_genes.clone() {
                     for delv in 0..self.delv.dim().0 {
                         for delj in 0..self.delj.dim().0 {
-                            for deld5 in 0..self.deld().dim().0 {
-                                for deld3 in 0..self.deld().dim().1 {
+                            for deld5 in 0..self.deld.dim().0 {
+                                for deld3 in 0..self.deld.dim().1 {
                                     let d_start = (dal.pos + deld5) as i64;
                                     let d_end = (dal.pos + dal.len() - deld3) as i64;
                                     let j_start = (jal.start_seq + delj) as i64;
@@ -220,21 +200,19 @@ impl Features {
                                     let ins_vd_plus_first =
                                         sequence.get_subsequence(v_end - 1, d_start);
 
-                                    let nb_errors = val.nb_errors(delv)
-                                        + jal.nb_errors(delj)
-                                        + dal.nb_errors(deld5, deld3);
-
-                                    let length_w_del = val.length_with_deletion(delv)
-                                        + jal.length_with_deletion(delj)
-                                        + dal.length_with_deletion(deld5, deld3);
+                                    // let nb_errors = val.nb_errors(delv)
+                                    //     + jal.nb_errors(delj)
+                                    //     + dal.nb_errors(deld5, deld3);
 
                                     let ll = self.vdj.likelihood((val.index, dal.index, jal.index))
-                                        * self.delv().likelihood((delv, val.index))
-                                        * self.delj().likelihood((delj, jal.index))
-                                        * self.deld().likelihood((deld5, deld3, dal.index))
-                                        * self.insdj().likelihood(&ins_dj_plus_last)
-                                        * self.insvd().likelihood(&ins_vd_plus_first)
-                                        * self.error().likelihood((nb_errors, length_w_del));
+                                        * self.delv.likelihood((delv, val.index))
+                                        * self.delj.likelihood((delj, jal.index))
+                                        * self.deld.likelihood((deld5, deld3, dal.index))
+                                        * self.insdj.likelihood(&ins_dj_plus_last)
+                                        * self.insvd.likelihood(&ins_vd_plus_first)
+                                        * self.error.likelihood(val.errors(delv))
+                                        * self.error.likelihood(jal.errors(delj))
+                                        * self.error.likelihood(dal.errors(deld5, deld3));
 
                                     // println!(
                                     //     "{:.1e}\t{:.1e}\t{:.1e}\t{:.1e}\t{:.1e}\t{:.1e}\t{:.1e}",
@@ -251,13 +229,14 @@ impl Features {
                                         result.likelihood += ll;
                                         self.vdj
                                             .dirty_update((val.index, dal.index, jal.index), ll);
-                                        self.delv_mut().dirty_update((delv, val.index), ll);
-                                        self.delj_mut().dirty_update((delj, jal.index), ll);
-                                        self.deld_mut().dirty_update((deld5, deld3, dal.index), ll);
-                                        self.insdj_mut().dirty_update(&ins_dj_plus_last, ll);
-                                        self.insvd_mut().dirty_update(&ins_vd_plus_first, ll);
-                                        self.error_mut()
-                                            .dirty_update((nb_errors, length_w_del), ll);
+                                        self.delv.dirty_update((delv, val.index), ll);
+                                        self.delj.dirty_update((delj, jal.index), ll);
+                                        self.deld.dirty_update((deld5, deld3, dal.index), ll);
+                                        self.insdj.dirty_update(&ins_dj_plus_last, ll);
+                                        self.insvd.dirty_update(&ins_vd_plus_first, ll);
+                                        self.error.dirty_update(val.errors(delv), ll);
+                                        self.error.dirty_update(jal.errors(delj), ll);
+                                        self.error.dirty_update(dal.errors(deld5, deld3), ll);
                                     }
                                 }
                             }
@@ -360,16 +339,12 @@ impl Features {
                                     current_result.set_best_event(event, ip);
                                 }
                             }
-                            if ip.infer {
-                                if ip.infer_genes {
-                                    feature_v.dirty_update(ev, likelihood);
-                                    feature_j.dirty_update(sj, likelihood);
-                                    feature_d.dirty_update(sd, ed, likelihood);
-                                }
-                                if ip.infer_insertions {
-                                    ins_vd.dirty_update(ev, sd, likelihood);
-                                    ins_dj.dirty_update(ed, sj, likelihood);
-                                }
+                            if ip.infer_features {
+                                feature_v.dirty_update(ev, likelihood);
+                                feature_j.dirty_update(sj, likelihood);
+                                feature_d.dirty_update(sd, ed, likelihood);
+                                ins_vd.dirty_update(ev, sd, likelihood);
+                                ins_dj.dirty_update(ed, sj, likelihood);
                                 self.vdj.dirty_update(
                                     (feature_v.index, feature_d.index, feature_j.index),
                                     likelihood,

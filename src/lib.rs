@@ -5,8 +5,8 @@ pub mod vj;
 
 pub use crate::shared::{
     genes_matching, AlignmentParameters, AminoAcid, CategoricalFeature1, CategoricalFeature1g1,
-    CategoricalFeature2, CategoricalFeature2g1, DAlignment, Dna, ErrorSingleNucleotide, Gene,
-    InferenceParameters, InsertionFeature, Modelable, VJAlignment,
+    CategoricalFeature2, CategoricalFeature2g1, DAlignment, Dna, Gene, InferenceParameters,
+    InsertionFeature, Modelable, VJAlignment,
 };
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -28,7 +28,6 @@ fn righor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<CategoricalFeature2>()?;
     m.add_class::<CategoricalFeature2g1>()?;
     m.add_class::<InsertionFeature>()?;
-    m.add_class::<ErrorSingleNucleotide>()?;
     m.add_class::<vdj::Sequence>()?;
     m.add_submodule(vdj_submod)?;
     m.add_submodule(vj_submod)?;

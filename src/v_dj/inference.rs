@@ -1,5 +1,9 @@
-use crate::shared::feature::*;
-use crate::shared::{FeaturesGeneric, FeaturesTrait, InferenceParameters, ResultInference};
+use crate::shared::feature::Feature;
+use crate::shared::InfEvent;
+use crate::shared::{errors::FeatureError, InferenceParameters, ResultInference};
+use crate::shared::{
+    CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1, InsertionFeature,
+};
 use crate::v_dj::AggregatedFeatureStartDAndJ;
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, FeatureDJ, FeatureVD, Model, Sequence,
@@ -17,52 +21,11 @@ pub struct Features {
     pub deld: CategoricalFeature2g1, // d5, d3, d
     pub insvd: InsertionFeature,
     pub insdj: InsertionFeature,
-    pub error: ErrorSingleNucleotide,
+    pub error: FeatureError,
 }
 
-impl FeaturesTrait for Features {
-    fn generic(&self) -> FeaturesGeneric {
-        FeaturesGeneric::VxDJ(self.clone())
-    }
-
-    fn delv(&self) -> &CategoricalFeature1g1 {
-        &self.delv
-    }
-    fn delj(&self) -> &CategoricalFeature1g1 {
-        &self.delj
-    }
-    fn deld(&self) -> &CategoricalFeature2g1 {
-        &self.deld
-    }
-    fn insvd(&self) -> &InsertionFeature {
-        &self.insvd
-    }
-    fn insdj(&self) -> &InsertionFeature {
-        &self.insdj
-    }
-    fn error(&self) -> &ErrorSingleNucleotide {
-        &self.error
-    }
-    fn delv_mut(&mut self) -> &mut CategoricalFeature1g1 {
-        &mut self.delv
-    }
-    fn delj_mut(&mut self) -> &mut CategoricalFeature1g1 {
-        &mut self.delj
-    }
-    fn deld_mut(&mut self) -> &mut CategoricalFeature2g1 {
-        &mut self.deld
-    }
-    fn insvd_mut(&mut self) -> &mut InsertionFeature {
-        &mut self.insvd
-    }
-    fn insdj_mut(&mut self) -> &mut InsertionFeature {
-        &mut self.insdj
-    }
-    fn error_mut(&mut self) -> &mut ErrorSingleNucleotide {
-        &mut self.error
-    }
-
-    fn update_model(&self, model: &mut Model) -> Result<()> {
+impl Features {
+    pub fn update_model(&self, model: &mut Model) -> Result<()> {
         let pvj = self.vj.probas.clone();
         let pd_given_j = self.d.probas.clone();
         model.p_vdj = pvj.insert_axis(Axis(1)) * pd_given_j.insert_axis(Axis(0));
@@ -72,11 +35,11 @@ impl FeaturesTrait for Features {
         model.p_del_d5_del_d3 = self.deld.probas.clone();
         (model.p_ins_vd, model.markov_coefficients_vd) = self.insvd.get_parameters();
         (model.p_ins_dj, model.markov_coefficients_dj) = self.insdj.get_parameters();
-        model.error_rate = self.error.error_rate;
+        model.error = self.error.get_parameters()?;
         Ok(())
     }
 
-    fn new(model: &Model) -> Result<Features> {
+    pub fn new(model: &Model) -> Result<Features> {
         Ok(Features {
             vj: CategoricalFeature2::new(&model.get_p_vj())?,
             d: CategoricalFeature1g1::new(&model.get_p_d_given_j())?,
@@ -85,19 +48,35 @@ impl FeaturesTrait for Features {
             deld: CategoricalFeature2g1::new(&model.p_del_d5_del_d3)?, // dim: (d5, d3, d)
             insvd: InsertionFeature::new(&model.p_ins_vd, &model.markov_coefficients_vd)?,
             insdj: InsertionFeature::new(&model.p_ins_dj, &model.markov_coefficients_dj)?,
-            error: ErrorSingleNucleotide::new(model.error_rate)?,
+            error: model.error.get_feature()?,
         })
     }
 
     /// Core function, iterate over all realistic scenarios to compute the
     /// likelihood of the sequence and update the parameters
-    fn infer(&mut self, sequence: &Sequence, ip: &InferenceParameters) -> Result<ResultInference> {
+    pub fn infer(
+        &mut self,
+        sequence: &Sequence,
+        ip: &InferenceParameters,
+    ) -> Result<ResultInference> {
         // Estimate the likelihood of all possible insertions
-        let mut agg_ins_vd = match FeatureVD::new(sequence, self, ip) {
+        let mut agg_ins_vd = match FeatureVD::new(
+            sequence,
+            &self.insvd,
+            self.delv.dim().0,
+            self.deld.dim().0,
+            ip,
+        ) {
             Some(ivd) => ivd,
             None => return Ok(ResultInference::impossible()),
         };
-        let mut agg_ins_dj = match FeatureDJ::new(sequence, self, ip) {
+        let mut agg_ins_dj = match FeatureDJ::new(
+            sequence,
+            &self.insdj,
+            self.deld.dim().1,
+            self.delj.dim().0,
+            ip,
+        ) {
             Some(idj) => idj,
             None => return Ok(ResultInference::impossible()),
         };
@@ -105,14 +84,18 @@ impl FeaturesTrait for Features {
         // Define the aggregated features for this sequence:
         let mut features_v = Vec::new();
         for val in &sequence.v_genes {
-            let feature_v = AggregatedFeatureEndV::new(val, self, ip);
+            let feature_v = AggregatedFeatureEndV::new(val, &self.delv, &self.error, ip);
             features_v.push(feature_v);
         }
 
         let mut features_d = Vec::new();
         for d_idx in 0..self.d.dim().0 {
-            let feature_d =
-                AggregatedFeatureSpanD::new(&sequence.get_specific_dgene(d_idx), self, ip);
+            let feature_d = AggregatedFeatureSpanD::new(
+                &sequence.get_specific_dgene(d_idx),
+                &self.deld,
+                &self.error,
+                ip,
+            );
             if feature_d.is_some() {
                 features_d.push(feature_d.unwrap());
             }
@@ -139,11 +122,11 @@ impl FeaturesTrait for Features {
             }
         }
 
-        if ip.infer {
+        if ip.infer_features {
             // disaggregate the v/dj features
             for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
                 match v {
-                    Some(f) => f.disaggregate(val, self, ip),
+                    Some(f) => f.disaggregate(val, &mut self.delv, &mut self.error, ip),
                     None => continue,
                 }
             }
@@ -154,12 +137,17 @@ impl FeaturesTrait for Features {
                 }
             }
             for (d_idx, d) in features_d.iter_mut().enumerate() {
-                d.disaggregate(&sequence.get_specific_dgene(d_idx), self, ip);
+                d.disaggregate(
+                    &sequence.get_specific_dgene(d_idx),
+                    &mut self.deld,
+                    &mut self.error,
+                    ip,
+                );
             }
 
             // disaggregate the insertion features
-            agg_ins_vd.disaggregate(&sequence.sequence, self, ip);
-            agg_ins_dj.disaggregate(&sequence.sequence, self, ip);
+            agg_ins_vd.disaggregate(&sequence.sequence, &mut self.insvd, ip);
+            agg_ins_dj.disaggregate(&sequence.sequence, &mut self.insdj, ip);
         }
         if result.likelihood > 0. {
             self.cleanup(result.likelihood)?;
@@ -168,19 +156,15 @@ impl FeaturesTrait for Features {
         Ok(result)
     }
 
-    fn average(features: Vec<Features>) -> Result<Features> {
-        let error = ErrorSingleNucleotide::average(features.iter().map(|a| a.error.clone()))?;
+    pub fn average(features: Vec<Features>) -> Result<Features> {
+        let error = FeatureError::average(features.iter().map(|a| a.error.clone()))?;
 
         // correct the markov insertion profile first
         let insvd = InsertionFeature::average(
-            features
-                .iter()
-                .map(|a| a.insvd.correct_for_uniform_error_rate(error.error_rate)),
+            features.iter().map(|a| a.insvd.correct_for_error(&a.error)),
         )?;
         let insdj = InsertionFeature::average(
-            features
-                .iter()
-                .map(|a| a.insdj.correct_for_uniform_error_rate(error.error_rate)),
+            features.iter().map(|a| a.insdj.correct_for_error(&a.error)),
         )?;
 
         Ok(Features {
@@ -254,14 +238,10 @@ impl Features {
                             current_result.set_best_event(event, ip);
                         }
                     }
-                    if ip.infer {
-                        if ip.infer_genes {
-                            feature_v.dirty_update(ev, likelihood);
-                            feature_dj.dirty_update(sd, likelihood);
-                        }
-                        if ip.infer_insertions {
-                            ins_vd.dirty_update(ev, sd, likelihood);
-                        }
+                    if ip.infer_features {
+                        feature_v.dirty_update(ev, likelihood);
+                        feature_dj.dirty_update(sd, likelihood);
+                        ins_vd.dirty_update(ev, sd, likelihood);
                         self.vj
                             .dirty_update((feature_v.index, feature_dj.j_index()), likelihood);
                     }

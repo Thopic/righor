@@ -1,8 +1,8 @@
 use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2, Normalize3};
-use crate::shared::{nucleotides_inv, Dna, InferenceParameters};
+use crate::shared::{errors::FeatureError, nucleotides_inv, Dna, InferenceParameters};
 use crate::{v_dj, vdj};
 use anyhow::{anyhow, Result};
-use dyn_clone::DynClone;
+
 use ndarray::{Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
@@ -26,7 +26,7 @@ pub trait Feature<T> {
     fn dirty_update(&mut self, observation: T, likelihood: f64);
     fn likelihood(&self, observation: T) -> f64;
     fn scale_dirty(&mut self, factor: f64);
-    fn average(iter: impl Iterator<Item = Self> + ExactSizeIterator + Clone) -> Result<Self>
+    fn average(iter: impl Iterator<Item = Self> + Clone) -> Result<Self>
     where
         Self: Sized;
 }
@@ -51,7 +51,7 @@ impl Feature<usize> for CategoricalFeature1 {
         self.probas_dirty *= factor;
     }
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1> + ExactSizeIterator + Clone,
+        mut iter: impl Iterator<Item = CategoricalFeature1> + Clone,
     ) -> Result<CategoricalFeature1> {
         let mut len = 1;
         let mut average_proba = iter
@@ -107,7 +107,7 @@ impl Feature<(usize, usize)> for CategoricalFeature1g1 {
         self.probas_dirty *= factor;
     }
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1g1> + ExactSizeIterator + Clone,
+        mut iter: impl Iterator<Item = CategoricalFeature1g1> + Clone,
     ) -> Result<CategoricalFeature1g1> {
         let mut len = 1;
         let mut average_proba = iter
@@ -164,7 +164,7 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature1g2 {
     }
 
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1g2> + ExactSizeIterator + Clone,
+        mut iter: impl Iterator<Item = CategoricalFeature1g2> + Clone,
     ) -> Result<CategoricalFeature1g2> {
         let mut len = 1;
 
@@ -221,7 +221,7 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
         self.probas_dirty *= factor;
     }
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature2> + ExactSizeIterator + Clone,
+        mut iter: impl Iterator<Item = CategoricalFeature2> + Clone,
     ) -> Result<CategoricalFeature2> {
         let mut len = 1;
         let mut average_proba = iter
@@ -280,7 +280,7 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
         self.probas_dirty *= factor;
     }
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature2g1> + ExactSizeIterator + Clone,
+        mut iter: impl Iterator<Item = CategoricalFeature2g1> + Clone,
     ) -> Result<CategoricalFeature2g1> {
         let mut len = 1;
         let mut average_proba = iter
@@ -337,7 +337,7 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature3 {
     }
 
     fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature3> + ExactSizeIterator + Clone,
+        mut iter: impl Iterator<Item = CategoricalFeature3> + Clone,
     ) -> Result<CategoricalFeature3> {
         let mut len = 1;
         let mut average_proba = iter
@@ -373,103 +373,6 @@ impl CategoricalFeature3 {
         if self.probas.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
-    }
-}
-
-// Most basic error feature
-#[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-pub struct ErrorSingleNucleotide {
-    pub error_rate: f64,
-    logrs3: f64,
-    log1mr: f64,
-    // total_lengths: f64, // For each sequence, this saves Σ P(E) L(S(E))
-    // total_errors: f64,  // For each sequence, this saves Σ P(E) N_{err}(S(E))
-    // useful for dirty updating
-    total_lengths_dirty: f64,
-    total_errors_dirty: f64,
-    total_probas_dirty: f64, // For each sequence, this saves Σ P(E)
-}
-
-impl ErrorSingleNucleotide {
-    pub fn new(error_rate: f64) -> Result<ErrorSingleNucleotide> {
-        if !(0. ..1.).contains(&error_rate) || (error_rate.is_nan()) || (error_rate.is_infinite()) {
-            return Err(anyhow!(
-                "Error in ErrorSingleNucleotide Feature creation. Negative/NaN/infinite error rate."
-            ));
-        }
-        Ok(ErrorSingleNucleotide {
-            error_rate,
-            logrs3: (error_rate / 3.).log2(),
-            log1mr: (1. - error_rate).log2(),
-            total_lengths_dirty: 0.,
-            total_errors_dirty: 0.,
-            total_probas_dirty: 0.,
-        })
-    }
-}
-
-impl Feature<(usize, usize)> for ErrorSingleNucleotide {
-    /// Arguments
-    /// - observation: "(nb of error, length of the sequence without insertion)"
-    /// - likelihood: measured likelihood of the event
-    fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
-        self.total_lengths_dirty += likelihood * (observation.1 as f64);
-        self.total_errors_dirty += likelihood * (observation.0 as f64);
-        self.total_probas_dirty += likelihood;
-    }
-
-    /// Arguments
-    /// - observation: "(nb of error, length of the sequence without insertion)"
-    /// The complete formula is likelihood = (r/3)^(nb error) * (1-r)^(length - nb error)
-    fn likelihood(&self, observation: (usize, usize)) -> f64 {
-        if observation.0 == 0 {
-            return (observation.1 as f64 * self.log1mr).exp2();
-        }
-        ((observation.0 as f64) * self.logrs3
-            + ((observation.1 - observation.0) as f64) * self.log1mr)
-            .exp2()
-    }
-
-    fn scale_dirty(&mut self, factor: f64) {
-        self.total_errors_dirty *= factor;
-        self.total_lengths_dirty *= factor;
-    }
-
-    // fn cleanup(&self) -> Result<ErrorSingleNucleotide> {
-    //     // estimate the error_rate of the sequence from the dirty
-    //     // estimate.
-    //     let error_rate = if self.total_lengths_dirty == 0. {
-    //         return ErrorSingleNucleotide::new(0.);
-    //     } else {
-    //         self.total_errors_dirty / self.total_lengths_dirty
-    //     };
-
-    //     Ok(ErrorSingleNucleotide {
-    //         error_rate,
-    //         logrs3: (error_rate / 3.).log2(),
-    //         log1mr: (1. - error_rate).log2(),
-    //         total_lengths: self.total_lengths_dirty / self.total_probas_dirty,
-    //         total_errors: self.total_errors_dirty / self.total_probas_dirty,
-    //         total_probas_dirty: 0.,
-    //         total_lengths_dirty: 0.,
-    //         total_errors_dirty: 0.,
-    //     })
-    // }
-    fn average(
-        mut iter: impl Iterator<Item = ErrorSingleNucleotide> + ExactSizeIterator + Clone,
-    ) -> Result<ErrorSingleNucleotide> {
-        let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut sum_err = first_feat.total_errors_dirty;
-        let mut sum_length = first_feat.total_lengths_dirty;
-        for feat in iter {
-            sum_err += feat.total_errors_dirty;
-            sum_length += feat.total_lengths_dirty;
-        }
-        if sum_length == 0. {
-            return ErrorSingleNucleotide::new(0.);
-        }
-        ErrorSingleNucleotide::new(sum_err / sum_length)
     }
 }
 
@@ -548,7 +451,7 @@ impl Feature<&Dna> for InsertionFeature {
     }
 
     fn average(
-        mut iter: impl Iterator<Item = InsertionFeature> + ExactSizeIterator + Clone,
+        mut iter: impl Iterator<Item = InsertionFeature> + Clone,
     ) -> Result<InsertionFeature> {
         let mut len = 1;
         let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
@@ -575,15 +478,28 @@ impl Feature<&Dna> for InsertionFeature {
 }
 
 impl InsertionFeature {
-    pub fn correct_for_uniform_error_rate(&self, r: f64) -> InsertionFeature {
+    pub fn correct_for_error(&self, err: &FeatureError) -> InsertionFeature {
         // The error rate make the inferred value of the transition rate wrong
         // we correct it using the current error rate estimate.
 
-        let rho = 4. * r / 3.;
-        let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
-        let mut insfeat = self.clone();
-        insfeat.transition_matrix_dirty = matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
-        insfeat
+        match err {
+            FeatureError::ConstantRate(f) => {
+                let rho = 4. * f.error_rate / 3.;
+                let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
+                let mut insfeat = self.clone();
+                insfeat.transition_matrix_dirty =
+                    matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
+                insfeat
+            }
+            FeatureError::UniformRate(f) => {
+                let mut insfeat = self.clone();
+                let rho = 4. * f.get_error_rate() / 3.;
+                let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
+                insfeat.transition_matrix_dirty =
+                    matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
+                insfeat
+            }
+        }
     }
 
     pub fn check(&self) {
@@ -670,12 +586,6 @@ pub struct InfEvent {
     pub likelihood: f64,
 }
 
-#[derive(Clone, Debug)]
-pub enum FeaturesGeneric {
-    VDJ(vdj::Features),
-    VxDJ(v_dj::Features),
-}
-
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 #[derive(Clone, Debug)]
 pub struct ResultInference {
@@ -683,7 +593,7 @@ pub struct ResultInference {
     pub pgen: f64,
     pub best_event: Option<InfEvent>,
     pub best_likelihood: f64,
-    pub features: Option<Box<dyn FeaturesTrait>>,
+    pub features: Option<Features>,
 }
 
 // impl fmt::Debug for ResultInference {
@@ -913,32 +823,110 @@ impl ResultInference {
     }
 }
 
-pub trait FeaturesTrait: Send + Sync + DynClone + Debug {
-    fn delv(&self) -> &CategoricalFeature1g1;
-    fn delj(&self) -> &CategoricalFeature1g1;
-    fn deld(&self) -> &CategoricalFeature2g1;
-    fn insvd(&self) -> &InsertionFeature;
-    fn insdj(&self) -> &InsertionFeature;
-    fn error(&self) -> &ErrorSingleNucleotide;
-    fn delv_mut(&mut self) -> &mut CategoricalFeature1g1;
-    fn delj_mut(&mut self) -> &mut CategoricalFeature1g1;
-    fn deld_mut(&mut self) -> &mut CategoricalFeature2g1;
-    fn insvd_mut(&mut self) -> &mut InsertionFeature;
-    fn insdj_mut(&mut self) -> &mut InsertionFeature;
-    fn error_mut(&mut self) -> &mut ErrorSingleNucleotide;
-    fn generic(&self) -> FeaturesGeneric;
-    fn new(model: &vdj::Model) -> Result<Self>
-    where
-        Self: Sized;
-    fn infer(
+#[derive(Clone, Debug)]
+/// Generic "features" object that contains all the features of
+/// the model
+pub enum Features {
+    VDJ(vdj::Features),
+    VxDJ(v_dj::Features),
+}
+
+impl Features {
+    pub fn infer(
         &mut self,
         sequence: &vdj::Sequence,
         ip: &InferenceParameters,
-    ) -> Result<ResultInference>;
-    fn update_model(&self, model: &mut vdj::Model) -> Result<()>;
-    fn average(features: Vec<Self>) -> Result<Self>
-    where
-        Self: Sized;
-}
+    ) -> Result<ResultInference> {
+        match self {
+            Features::VDJ(x) => x.infer(sequence, ip),
+            Features::VxDJ(x) => x.infer(sequence, ip),
+        }
+    }
 
-dyn_clone::clone_trait_object!(FeaturesTrait);
+    pub fn normalize(&mut self) -> Result<()> {
+        match self {
+            Features::VDJ(x) => x.normalize(),
+            Features::VxDJ(x) => x.normalize(),
+        }
+    }
+
+    pub fn update_model(&self, model: &mut vdj::Model) -> Result<()> {
+        match self {
+            Features::VDJ(x) => x.update_model(model),
+            Features::VxDJ(x) => x.update_model(model),
+        }
+    }
+
+    // pub fn delv(&self) -> &CategoricalFeature1g1 {
+    //     match self {
+    //         Features::VDJ(x) => &x.delv,
+    //         Features::VxDJ(x) => &x.delv,
+    //     }
+    // }
+    // pub fn delj(&self) -> &CategoricalFeature1g1 {
+    //     match self {
+    //         Features::VDJ(x) => &x.delj,
+    //         Features::VxDJ(x) => &x.delj,
+    //     }
+    // }
+    // pub fn deld(&self) -> &CategoricalFeature2g1 {
+    //     match self {
+    //         Features::VDJ(x) => &x.deld,
+    //         Features::VxDJ(x) => &x.deld,
+    //     }
+    // }
+    // pub fn insvd(&self) -> &InsertionFeature {
+    //     match self {
+    //         Features::VDJ(x) => &x.insvd,
+    //         Features::VxDJ(x) => &x.insvd,
+    //     }
+    // }
+    // pub fn insdj(&self) -> &InsertionFeature {
+    //     match self {
+    //         Features::VDJ(x) => &x.insdj,
+    //         Features::VxDJ(x) => &x.insdj,
+    //     }
+    // }
+    pub fn error(&self) -> &FeatureError {
+        match self {
+            Features::VDJ(x) => &x.error,
+            Features::VxDJ(x) => &x.error,
+        }
+    }
+    // pub fn delv_mut(&mut self) -> &mut CategoricalFeature1g1 {
+    //     match self {
+    //         Features::VDJ(x) => &mut x.delv,
+    //         Features::VxDJ(x) => &mut x.delv,
+    //     }
+    // }
+    // pub fn delj_mut(&mut self) -> &mut CategoricalFeature1g1 {
+    //     match self {
+    //         Features::VDJ(x) => &mut x.delj,
+    //         Features::VxDJ(x) => &mut x.delj,
+    //     }
+    // }
+    // pub fn deld_mut(&mut self) -> &mut CategoricalFeature2g1 {
+    //     match self {
+    //         Features::VDJ(x) => &mut x.deld,
+    //         Features::VxDJ(x) => &mut x.deld,
+    //     }
+    // }
+    // pub fn insvd_mut(&mut self) -> &mut InsertionFeature {
+    //     match self {
+    //         Features::VDJ(x) => &mut x.insvd,
+    //         Features::VxDJ(x) => &mut x.insvd,
+    //     }
+    // }
+    // pub fn insdj_mut(&mut self) -> &mut InsertionFeature {
+    //     match self {
+    //         Features::VDJ(x) => &mut x.insdj,
+    //         Features::VxDJ(x) => &mut x.insdj,
+    //     }
+    // }
+    pub fn error_mut(&mut self) -> &mut FeatureError {
+        match self {
+            Features::VDJ(x) => &mut x.error,
+            Features::VxDJ(x) => &mut x.error,
+        }
+    }
+}

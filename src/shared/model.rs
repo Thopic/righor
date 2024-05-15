@@ -1,15 +1,91 @@
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use crate::shared::event::PyStaticEvent;
+use crate::shared::StaticEvent;
 use crate::shared::{AlignmentParameters, InferenceParameters};
 use crate::shared::{Dna, Gene, ResultInference};
 use crate::vdj::Sequence;
 use anyhow::{anyhow, Result};
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use pyo3::prelude::*;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct GenerationResult {
+    pub cdr3_nt: String,
+    pub cdr3_aa: Option<String>,
+    pub full_seq: String,
+    pub v_gene: String,
+    pub j_gene: String,
+    pub recombination_event: StaticEvent,
+}
+
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl GenerationResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "GenerationResult(\n\
+		 CDR3 (nucletides): {},\n\
+		 CDR3 (amino-acids): {},\n\
+		 Full sequence (nucleotides): {}...,\n\
+		 V gene: {},\n\
+		 J gene: {})
+		 ",
+            self.cdr3_nt,
+            self.cdr3_aa.clone().unwrap_or("Out-of-frame".to_string()),
+            &self.full_seq[0..30],
+            self.v_gene,
+            self.j_gene
+        )
+    }
+
+    #[getter]
+    fn get_recombination_event(&self) -> PyStaticEvent {
+        PyStaticEvent {
+            s: self.recombination_event.clone(),
+        }
+    }
+
+    #[getter]
+    fn get_cdr3_nt(&self) -> PyResult<String> {
+        Ok(self.cdr3_nt.clone())
+    }
+    #[getter]
+    fn get_cdr3_aa(&self) -> PyResult<Option<String>> {
+        Ok(self.cdr3_aa.clone())
+    }
+    #[getter]
+    fn get_full_seq(&self) -> PyResult<String> {
+        Ok(self.full_seq.clone())
+    }
+    #[getter]
+    fn get_v_gene(&self) -> PyResult<String> {
+        Ok(self.v_gene.clone())
+    }
+    #[getter]
+    fn get_j_gene(&self) -> PyResult<String> {
+        Ok(self.j_gene.clone())
+    }
+}
+
+pub enum Model {
+    VDJ(crate::vdj::Model),
+    VJ(crate::vj::Model),
+}
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
+#[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModelStructure {
+    VDJ,
+    #[default]
+    VxDJ,
+}
 
 /// Generic trait to include all the models
 pub trait Modelable {
-    type GenerationResult;
-    type RecombinaisonEvent;
-
     /// Load the model by looking its name in a database
     fn load_from_name(
         species: &str,
@@ -57,14 +133,14 @@ pub trait Modelable {
     fn initialize(&mut self) -> Result<()>;
 
     /// Generate a sequence
-    fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> Self::GenerationResult;
+    fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> Result<GenerationResult>;
 
     /// Generate a sequence without taking into account the error rate
     fn generate_without_errors<R: Rng>(
         &mut self,
         functional: bool,
         rng: &mut R,
-    ) -> Self::GenerationResult;
+    ) -> GenerationResult;
 
     /// Return an uniform model (for initializing the inference)
     fn uniform(&self) -> Result<Self>

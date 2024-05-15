@@ -1,5 +1,7 @@
 // Parser for the marginals and params files
 
+use crate::shared::errors::{ErrorConstantRate, ErrorUniformRate};
+use crate::shared::ErrorParameters;
 use crate::shared::{Dna, Gene};
 use anyhow::{anyhow, Result};
 use csv::Reader;
@@ -66,7 +68,7 @@ impl EventType {
 #[derive(Default, Clone, Debug)]
 pub struct ParserParams {
     pub params: HashMap<String, EventType>,
-    pub error_rate: f64,
+    pub error: ErrorParameters,
 }
 
 impl Marginal {
@@ -310,12 +312,21 @@ impl ParserParams {
     }
 
     fn parse_error_rate(&mut self, str_data: &Vec<String>) -> Result<()> {
+        //
         if str_data.len() != 3 {
             return Err(anyhow!("Invalid format (error rate)"))?;
         }
-        self.error_rate = str_data[2]
-            .parse::<f64>()
-            .map_err(|_| anyhow!(format!("Failed to parse '{}'", str_data[2])))?;
+        if str_data[1].starts_with("#SingleErrorRate") {
+            let error_rate = str_data[2]
+                .parse::<f64>()
+                .map_err(|_| anyhow!(format!("Failed to parse '{}'", str_data[2])))?;
+            self.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(error_rate));
+        } else if str_data[1].starts_with("#IndividualErrorRate") {
+            self.error = ErrorParameters::UniformRate(ErrorUniformRate::load(str_data)?);
+        } else {
+            return Err(anyhow!("Invalid format (error rate)"))?;
+        }
+
         Ok(())
     }
 

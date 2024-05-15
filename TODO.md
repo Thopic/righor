@@ -16,7 +16,6 @@
 - allow restricted models (P(V) P(DJ))
 - allow to fix number of cores used (```rayon::ThreadPoolBuilder::new().num_threads(4).build_global().unwrap();``` -> make a function set_nb_threads(nb))
 - I should probably change the way I'm doing the inference (the feature object should contains ref to other features ?)
-- Could there be a problem with the D gene distribution ?
 
 
 - righor-py, better "load_model" function
@@ -25,3 +24,12 @@
 Before version change checklist:
 - is righor-py using the cargo package or the local version ?
 - did you change the version number everywhere ?
+
+
+## Structure
+
+Ideally, each feature/parameter of the model is associated with 3/4 structures:
+- a (list of) parameter(s) (for example p_vdj for the V,D,J distribution)
+- a "feature", ie a list of parameters that can be easily updated / modified
+- a generation struct that can generate fast what's needed
+- a property/instance object that can contain a specific instance of the generation process

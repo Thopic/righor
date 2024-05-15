@@ -7,6 +7,36 @@ use ndarray::{Array1, Array2, Axis};
 use rand::Rng;
 use rand_distr::{Distribution, Uniform, WeightedAliasIndex};
 
+#[derive(Clone, Debug)]
+/// Generate a random f64 between 0/1 and a random nucleotide
+pub struct UniformError {
+    is_error: Uniform<f64>,
+    nucleotide: Uniform<usize>,
+}
+
+impl Default for UniformError {
+    fn default() -> UniformError {
+        UniformError::new()
+    }
+}
+
+impl UniformError {
+    pub fn new() -> UniformError {
+        UniformError {
+            is_error: Uniform::new(0.0, 1.0),
+            nucleotide: Uniform::new_inclusive(0, 3),
+        }
+    }
+
+    pub fn is_error<R: Rng>(&self, er: f64, rng: &mut R) -> bool {
+        self.is_error.sample(rng) < er
+    }
+
+    pub fn random_nucleotide<R: Rng>(&self, rng: &mut R) -> u8 {
+        NUCLEOTIDES[self.nucleotide.sample(rng)]
+    }
+}
+
 /// Generate an integer with a given probability
 #[derive(Clone, Debug)]
 pub struct DiscreteDistribution {

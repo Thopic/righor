@@ -3,13 +3,13 @@ use crate::shared::parser::{
 };
 use crate::shared::utils::{sorted_and_complete, sorted_and_complete_0start};
 use crate::shared::{
-    distributions::calc_steady_state_dist, AlignmentParameters, Dna, Gene, InfEvent,
-    InferenceParameters, ModelGen, RecordModel, ResultInference,
+    distributions::calc_steady_state_dist, model::GenerationResult, AlignmentParameters, Dna, Gene,
+    InfEvent, InferenceParameters, ModelGen, RecordModel, ResultInference,
 };
 
-use crate::shared::Modelable;
-use crate::vdj::{inference::Features, Model as ModelVDJ, Sequence};
-use crate::vj::StaticEvent;
+use crate::shared::{ErrorParameters, Features, Modelable};
+use crate::vdj::{Model as ModelVDJ, Sequence};
+
 use anyhow::{anyhow, Result};
 use ndarray::{array, Array1, Array2, Array3, Axis};
 
@@ -23,17 +23,6 @@ use std::{fs::read_to_string, fs::File, io::BufReader, io::Write, path::Path};
 pub struct Generator {
     model: Model,
     rng: SmallRng,
-}
-
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
-pub struct GenerationResult {
-    pub cdr3_nt: String,
-    pub cdr3_aa: Option<String>,
-    pub full_seq: String,
-    pub v_gene: String,
-    pub j_gene: String,
-    pub recombination_event: StaticEvent,
 }
 
 impl Generator {
@@ -66,33 +55,12 @@ impl Generator {
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl Generator {
-    pub fn generate(&mut self, functional: bool) -> GenerationResult {
+    pub fn generate(&mut self, functional: bool) -> Result<GenerationResult> {
         self.model.generate(functional, &mut self.rng)
     }
     pub fn generate_without_errors(&mut self, functional: bool) -> GenerationResult {
         self.model
             .generate_without_errors(functional, &mut self.rng)
-    }
-}
-
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-#[pymethods]
-impl GenerationResult {
-    fn __repr__(&self) -> String {
-        format!(
-            "GenerationResult(\n\
-		 CDR3 (nucletides): {},\n\
-		 CDR3 (amino-acids): {},\n\
-		 Full sequence (nucleotides): {}...,\n\
-		 V gene: {},\n\
-		 J gene: {})
-		 ",
-            self.cdr3_nt,
-            self.cdr3_aa.clone().unwrap_or("Out-of-frame".to_string()),
-            &self.full_seq[0..30],
-            self.v_gene,
-            self.j_gene
-        )
     }
 }
 
@@ -121,7 +89,7 @@ pub struct Model {
     pub markov_coefficients_vj: Array2<f64>,
     pub range_del_v: (i64, i64),
     pub range_del_j: (i64, i64),
-    pub error_rate: f64,
+    pub error: ErrorParameters,
 
     // Not directly useful for the model but useful for integration with other soft
     // TODO: transform these in "getter" in the python bindings, they don't need to be precomputed
@@ -130,9 +98,6 @@ pub struct Model {
 }
 
 impl Modelable for Model {
-    type GenerationResult = GenerationResult;
-    type RecombinaisonEvent = StaticEvent;
-
     fn load_from_name(
         species: &str,
         chain: &str,
@@ -255,25 +220,16 @@ impl Modelable for Model {
         Ok(())
     }
 
-    fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
-        let gen_result = self.inner.generate(functional, rng);
-        let se = gen_result.recombination_event;
-        GenerationResult {
+    fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> Result<GenerationResult> {
+        let gen_result = self.inner.generate(functional, rng)?;
+        Ok(GenerationResult {
             cdr3_nt: gen_result.cdr3_nt,
             cdr3_aa: gen_result.cdr3_aa,
             full_seq: gen_result.full_seq,
             v_gene: gen_result.v_gene,
             j_gene: gen_result.j_gene,
-            recombination_event: StaticEvent {
-                v_index: se.v_index,
-                v_start_gene: se.v_start_gene,
-                delv: se.delv,
-                j_index: se.j_index,
-                j_start_seq: se.j_start_seq,
-                delj: se.delj,
-                insvj: se.insvd,
-            },
-        }
+            recombination_event: gen_result.recombination_event,
+        })
     }
 
     fn generate_without_errors<R: Rng>(
@@ -282,22 +238,13 @@ impl Modelable for Model {
         rng: &mut R,
     ) -> GenerationResult {
         let gen_result = self.inner.generate_without_errors(functional, rng);
-        let se = gen_result.recombination_event;
         GenerationResult {
             cdr3_nt: gen_result.cdr3_nt,
             cdr3_aa: gen_result.cdr3_aa,
             full_seq: gen_result.full_seq,
             v_gene: gen_result.v_gene,
             j_gene: gen_result.j_gene,
-            recombination_event: StaticEvent {
-                v_index: se.v_index,
-                v_start_gene: se.v_start_gene,
-                delv: se.delv,
-                j_index: se.j_index,
-                j_start_seq: se.j_start_seq,
-                delj: se.delj,
-                insvj: se.insvd,
-            },
+            recombination_event: gen_result.recombination_event,
         }
     }
 
@@ -525,7 +472,7 @@ impl Model {
         model.first_nt_bias_ins_vj =
             Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_vj)?);
 
-        model.error_rate = pp.error_rate;
+        model.error = pp.error.clone();
         model.thymic_q = 9.41; // TODO: deal with this
 
         model.initialize()?;
@@ -620,7 +567,7 @@ impl Model {
         let dimdelv = self.p_del_v_given_v.dim().0;
         let dimj = self.seg_js.len();
         let dimdelj = self.p_del_j_given_j.dim().0;
-        let error_rate = self.error_rate;
+        let error_write = self.error.write();
         result.push_str(&format!(
             "#DinucMarkov;VJ_gene;Undefined_side;3;vj_dinucl\n\
 	     %T;3\n\
@@ -634,9 +581,7 @@ impl Model {
 	     Deletion_V_gene_Three_prime_prio5_size{dimdelv}\n\
 	     %GeneChoice_J_gene_Undefined_side_prio6_size{dimj};\
 	     Deletion_J_gene_Five_prime_prio5_size{dimdelj}\n\
-	     @ErrorRate\n\
-	     #SingleErrorRate\n\
-	     {error_rate}\n"
+	     {error_write}"
         ));
         Ok(result)
     }
@@ -666,7 +611,7 @@ impl Model {
             range_del_j: self.range_del_j,
             range_del_d3: (0, 0),
             range_del_d5: (0, 0),
-            error_rate: self.error_rate,
+            error: self.error.clone(),
             ..Default::default()
         };
 
@@ -702,7 +647,7 @@ impl Model {
         self.first_nt_bias_ins_vj = self.inner.first_nt_bias_ins_vd.clone();
         self.range_del_j = self.inner.range_del_j;
         self.range_del_v = self.inner.range_del_v;
-        self.error_rate = self.inner.error_rate;
+        self.error = self.inner.error.clone();
         Ok(())
     }
 

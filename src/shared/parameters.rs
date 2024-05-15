@@ -20,11 +20,11 @@ pub struct InferenceParameters {
     /// The evaluation/inference algorithm will cut branches
     /// with likelihood < min_likelihood
     pub min_likelihood: f64,
+    /// Needed during inference, but can slow down evaluation
+    pub infer_features: bool,
     /// The evaluation/inference algorithm will cut branches with
     /// likelihood < (best current likelihood * min_ratio_likelihood)
     pub min_ratio_likelihood: f64,
-    /// If true, run the inference (so update the features)
-    pub infer: bool,
     /// If true store the highest likelihood event
     pub store_best_event: bool,
     /// If true and "store_best_event" is true, compute the pgen of the sequence
@@ -157,7 +157,7 @@ impl InferenceParameters {
         InferenceParameters::default()
     }
     fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={}, complete_vdj_inference={})", self.min_likelihood, self.min_ratio_likelihood, self.infer, self.store_best_event, self.compute_pgen, self.complete_vdj_inference))
+        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={}, complete_vdj_inference={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features, self.store_best_event, self.compute_pgen, self.complete_vdj_inference))
     }
     fn __str__(&self) -> PyResult<String> {
         // This is what will be shown when you use print() in Python
@@ -170,7 +170,7 @@ impl Default for InferenceParameters {
         InferenceParameters {
             min_likelihood: (-400.0f64).exp2(),
             min_ratio_likelihood: (-100.0f64).exp2(),
-            infer: true,
+            infer_features: true,
             store_best_event: true,
             compute_pgen: true,
             infer_insertions: true,

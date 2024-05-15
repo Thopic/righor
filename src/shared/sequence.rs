@@ -497,6 +497,13 @@ impl Dna {
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Default, Clone, Debug)]
+pub struct ErrorAlignment {
+    pub nb_errors: usize,
+    pub sequence_length: usize,
+}
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Default, Clone, Debug)]
 pub struct VJAlignment {
     // Structure containing the alignment between a V/J gene and the sequence
     // Note that the genes defined here include the palindromic insertion at the end
@@ -542,6 +549,13 @@ impl VJAlignment {
         }
         self.end_seq - self.start_seq - del
     }
+
+    pub fn errors(&self, del: usize) -> ErrorAlignment {
+        ErrorAlignment {
+            nb_errors: self.nb_errors(del),
+            sequence_length: self.length_with_deletion(del),
+        }
+    }
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
@@ -582,6 +596,13 @@ impl DAlignment {
     }
     pub fn length_with_deletion(&self, deld5: usize, deld3: usize) -> usize {
         self.len() - deld5 - deld3
+    }
+
+    pub fn errors(&self, deld5: usize, deld3: usize) -> ErrorAlignment {
+        ErrorAlignment {
+            nb_errors: self.nb_errors(deld5, deld3),
+            sequence_length: self.length_with_deletion(deld5, deld3),
+        }
     }
 
     pub fn len(&self) -> usize {

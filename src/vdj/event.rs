@@ -37,7 +37,7 @@ pub struct StaticEvent {
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl StaticEvent {
-    fn __repr__(&self) -> String {
+    pub fn __repr__(&self) -> String {
         format!(
             "StaticEvent(\n\
 		 nb. del. on V3: {},\n\
@@ -45,13 +45,23 @@ impl StaticEvent {
 		 nb. del. on D3: {},\n\
 		 nb. del. on J5: {},\n\
 		 V-D insertions: {},\n\
-		 D-J insertions: {})",
+		 D-J insertions: {},\n\
+		 errors: {})",
             self.delv,
             self.deld5,
             self.deld3,
             self.delj,
             self.insvd.get_string(),
-            self.insdj.get_string()
+            self.insdj.get_string(),
+            if self.errors.is_empty() {
+                "None".to_string()
+            } else {
+                self.errors
+                    .iter()
+                    .map(|(num, byte)| format!("S{}{}", num, *byte as char))
+                    .collect::<Vec<_>>()
+                    .join("")
+            },
         )
     }
 }

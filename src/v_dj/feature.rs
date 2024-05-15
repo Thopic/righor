@@ -1,6 +1,5 @@
 use crate::shared::data_structures::RangeArray1;
-use crate::shared::feature::Feature;
-use crate::shared::{InferenceParameters, VJAlignment};
+use crate::shared::{Feature, InferenceParameters, VJAlignment};
 use crate::v_dj::Features;
 use crate::vdj::feature::{AggregatedFeatureSpanD, FeatureDJ};
 use crate::vdj::AggregatedFeatureStartJ;
@@ -36,7 +35,9 @@ impl AggregatedFeatureStartDAndJ {
         feat: &Features,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureStartDAndJ> {
-        let Some(feature_j) = AggregatedFeatureStartJ::new(j_alignment, feat, ip) else {
+        let Some(feature_j) =
+            AggregatedFeatureStartJ::new(j_alignment, &feat.delj, &feat.error, ip)
+        else {
             return None;
         };
 
@@ -176,6 +177,7 @@ impl AggregatedFeatureStartDAndJ {
                 }
             }
         }
-        self.feature_j.disaggregate(j_alignment, feat, ip)
+        self.feature_j
+            .disaggregate(j_alignment, &mut feat.delj, &mut feat.error, ip)
     }
 }
