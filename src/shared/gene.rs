@@ -16,6 +16,7 @@ pub struct Gene {
     // for J gene this corresponds to the position of the first nucleotide of the "F/W"
     pub cdr3_pos: Option<usize>,
     pub functional: String,
+    pub is_functional: bool,
     pub seq: Dna,
     pub seq_with_pal: Option<Dna>, // Dna with the palindromic insertions (model dependant)
 }
@@ -33,7 +34,8 @@ impl Gene {
         Gene {
             name,
             cdr3_pos,
-            functional,
+            functional: functional.clone(),
+            is_functional: (functional == "F" || functional == "(F)"),
             seq,
             seq_with_pal: None,
         }
@@ -41,6 +43,15 @@ impl Gene {
 }
 
 impl Gene {
+    pub fn is_functional(&self) -> bool {
+        self.is_functional
+    }
+
+    pub fn set_functional(&mut self, func_str: String) {
+        self.functional = func_str;
+        self.is_functional = self.functional == "F" || self.functional == "(F)";
+    }
+
     pub fn create_palindromic_ends(&mut self, lenleft: usize, lenright: usize) {
         let palindromic_extension_left = self
             .seq

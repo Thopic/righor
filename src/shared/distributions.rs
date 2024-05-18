@@ -8,6 +8,36 @@ use rand::Rng;
 use rand_distr::{Distribution, Uniform, WeightedAliasIndex};
 
 #[derive(Clone, Debug)]
+/// Pick a random number according to a histogram defined distribution
+pub struct HistogramDistribution {
+    bin_pick: DiscreteDistribution,
+    uniform_in_bins: Vec<Uniform<f64>>,
+}
+
+impl HistogramDistribution {
+    pub fn new(bins: Vec<f64>, probas: Vec<f64>) -> Result<HistogramDistribution> {
+        Ok(HistogramDistribution {
+            bin_pick: DiscreteDistribution::new(probas)?,
+            uniform_in_bins: bins
+                .windows(2)
+                .map(|w| Uniform::try_from(w[0]..w[1]).unwrap())
+                .collect(),
+        })
+    }
+
+    pub fn generate<R: Rng>(&self, rng: &mut R) -> f64 {
+        let idx = self.bin_pick.generate(rng);
+        self.uniform_in_bins[idx].sample(rng)
+    }
+}
+
+impl Default for HistogramDistribution {
+    fn default() -> HistogramDistribution {
+        HistogramDistribution::new(vec![0., 1e-12], vec![1.]).unwrap()
+    }
+}
+
+#[derive(Clone, Debug)]
 /// Generate a random f64 between 0/1 and a random nucleotide
 pub struct UniformError {
     is_error: Uniform<f64>,
@@ -60,7 +90,7 @@ impl DiscreteDistribution {
         Ok(DiscreteDistribution { distribution })
     }
 
-    pub fn generate<R: Rng>(&mut self, rng: &mut R) -> usize {
+    pub fn generate<R: Rng>(&self, rng: &mut R) -> usize {
         self.distribution.sample(rng)
     }
 }

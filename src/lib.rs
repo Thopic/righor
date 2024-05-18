@@ -3,6 +3,8 @@ pub mod v_dj;
 pub mod vdj;
 pub mod vj;
 
+pub use crate::vdj::model::EntrySequence;
+
 pub use crate::shared::{
     genes_matching, AlignmentParameters, AminoAcid, CategoricalFeature1, CategoricalFeature1g1,
     CategoricalFeature2, CategoricalFeature2g1, DAlignment, Dna, Gene, InferenceParameters,

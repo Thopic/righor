@@ -1,14 +1,12 @@
 /// Contains all the error models defined and their features (for inference)
-use crate::shared::distributions::{DiscreteDistribution, UniformError};
+use crate::shared::distributions::{HistogramDistribution, UniformError};
 use crate::shared::feature::Feature;
-use crate::shared::utils::Normalize;
+
 use crate::shared::Dna;
 use crate::shared::ErrorAlignment;
 use crate::shared::StaticEvent;
 use anyhow::{anyhow, Result};
-use itertools::izip;
 
-use ndarray::Array1;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use rand::Rng;
@@ -157,7 +155,7 @@ impl ErrorParameters {
         }
     }
 
-    /// return the feature
+    /// return a new feature
     pub fn get_feature(&self) -> Result<FeatureError> {
         match self {
             ErrorParameters::ConstantRate(err) => {
@@ -165,6 +163,35 @@ impl ErrorParameters {
             }
             ErrorParameters::UniformRate(err) => Ok(FeatureError::UniformRate(err.get_feature()?)),
         }
+    }
+
+    /// Update the model from a list of errors
+    pub fn update_error(
+        features: Vec<FeatureError>,
+        model: &mut ErrorParameters,
+    ) -> Result<Vec<FeatureError>> {
+        Ok(match model {
+            ErrorParameters::ConstantRate(m) => ErrorConstantRate::update_error(
+                features
+                    .into_iter()
+                    .filter_map(|el| el.try_into().ok())
+                    .collect(),
+                m,
+            )?
+            .into_iter()
+            .map(FeatureError::ConstantRate)
+            .collect(),
+            ErrorParameters::UniformRate(m) => ErrorUniformRate::update_error(
+                features
+                    .into_iter()
+                    .filter_map(|el| el.try_into().ok())
+                    .collect(),
+                m,
+            )?
+            .into_iter()
+            .map(FeatureError::UniformRate)
+            .collect(),
+        })
     }
 }
 
@@ -229,18 +256,47 @@ impl ErrorConstantRate {
     pub fn get_feature(&self) -> Result<FeatureErrorConstant> {
         FeatureErrorConstant::new(self.error_rate)
     }
+
+    pub fn update_error(
+        features: Vec<FeatureErrorConstant>,
+        error: &mut ErrorConstantRate,
+    ) -> Result<Vec<FeatureErrorConstant>> {
+        let mut len = 1;
+        let mut iter = features.iter().clone();
+        let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
+        let mut sum_err = first_feat.total_errors_dirty;
+        let mut sum_length = first_feat.total_lengths_dirty;
+        for feat in iter {
+            sum_err += feat.total_errors_dirty;
+            sum_length += feat.total_lengths_dirty;
+            len += 1;
+        }
+        let error_rate = if sum_length == 0. {
+            sum_err / sum_length
+        } else {
+            0.
+        };
+        // update the error model
+        *error = ErrorConstantRate::new(error_rate);
+        // return the features
+        let constant_feat = FeatureErrorConstant::new(error_rate)?;
+        Ok(vec![constant_feat; len])
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 /// Uniform mutation rate along the sequence, but
-/// the average number of mutations of each sequence can be different
+/// the error rate can differ from one sequence to the next
 pub struct ErrorUniformRate {
+    // The two vector here are not used to infer anything, but
+    // they keep the histogram of values somewhere in memory
     /// Bins of the histogram of the error rate
     pub bins: Vec<f64>,
     /// Probabilities of the histogram of the error rate
     pub probas: Vec<f64>,
+
     #[serde(skip)]
-    distribution: DiscreteDistribution,
+    error_rate_gen: HistogramDistribution,
     #[serde(skip)]
     gen: UniformError,
 }
@@ -249,26 +305,31 @@ impl Default for ErrorUniformRate {
     fn default() -> ErrorUniformRate {
         // default distribution (a bit ad-hoc but well)
         ErrorUniformRate::new(
-            vec![1. / 100., 100.],
-            (0..101).map(|x| (x as f64) / 100. * 0.6).collect(),
+            (0..1000).map(|x| (x as f64) / 1000.).collect(),
+            vec![1. / 1000.; 1000],
         )
         .unwrap()
     }
 }
 
 impl ErrorUniformRate {
-    pub fn new(probas: Vec<f64>, bins: Vec<f64>) -> Result<ErrorUniformRate> {
-        Ok(ErrorUniformRate {
-            probas: probas.clone(),
-            bins,
-            distribution: DiscreteDistribution::new(probas)?,
-            gen: UniformError::new(),
-        })
+    pub fn new(bins: Vec<f64>, probas: Vec<f64>) -> Result<ErrorUniformRate> {
+        let mut error = ErrorUniformRate {
+            bins: bins,
+            probas: probas,
+            ..Default::default()
+        };
+        error.init_generation()?;
+        Ok(error)
     }
 
-    fn apply_to_sequence<R: Rng>(&mut self, full_seq: &Dna, event: &mut StaticEvent, rng: &mut R) {
-        let error_bin = self.distribution.generate(rng);
-        let effective_error_rate = (self.bins[error_bin] + self.bins[error_bin + 1]) / 2. * 4. / 3.;
+    pub fn init_generation(&mut self) -> Result<()> {
+        self.error_rate_gen = HistogramDistribution::new(self.bins.clone(), self.probas.clone())?;
+        Ok(())
+    }
+
+    fn apply_to_sequence<R: Rng>(&self, full_seq: &Dna, event: &mut StaticEvent, rng: &mut R) {
+        let effective_error_rate = self.error_rate_gen.generate(rng) * 4. / 3.;
         let mut errors =
             Vec::with_capacity((effective_error_rate * full_seq.len() as f64).ceil() as usize);
 
@@ -286,8 +347,8 @@ impl ErrorUniformRate {
     fn write(&self) -> String {
         format!(
             "@ErrorRate\n\
-         #IndividualErrorRate\n\
-         {}",
+             #IndividualErrorRate\n\
+             {}",
             self.probas
                 .iter()
                 .enumerate()
@@ -314,36 +375,75 @@ impl ErrorUniformRate {
             probas.push(proba);
         }
         bins.dedup();
-        ErrorUniformRate::new(probas, bins)
+
+        ErrorUniformRate::new(bins, probas)
     }
 
     fn uniform(&self) -> Result<ErrorUniformRate> {
         ErrorUniformRate::new(
-            vec![1. / ((self.bins.len() - 1) as f64); self.bins.len() - 1],
             self.bins.clone(),
+            vec![1. / (self.bins.len() as f64 - 1.); self.bins.len() - 1],
         )
     }
 
     fn similar(e1: Self, e2: Self) -> bool {
-        if e1.bins.len() != e2.bins.len() {
+        if e1.bins.len() != e2.bins.len() || e1.probas.len() != e2.probas.len() {
             return false;
         }
-        for ii in 0..e1.probas.len() {
-            if (e1.bins[ii] - e2.bins[ii]).abs() > 1e-4 {
+
+        for i in 0..e1.probas.len() {
+            if (e1.bins[i] - e2.bins[i]).abs() > 1e-4 {
                 return false;
             }
-            if (e1.bins[ii + 1] - e2.bins[ii + 1]).abs() > 1e-4 {
+            if (e1.bins[i + 1] - e2.bins[i + 1]).abs() > 1e-4 {
                 return false;
             }
-            if ((e1.probas[ii] - e2.probas[ii]) / (e1.probas[ii] + e2.probas[ii])).abs() > 1e-4 {
+            if (e1.probas[i] - e2.probas[i]).abs() > 1e-4 {
                 return false;
             }
         }
         true
     }
-
     pub fn get_feature(&self) -> Result<FeatureErrorUniform> {
-        FeatureErrorUniform::new(&Array1::from(self.probas.clone()), self.bins.clone())
+        // by default return the average of the distribution
+        FeatureErrorUniform::new(
+            self.probas
+                .iter()
+                .enumerate()
+                .map(|(i, pi)| pi * (self.bins[i] + self.bins[i + 1]) / 2.)
+                .sum(),
+        )
+    }
+
+    fn update_error(
+        features: Vec<FeatureErrorUniform>,
+        error: &mut ErrorUniformRate,
+    ) -> Result<Vec<FeatureErrorUniform>> {
+        let mut counts = vec![0usize; error.bins.len()];
+        for feat in &features {
+            let error_rate = if feat.total_lengths_dirty == 0. {
+                0.
+            } else {
+                feat.total_errors_dirty / feat.total_lengths_dirty
+            };
+            let idx = error
+                .bins
+                .binary_search_by(|&bin| bin.partial_cmp(&error_rate).unwrap());
+            match idx {
+                Ok(i) => counts[i] += 1,
+                Err(i) => counts[i - 1] += 1,
+            }
+        }
+
+        // Convert counts to probabilities
+        let total = features.len() as f64;
+        let probas: Vec<f64> = counts.iter().map(|&count| count as f64 / total).collect();
+
+        error.probas = probas;
+        error.init_generation()?;
+
+        // return the vector without modifying it
+        Ok(features)
     }
 }
 
@@ -359,43 +459,67 @@ impl Default for FeatureError {
     }
 }
 
-impl FeatureError {
-    pub fn get_parameters(&self) -> Result<ErrorParameters> {
-        Ok(match self {
-            FeatureError::ConstantRate(x) => ErrorParameters::ConstantRate(x.get_parameters()?),
-            FeatureError::UniformRate(x) => ErrorParameters::UniformRate(x.get_parameters()?),
-        })
-    }
-
-    pub fn average(iter: impl Iterator<Item = FeatureError> + Clone) -> Result<FeatureError> {
-        let mut cloned_iter = iter.clone();
-        match cloned_iter.next() {
-            Some(first_item) => Ok(match first_item {
-                FeatureError::ConstantRate(_) => FeatureError::ConstantRate(
-                    FeatureErrorConstant::average(iter.filter_map(|item| {
-                        if let FeatureError::ConstantRate(a) = item {
-                            Some(a)
-                        } else {
-                            None
-                        }
-                    }))?,
-                ),
-                FeatureError::UniformRate(_) => FeatureError::UniformRate(
-                    FeatureErrorUniform::average(iter.filter_map(|item| {
-                        if let FeatureError::UniformRate(a) = item {
-                            Some(a)
-                        } else {
-                            None
-                        }
-                    }))?,
-                ),
-            }),
-            None => {
-                // Handle empty iterator case
-                Err(anyhow!("Cannot average empty vector"))
-            }
+impl TryFrom<FeatureError> for FeatureErrorConstant {
+    type Error = anyhow::Error;
+    fn try_from(value: FeatureError) -> Result<Self> {
+        if let FeatureError::ConstantRate(v) = value {
+            Ok(v)
+        } else {
+            Err(anyhow!("Wrong feature type"))
         }
     }
+}
+
+impl TryFrom<FeatureError> for FeatureErrorUniform {
+    type Error = anyhow::Error;
+    fn try_from(value: FeatureError) -> Result<Self> {
+        if let FeatureError::UniformRate(v) = value {
+            Ok(v)
+        } else {
+            Err(anyhow!("Wrong feature type"))
+        }
+    }
+}
+
+impl FeatureError {
+    // pub fn get_parameters(&self) -> Result<ErrorParameters> {
+    //     Ok(match self {
+    //         FeatureError::ConstantRate(x) => ErrorParameters::ConstantRate(x.get_parameters()?),
+    //         FeatureError::UniformRate(x) => ErrorParameters::UniformRate(x.get_parameters()?),
+    //     })
+    // }
+
+    // pub fn average(iter: impl Iterator<Item = FeatureError> + Clone) -> Result<Vec<FeatureError>> {
+    //     let avg_constants = FeatureErrorConstant::average(iter.clone().filter_map(|e| {
+    //         if let FeatureError::ConstantRate(fec) = e {
+    //             Some(fec)
+    //         } else {
+    //             None
+    //         }
+    //     }))?;
+
+    //     let avg_uniforms = FeatureErrorUniform::average(iter.filter_map(|e| {
+    //         if let FeatureError::UniformRate(feu) = e {
+    //             Some(feu)
+    //         } else {
+    //             None
+    //         }
+    //     }))?;
+
+    //     if !avg_uniforms.is_empty() && !avg_constants.is_empty() {
+    //         return Err(anyhow!(
+    //             "Multiple error models in the same model, this shouldn't happen."
+    //         ));
+    //     }
+
+    //     let result: Vec<FeatureError> = avg_constants
+    //         .into_iter()
+    //         .map(FeatureError::ConstantRate)
+    //         .chain(avg_uniforms.into_iter().map(FeatureError::UniformRate))
+    //         .collect();
+
+    //     Ok(result)
+    // }
 
     pub fn scale_dirty(&mut self, factor: f64) {
         match self {
@@ -484,21 +608,25 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
         self.total_lengths_dirty *= factor;
     }
 
-    fn average(
-        mut iter: impl Iterator<Item = FeatureErrorConstant> + Clone,
-    ) -> Result<FeatureErrorConstant> {
-        let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut sum_err = first_feat.total_errors_dirty;
-        let mut sum_length = first_feat.total_lengths_dirty;
-        for feat in iter {
-            sum_err += feat.total_errors_dirty;
-            sum_length += feat.total_lengths_dirty;
-        }
-        if sum_length == 0. {
-            return FeatureErrorConstant::new(0.);
-        }
-        FeatureErrorConstant::new(sum_err / sum_length)
-    }
+    // fn average(
+    //     mut iter: impl Iterator<Item = FeatureErrorConstant> + Clone,
+    // ) -> Result<Vec<FeatureErrorConstant>> {
+    //     let mut len = 1;
+    //     let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
+    //     let mut sum_err = first_feat.total_errors_dirty;
+    //     let mut sum_length = first_feat.total_lengths_dirty;
+    //     for feat in iter {
+    //         sum_err += feat.total_errors_dirty;
+    //         sum_length += feat.total_lengths_dirty;
+    //         len += 1;
+    //     }
+    //     let feat_averaged = FeatureErrorConstant::new(if sum_length == 0. {
+    //         sum_err / sum_length
+    //     } else {
+    //         0.
+    //     })?;
+    //     Ok(vec![feat_averaged; len])
+    // }
 }
 
 impl FeatureErrorConstant {
@@ -517,124 +645,64 @@ impl FeatureErrorConstant {
 /// Uniform error rate on the sequence, but the error rate depends on the sequence
 pub struct FeatureErrorUniform {
     /// histogram bins to infer the continuous distribution
-    pub bins: Vec<f64>,
-    /// The probability for the error rate to be in one of the bin
-    pub probas: Array1<f64>,
-
-    probas_dirty: Array1<f64>,
-
-    // Some help function to try to improve speed
-    log_mid_bins_3: Array1<f64>,
-    log_1_minus_mid_bins: Array1<f64>,
-
-    /// used to scale the nucleotide transition matrix for the insertions
+    pub error_rate: f64,
+    logrs3: f64,
+    log1mr: f64,
+    // total_lengths: f64, // For each sequence, this saves Σ P(E) L(S(E))
+    // total_errors: f64,  // For each sequence, this saves Σ P(E) N_{err}(S(E))
+    // useful for dirty updating
     total_lengths_dirty: f64,
     total_errors_dirty: f64,
+    total_probas_dirty: f64, // For each sequence, this saves Σ P(E)
 }
 
 impl Feature<ErrorAlignment> for FeatureErrorUniform {
+    /// Arguments
+    /// - observation: "(nb of error, length of the sequence without insertion)"
+    /// - likelihood: measured likelihood of the event
     fn dirty_update(&mut self, observation: ErrorAlignment, likelihood: f64) {
         self.total_lengths_dirty += likelihood * (observation.sequence_length as f64);
         self.total_errors_dirty += likelihood * (observation.nb_errors as f64);
-
-        let mut p = 0.;
-        for (pi, logrs3, log1mr) in izip!(
-            &self.probas,
-            &self.log_mid_bins_3,
-            &self.log_1_minus_mid_bins
-        ) {
-            p += pi
-                * (logrs3 * observation.nb_errors as f64
-                    + log1mr * ((observation.sequence_length - observation.nb_errors) as f64))
-                    .exp2();
-        }
-
-        let scaled_likelihood = likelihood / p;
-
-        for (i, (pi, logrs3, log1mr)) in izip!(
-            &self.probas,
-            &self.log_mid_bins_3,
-            &self.log_1_minus_mid_bins
-        )
-        .enumerate()
-        {
-            self.probas_dirty[i] += scaled_likelihood
-                * pi
-                * (logrs3 * observation.nb_errors as f64
-                    + log1mr * ((observation.sequence_length - observation.nb_errors) as f64))
-                    .exp2();
-        }
+        self.total_probas_dirty += likelihood;
     }
 
+    /// Arguments
+    /// - observation: "(nb of error, length of the sequence without insertion)"
+    /// The complete formula is likelihood = (r/3)^(nb error) * (1-r)^(length - nb error)
     fn likelihood(&self, observation: ErrorAlignment) -> f64 {
-        let mut p = 0.;
-        for (pi, logrs3, log1mr) in izip!(
-            &self.probas,
-            &self.log_mid_bins_3,
-            &self.log_1_minus_mid_bins
-        ) {
-            p += pi
-                * (logrs3 * observation.nb_errors as f64
-                    + log1mr * ((observation.sequence_length - observation.nb_errors) as f64))
-                    .exp2();
+        if observation.nb_errors == 0 {
+            return (observation.sequence_length as f64 * self.log1mr).exp2();
         }
-        p
+        ((observation.nb_errors as f64) * self.logrs3
+            + ((observation.sequence_length - observation.nb_errors) as f64) * self.log1mr)
+            .exp2()
     }
 
-    fn scale_dirty(&mut self, factor: f64) {
-        self.total_errors_dirty *= factor;
-        self.total_lengths_dirty *= factor;
-        self.probas_dirty *= factor
-    }
-
-    fn average(
-        mut iter: impl Iterator<Item = FeatureErrorUniform> + Clone,
-    ) -> Result<FeatureErrorUniform> {
-        let first = iter
-            .clone()
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut average_probas = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        let mut len = 0;
-        for feat in iter {
-            average_probas = average_probas + feat.probas_dirty;
-            len += 1;
-        }
-
-        FeatureErrorUniform::new(&(average_probas / (len as f64)), first.bins)
-    }
+    fn scale_dirty(&mut self, _factor: f64) {}
 }
 
 impl FeatureErrorUniform {
-    pub fn new(probabilities: &Array1<f64>, bins: Vec<f64>) -> Result<FeatureErrorUniform> {
-        let mut mid_bins = Array1::<f64>::zeros(bins.len() - 1);
-        for i in 0..mid_bins.len() {
-            mid_bins[i] = (bins[i] + bins[i + 1]) / 2.;
+    pub fn new(error_rate: f64) -> Result<FeatureErrorUniform> {
+        if !(0. ..1.).contains(&error_rate) || (error_rate.is_nan()) || (error_rate.is_infinite()) {
+            return Err(anyhow!(
+                "Error in FeatureErrorConstant Feature creation. Negative/NaN/infinite error rate."
+            ));
         }
-
         Ok(FeatureErrorUniform {
-            probas_dirty: Array1::<f64>::zeros(probabilities.dim()),
-            bins,
-            probas: probabilities.normalize_distribution()?,
-            log_mid_bins_3: (mid_bins.clone() / 3.).mapv_into(|v| v.log2()),
-            log_1_minus_mid_bins: (1. - mid_bins).mapv_into(|v| v.log2()),
-
-            total_errors_dirty: 0.,
+            error_rate,
+            logrs3: (error_rate / 3.).log2(),
+            log1mr: (1. - error_rate).log2(),
             total_lengths_dirty: 0.,
+            total_errors_dirty: 0.,
+            total_probas_dirty: 0.,
         })
     }
 
-    pub fn get_parameters(&self) -> Result<ErrorUniformRate> {
-        ErrorUniformRate::new(self.probas.to_vec(), self.bins.clone())
-    }
+    // pub fn get_parameters(&self) -> Result<ErrorUniformRate> {
+    //     Ok(ErrorUniformRate::new(self.error_rate))
+    // }
 
     pub fn get_error_rate(&self) -> f64 {
-        if self.total_lengths_dirty == 0. {
-            return 0.;
-        }
-        self.total_errors_dirty / self.total_lengths_dirty
+        self.error_rate
     }
 }

@@ -9,6 +9,8 @@ pub mod model;
 pub mod parameters;
 pub mod parser;
 pub mod py_binding;
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+pub mod pymodel;
 pub mod sequence;
 pub mod utils;
 
@@ -21,7 +23,7 @@ pub use feature::{
 };
 
 pub use gene::{genes_matching, Gene, ModelGen};
-pub use model::{GenerationResult, Model, ModelStructure, Modelable};
+pub use model::{GenerationResult, Generator, Model, ModelStructure, Modelable};
 pub use parameters::{AlignmentParameters, InferenceParameters};
 pub use sequence::{nucleotides_inv, AminoAcid, DAlignment, Dna, ErrorAlignment, VJAlignment};
 pub use utils::RecordModel;

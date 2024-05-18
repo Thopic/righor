@@ -11,6 +11,7 @@ use kdam::tqdm;
 use ndarray::array;
 use ndarray::Axis;
 use righor::shared::ModelGen;
+use righor::EntrySequence;
 use std::fs::File;
 
 use righor::shared::{errors::ErrorUniformRate, ErrorParameters};
@@ -47,7 +48,7 @@ fn main() -> Result<()> {
     let al = igor_model.align_sequence(&sequence, &align_params)?;
     println!("{:?}", al.best_j_alignment());
     println!("{:?}", al.best_v_alignment());
-    let result = igor_model.evaluate(&al, &inference_params);
+    let result = igor_model.evaluate(EntrySequence::Aligned(al), &align_params, &inference_params);
     println!("{:?}", result);
 
     // for v in igor_model.get_v_segments() {

@@ -2,7 +2,8 @@ use crate::shared::feature::Feature;
 use crate::shared::InfEvent;
 use crate::shared::{errors::FeatureError, InferenceParameters, ResultInference};
 use crate::shared::{
-    CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1, InsertionFeature,
+    CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1, ErrorParameters,
+    InsertionFeature,
 };
 use crate::v_dj::AggregatedFeatureStartDAndJ;
 use crate::vdj::{
@@ -25,18 +26,49 @@ pub struct Features {
 }
 
 impl Features {
-    pub fn update_model(&self, model: &mut Model) -> Result<()> {
-        let pvj = self.vj.probas.clone();
-        let pd_given_j = self.d.probas.clone();
-        model.p_vdj = pvj.insert_axis(Axis(1)) * pd_given_j.insert_axis(Axis(0));
-        model.p_del_v_given_v = self.delv.probas.clone();
-        model.set_p_vdj(&model.p_vdj.clone())?;
-        model.p_del_j_given_j = self.delj.probas.clone();
-        model.p_del_d5_del_d3 = self.deld.probas.clone();
-        (model.p_ins_vd, model.markov_coefficients_vd) = self.insvd.get_parameters();
-        (model.p_ins_dj, model.markov_coefficients_dj) = self.insdj.get_parameters();
-        model.error = self.error.get_parameters()?;
-        Ok(())
+    /// Update the model from a vector of features and return an updated vector of features
+    pub fn update(features: Vec<Features>, model: &mut Model) -> Result<Vec<Features>> {
+        let insvd = InsertionFeature::average(
+            features.iter().map(|a| a.insvd.correct_for_error(&a.error)),
+        )?;
+        let insdj = InsertionFeature::average(
+            features.iter().map(|a| a.insdj.correct_for_error(&a.error)),
+        )?;
+        let delv = CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?;
+        let delj = CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?;
+        let deld = CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?;
+        let vj = CategoricalFeature2::average(features.iter().map(|a| a.vj.clone()))?;
+        let d_given_j = CategoricalFeature1g1::average(features.iter().map(|a| a.d.clone()))?;
+        let p_vdj =
+            vj.clone().probas.insert_axis(Axis(1)) * d_given_j.clone().probas.insert_axis(Axis(0));
+
+        model.set_p_vdj(&p_vdj)?;
+        model.p_del_v_given_v = delv.clone().probas;
+        model.p_del_j_given_j = delj.clone().probas;
+        model.p_del_d5_del_d3 = deld.clone().probas;
+        (model.p_ins_vd, model.markov_coefficients_vd) = insvd.get_parameters();
+        (model.p_ins_dj, model.markov_coefficients_dj) = insdj.get_parameters();
+        let errors = &mut ErrorParameters::update_error(
+            features.iter().map(|a| a.error.clone()).collect(),
+            &mut model.error,
+        )?;
+
+        // Now update the features vector
+        let mut new_features = Vec::new();
+        for error in errors {
+            new_features.push(Features {
+                vj: vj.clone(),
+                d: d_given_j.clone(),
+                delv: delv.clone(),
+                delj: delj.clone(),
+                deld: deld.clone(),
+                insvd: insvd.clone(),
+                insdj: insdj.clone(),
+                error: error.clone(),
+            })
+        }
+
+        Ok(new_features)
     }
 
     pub fn new(model: &Model) -> Result<Features> {
@@ -156,28 +188,7 @@ impl Features {
         Ok(result)
     }
 
-    pub fn average(features: Vec<Features>) -> Result<Features> {
-        let error = FeatureError::average(features.iter().map(|a| a.error.clone()))?;
-
-        // correct the markov insertion profile first
-        let insvd = InsertionFeature::average(
-            features.iter().map(|a| a.insvd.correct_for_error(&a.error)),
-        )?;
-        let insdj = InsertionFeature::average(
-            features.iter().map(|a| a.insdj.correct_for_error(&a.error)),
-        )?;
-
-        Ok(Features {
-            vj: CategoricalFeature2::average(features.iter().map(|a| a.vj.clone()))?,
-            d: CategoricalFeature1g1::average(features.iter().map(|a| a.d.clone()))?,
-            delv: CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?,
-            delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
-            deld: CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?,
-            insvd,
-            insdj,
-            error,
-        })
-    }
+    //    pub fn average(features: Vec<Features>) -> Result<Features> {}
 }
 
 impl Features {

@@ -177,9 +177,9 @@ impl StaticEvent {
     }
 
     pub fn extract_cdr3(&self, full_seq: &Dna, model: &Model) -> Result<Dna> {
-        match (self, model) {
-            (StaticEvent::VDJ(ev), Model::VDJ(m)) => Ok(ev.extract_cdr3(full_seq, m)),
-            (StaticEvent::VJ(ev), Model::VJ(m)) => Ok(ev.extract_cdr3(full_seq, m)),
+        match (self, &model) {
+            (StaticEvent::VDJ(ev), Model::VDJ(m)) => Ok(ev.extract_cdr3(full_seq, &m)),
+            (StaticEvent::VJ(ev), Model::VJ(m)) => Ok(ev.extract_cdr3(full_seq, &m)),
             _ => Err(anyhow!("Wrong model for this event type")),
         }
     }

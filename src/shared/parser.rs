@@ -205,6 +205,7 @@ fn parse_genes(str_data: &Vec<String>) -> Result<EventType> {
             let gene = Gene {
                 name: data[0].chars().skip(1).collect(),
                 functional: "".to_string(), // not available from this file
+                is_functional: false,       // still unknown
                 seq: Dna::from_string(&data[1])?,
                 seq_with_pal: None,
                 cdr3_pos: Some(0), // not available from this file
@@ -274,11 +275,13 @@ impl ParserParams {
                         .ok_or(anyhow!("{} not found in anchor file", g.name))
                         .unwrap(),
                 );
-                g.functional = functions
-                    .get(&g.name)
-                    .ok_or(anyhow!("{} not found in anchor file", g.name))
-                    .unwrap()
-                    .clone()
+                g.set_functional(
+                    functions
+                        .get(&g.name)
+                        .ok_or(anyhow!("{} not found in anchor file", g.name))
+                        .unwrap()
+                        .clone(),
+                )
             });
         } else {
             return Err(anyhow!("Wrong value for gene_choice (add_anchors_gene)"))?;

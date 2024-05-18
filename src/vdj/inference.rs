@@ -1,6 +1,6 @@
 use crate::shared::feature::*;
 use crate::shared::utils::difference_as_i64;
-use crate::shared::{errors::FeatureError, InferenceParameters};
+use crate::shared::{errors::FeatureError, ErrorParameters, InferenceParameters};
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
     Model, Sequence,
@@ -21,18 +21,6 @@ pub struct Features {
 }
 
 impl Features {
-    pub fn update_model(&self, model: &mut Model) -> Result<()> {
-        model.p_vdj = self.vdj.probas.clone();
-        model.p_del_v_given_v = self.delv.probas.clone();
-        model.set_p_vdj(&self.vdj.probas.clone())?;
-        model.p_del_j_given_j = self.delj.probas.clone();
-        model.p_del_d5_del_d3 = self.deld.probas.clone();
-        (model.p_ins_vd, model.markov_coefficients_vd) = self.insvd.get_parameters();
-        (model.p_ins_dj, model.markov_coefficients_dj) = self.insdj.get_parameters();
-        model.error = self.error.get_parameters()?;
-        Ok(())
-    }
-
     pub fn new(model: &Model) -> Result<Features> {
         Ok(Features {
             vdj: CategoricalFeature3::new(&model.p_vdj)?,
@@ -43,6 +31,48 @@ impl Features {
             insdj: InsertionFeature::new(&model.p_ins_dj, &model.markov_coefficients_dj)?,
             error: model.error.get_feature()?,
         })
+    }
+
+    /// Update the model from a vector of features and "average" the features.
+    pub fn update(features: Vec<Features>, model: &mut Model) -> Result<Vec<Features>> {
+        let insvd = InsertionFeature::average(
+            features.iter().map(|a| a.insvd.correct_for_error(&a.error)),
+        )?;
+        let insdj = InsertionFeature::average(
+            features.iter().map(|a| a.insdj.correct_for_error(&a.error)),
+        )?;
+        let delv = CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?;
+        let delj = CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?;
+        let deld = CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?;
+        let vdj = CategoricalFeature3::average(features.iter().map(|a| a.vdj.clone()))?;
+
+        model.set_p_vdj(&vdj.clone().probas)?;
+        model.p_del_v_given_v = delv.clone().probas;
+        model.p_del_j_given_j = delj.clone().probas;
+        model.p_del_d5_del_d3 = deld.clone().probas;
+
+        (model.p_ins_vd, model.markov_coefficients_vd) = insvd.get_parameters();
+        (model.p_ins_dj, model.markov_coefficients_dj) = insdj.get_parameters();
+
+        let errors = &mut ErrorParameters::update_error(
+            features.iter().map(|a| a.error.clone()).collect(),
+            &mut model.error,
+        )?;
+
+        // Now update the features vector
+        let mut new_features = Vec::new();
+        for error in errors {
+            new_features.push(Features {
+                vdj: vdj.clone(),
+                delv: delv.clone(),
+                delj: delj.clone(),
+                deld: deld.clone(),
+                insvd: insvd.clone(),
+                insdj: insdj.clone(),
+                error: error.clone(),
+            })
+        }
+        Ok(new_features)
     }
 
     /// Core function, iterate over all realistic scenarios to compute the
@@ -142,33 +172,12 @@ impl Features {
 
             // Divide all the proba by P(R) (the probability of the sequence)
             if result.likelihood > 0. {
-                self.cleanup(result.likelihood)?;
+                self.scale(result.likelihood)?;
             }
         }
 
         // Return the result
         Ok(result)
-    }
-
-    pub fn average(features: Vec<Features>) -> Result<Features> {
-        let error = FeatureError::average(features.iter().map(|a| a.error.clone()))?;
-
-        let insvd = InsertionFeature::average(
-            features.iter().map(|a| a.insvd.correct_for_error(&a.error)),
-        )?;
-        let insdj = InsertionFeature::average(
-            features.iter().map(|a| a.insdj.correct_for_error(&a.error)),
-        )?;
-
-        Ok(Features {
-            vdj: CategoricalFeature3::average(features.iter().map(|a| a.vdj.clone()))?,
-            delv: CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?,
-            delj: CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?,
-            deld: CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?,
-            insvd,
-            insdj,
-            error,
-        })
     }
 }
 
@@ -246,8 +255,10 @@ impl Features {
             }
         }
 
+        // update the features with the total likelihood to do the
+        // averaging correctly.
         if result.likelihood > 0. {
-            self.cleanup(result.likelihood)?;
+            self.scale(result.likelihood)?;
         }
 
         // Return the result
@@ -359,7 +370,7 @@ impl Features {
         Ok(())
     }
 
-    pub fn cleanup(&mut self, likelihood: f64) -> Result<()> {
+    pub fn scale(&mut self, likelihood: f64) -> Result<()> {
         // Compute the new marginals for the next round
         self.vdj.scale_dirty(1. / likelihood);
         self.delv.scale_dirty(1. / likelihood);
@@ -370,9 +381,7 @@ impl Features {
         self.error.scale_dirty(1. / likelihood);
         Ok(())
     }
-}
 
-impl Features {
     pub fn normalize(&mut self) -> Result<()> {
         self.vdj = self.vdj.normalize()?;
         self.delv = self.delv.normalize()?;

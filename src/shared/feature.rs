@@ -1,5 +1,7 @@
 use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2, Normalize3};
+use crate::shared::ModelStructure;
 use crate::shared::{errors::FeatureError, nucleotides_inv, Dna, InferenceParameters};
+use crate::vdj::Model as ModelVDJ;
 use crate::{v_dj, vdj};
 use anyhow::{anyhow, Result};
 
@@ -26,9 +28,9 @@ pub trait Feature<T> {
     fn dirty_update(&mut self, observation: T, likelihood: f64);
     fn likelihood(&self, observation: T) -> f64;
     fn scale_dirty(&mut self, factor: f64);
-    fn average(iter: impl Iterator<Item = Self> + Clone) -> Result<Self>
-    where
-        Self: Sized;
+    // fn average(iter: impl Iterator<Item = Self> + Clone) -> Result<Vec<Self>>
+    // where
+    //     Self: Sized;
 }
 
 // One-dimensional categorical distribution
@@ -49,20 +51,6 @@ impl Feature<usize> for CategoricalFeature1 {
 
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
-    }
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1> + Clone,
-    ) -> Result<CategoricalFeature1> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature1::new(&(average_proba / (len as f64)))
     }
 }
 
@@ -86,6 +74,21 @@ impl CategoricalFeature1 {
             panic!("Probabilities larger than one !");
         }
     }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature1> + Clone,
+    ) -> Result<Vec<CategoricalFeature1>> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba = average_proba + feat.probas_dirty;
+            len += 1;
+        }
+        let new_feat = CategoricalFeature1::new(&(average_proba / (len as f64)))?;
+        Ok(vec![new_feat; len])
+    }
 }
 
 // One-dimensional categorical distribution, given one external parameter
@@ -105,20 +108,6 @@ impl Feature<(usize, usize)> for CategoricalFeature1g1 {
     }
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
-    }
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1g1> + Clone,
-    ) -> Result<CategoricalFeature1g1> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba += &feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature1g1::new(&(average_proba / (len as f64)))
     }
 }
 
@@ -141,6 +130,21 @@ impl CategoricalFeature1g1 {
             panic!("Probabilities larger than one !");
         }
     }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature1g1> + Clone,
+    ) -> Result<CategoricalFeature1g1> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba += &feat.probas_dirty;
+            len += 1;
+        }
+        let average_feat = CategoricalFeature1g1::new(&(average_proba / (len as f64)))?;
+        Ok(average_feat)
+    }
 }
 
 // One-dimensional categorical distribution, given two external parameter
@@ -161,22 +165,6 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature1g2 {
 
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
-    }
-
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1g2> + Clone,
-    ) -> Result<CategoricalFeature1g2> {
-        let mut len = 1;
-
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba += &feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature1g2::new(&(average_proba / (len as f64)))
     }
 }
 
@@ -199,6 +187,22 @@ impl CategoricalFeature1g2 {
             panic!("Probabilities larger than one !");
         }
     }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature1g2> + Clone,
+    ) -> Result<CategoricalFeature1g2> {
+        let mut len = 1;
+
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba += &feat.probas_dirty;
+            len += 1;
+        }
+        let average_feat = CategoricalFeature1g2::new(&(average_proba / (len as f64)))?;
+        Ok(average_feat)
+    }
 }
 
 // Two-dimensional categorical distribution
@@ -219,20 +223,6 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
 
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
-    }
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature2> + Clone,
-    ) -> Result<CategoricalFeature2> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba += &feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature2::new(&(average_proba / (len as f64)))
     }
 }
 
@@ -258,6 +248,21 @@ impl CategoricalFeature2 {
             panic!("Probabilities larger than one !");
         }
     }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature2> + Clone,
+    ) -> Result<CategoricalFeature2> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba += &feat.probas_dirty;
+            len += 1;
+        }
+        let average_feat = CategoricalFeature2::new(&(average_proba / (len as f64)))?;
+        Ok(average_feat)
+    }
 }
 
 // Two-dimensional categorical distribution, given one external parameter
@@ -278,20 +283,6 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
 
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
-    }
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature2g1> + Clone,
-    ) -> Result<CategoricalFeature2g1> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature2g1::new(&(average_proba / (len as f64)))
     }
 }
 
@@ -314,6 +305,21 @@ impl CategoricalFeature2g1 {
             panic!("Probabilities larger than one !");
         }
     }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature2g1> + Clone,
+    ) -> Result<CategoricalFeature2g1> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba = average_proba + feat.probas_dirty;
+            len += 1;
+        }
+        let average_feat = CategoricalFeature2g1::new(&(average_proba / (len as f64)))?;
+        Ok(average_feat)
+    }
 }
 
 // Three-dimensional distribution
@@ -334,21 +340,6 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature3 {
 
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
-    }
-
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature3> + Clone,
-    ) -> Result<CategoricalFeature3> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature3::new(&(average_proba / (len as f64)))
     }
 }
 
@@ -373,6 +364,21 @@ impl CategoricalFeature3 {
         if self.probas.iter().any(|&x| x > 1.) {
             panic!("Probabilities larger than one !");
         }
+    }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature3> + Clone,
+    ) -> Result<CategoricalFeature3> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba = average_proba + feat.probas_dirty;
+            len += 1;
+        }
+        let average_feat = CategoricalFeature3::new(&(average_proba / (len as f64)))?;
+        Ok(average_feat)
     }
 }
 
@@ -448,32 +454,6 @@ impl Feature<&Dna> for InsertionFeature {
     fn scale_dirty(&mut self, factor: f64) {
         self.length_distribution_dirty *= factor;
         self.transition_matrix_dirty *= factor;
-    }
-
-    fn average(
-        mut iter: impl Iterator<Item = InsertionFeature> + Clone,
-    ) -> Result<InsertionFeature> {
-        let mut len = 1;
-        let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut average_length = first_feat.length_distribution_dirty;
-        let mut average_mat = first_feat.transition_matrix_dirty;
-        for feat in iter {
-            average_mat = average_mat + feat.transition_matrix_dirty;
-            average_length = average_length + feat.length_distribution_dirty;
-            len += 1;
-        }
-
-        // the error rate correction can make some value of the transition matrix negative
-        // (shouldn't happen in theory, but that's life)
-        // we fix those to 1e-4 (not 0, so that they are not blocked)
-        // normalisation should take care of the rest.
-        let sum = average_mat.clone().sum();
-        average_mat.mapv_inplace(|a| if a < 0.0 { 1e-4 * sum } else { a });
-
-        InsertionFeature::new(
-            &(average_length / (len as f64)),
-            &(average_mat / (len as f64)),
-        )
     }
 }
 
@@ -556,6 +536,32 @@ impl InsertionFeature {
                     self.transition_matrix.sum_axis(Axis(0))[[ii]];
             }
         }
+    }
+    pub fn average(
+        mut iter: impl Iterator<Item = InsertionFeature> + Clone,
+    ) -> Result<InsertionFeature> {
+        let mut len = 1;
+        let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
+        let mut average_length = first_feat.length_distribution_dirty;
+        let mut average_mat = first_feat.transition_matrix_dirty;
+        for feat in iter {
+            average_mat = average_mat + feat.transition_matrix_dirty;
+            average_length = average_length + feat.length_distribution_dirty;
+            len += 1;
+        }
+
+        // the error rate correction can make some value of the transition matrix negative
+        // (shouldn't happen in theory, but that's life)
+        // we fix those to 1e-4 (not 0, so that they are not blocked)
+        // normalisation should take care of the rest.
+        let sum = average_mat.clone().sum();
+        average_mat.mapv_inplace(|a| if a < 0.0 { 1e-4 * sum } else { a });
+
+        let average_feat = InsertionFeature::new(
+            &(average_length / (len as f64)),
+            &(average_mat / (len as f64)),
+        )?;
+        Ok(average_feat)
     }
 }
 
@@ -850,13 +856,6 @@ impl Features {
         }
     }
 
-    pub fn update_model(&self, model: &mut vdj::Model) -> Result<()> {
-        match self {
-            Features::VDJ(x) => x.update_model(model),
-            Features::VxDJ(x) => x.update_model(model),
-        }
-    }
-
     // pub fn delv(&self) -> &CategoricalFeature1g1 {
     //     match self {
     //         Features::VDJ(x) => &x.delv,
@@ -928,5 +927,42 @@ impl Features {
             Features::VDJ(x) => &mut x.error,
             Features::VxDJ(x) => &mut x.error,
         }
+    }
+
+    pub fn update(features: Vec<Features>, model: &mut ModelVDJ) -> Result<Vec<Features>> {
+        Ok(match model.model_type {
+            ModelStructure::VDJ => vdj::Features::update(
+                features
+                    .into_iter()
+                    .filter_map(|x| {
+                        if let Features::VDJ(f) = x {
+                            Some(f)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                model,
+            )?
+            .into_iter()
+            .map(Features::VDJ)
+            .collect(),
+            ModelStructure::VxDJ => v_dj::Features::update(
+                features
+                    .into_iter()
+                    .filter_map(|x| {
+                        if let Features::VxDJ(f) = x {
+                            Some(f)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                model,
+            )?
+            .into_iter()
+            .map(Features::VxDJ)
+            .collect(),
+        })
     }
 }

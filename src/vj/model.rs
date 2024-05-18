@@ -2,15 +2,15 @@ use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
 use crate::shared::utils::{sorted_and_complete, sorted_and_complete_0start};
+use crate::shared::utils::{Normalize, Normalize2};
 use crate::shared::{
     distributions::calc_steady_state_dist, model::GenerationResult, AlignmentParameters, Dna, Gene,
     InfEvent, InferenceParameters, ModelGen, RecordModel, ResultInference,
 };
-
 use crate::shared::{ErrorParameters, Features, Modelable};
-use crate::vdj::{Model as ModelVDJ, Sequence};
-
+use crate::vdj::{model::EntrySequence, Model as ModelVDJ, Sequence};
 use anyhow::{anyhow, Result};
+use ndarray::s;
 use ndarray::{array, Array1, Array2, Array3, Axis};
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -282,44 +282,50 @@ impl Modelable for Model {
 
     fn evaluate(
         &self,
-        sequence: &Sequence,
+        sequence: EntrySequence,
+        alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
     ) -> Result<ResultInference> {
-        self.inner.evaluate(sequence, inference_params)
+        self.inner
+            .evaluate(sequence, alignment_params, inference_params)
     }
 
     fn infer(
         &mut self,
-        sequences: &[Sequence],
+        sequences: &[EntrySequence],
+        features: Option<Vec<Features>>,
+        alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        self.inner.infer(sequences, inference_params)?;
+    ) -> Result<Vec<Features>> {
+        let feats = self
+            .inner
+            .infer(sequences, features, alignment_params, inference_params)?;
         self.update_outer_model()?;
-        Ok(())
+        Ok(feats)
     }
 
-    fn align_and_infer(
-        &mut self,
-        sequences: &[Dna],
-        align_params: &AlignmentParameters,
-        inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        self.inner
-            .align_and_infer(sequences, align_params, inference_params)?;
-        self.update_outer_model()?;
-        Ok(())
-    }
+    // fn align_and_infer(
+    //     &mut self,
+    //     sequences: &[Dna],
+    //     align_params: &AlignmentParameters,
+    //     inference_params: &InferenceParameters,
+    // ) -> Result<()> {
+    //     self.inner
+    //         .align_and_infer(sequences, align_params, inference_params)?;
+    //     self.update_outer_model()?;
+    //     Ok(())
+    // }
 
-    fn align_and_infer_from_cdr3(
-        &mut self,
-        sequences: &[(Dna, Vec<Gene>, Vec<Gene>)],
-        inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        self.inner
-            .align_and_infer_from_cdr3(sequences, inference_params)?;
-        self.update_outer_model()?;
-        Ok(())
-    }
+    // fn align_and_infer_from_cdr3(
+    //     &mut self,
+    //     sequences: &[(Dna, Vec<Gene>, Vec<Gene>)],
+    //     inference_params: &InferenceParameters,
+    // ) -> Result<()> {
+    //     self.inner
+    //         .align_and_infer_from_cdr3(sequences, inference_params)?;
+    //     self.update_outer_model()?;
+    //     Ok(())
+    // }
 
     fn similar_to(&self, m: Model) -> bool {
         self.inner.similar_to(m.inner)
@@ -348,6 +354,108 @@ impl Modelable for Model {
 }
 
 impl Model {
+    /// Update the v segments and adapt the associated marginals
+    pub fn set_v_segments(&mut self, value: Vec<Gene>) -> Result<()> {
+        let [_, sj] = *self.get_p_vj().shape() else {
+            return Err(anyhow!("Something is wrong with the v segments"));
+        };
+        let mut new_p_vj = Array2::<f64>::zeros([value.len(), sj]);
+
+        let [sdelv, _] = *self.p_del_v_given_v.shape() else {
+            return Err(anyhow!("Something is wrong with the v segments"));
+        };
+        let mut new_p_del_v_given_v = Array2::<f64>::zeros([sdelv, value.len()]);
+
+        let proba_v_default = 1. / (value.len() as f64);
+        let delv_default = self.p_del_v_given_v.sum_axis(Axis(1)) / self.p_del_v_given_v.sum();
+
+        for (iv, v) in value.iter().enumerate() {
+            match self
+                .inner
+                .seg_vs
+                .iter()
+                .enumerate()
+                .find(|(_index, g)| g.name == v.name)
+            {
+                Some((index, _gene)) => {
+                    new_p_vj
+                        .slice_mut(s![iv, ..])
+                        .assign(&self.get_p_vj().slice_mut(s![index, ..]));
+                    new_p_del_v_given_v
+                        .slice_mut(s![.., iv])
+                        .assign(&self.p_del_v_given_v.slice_mut(s![.., index]));
+                }
+                None => {
+                    new_p_vj.slice_mut(s![iv, ..]).fill(proba_v_default);
+                    new_p_del_v_given_v
+                        .slice_mut(s![.., iv])
+                        .assign(&delv_default);
+                }
+            }
+        }
+
+        // normalzie
+        new_p_vj = new_p_vj.normalize_distribution_double()?;
+        new_p_del_v_given_v = new_p_del_v_given_v.normalize_distribution()?;
+
+        self.seg_vs = value;
+        self.set_p_vj(&new_p_vj)?;
+        self.p_del_v_given_v = new_p_del_v_given_v;
+        self.initialize()?;
+        Ok(())
+    }
+
+    /// Update the j segments and adapt the associated marginals
+    pub fn set_j_segments(&mut self, value: Vec<Gene>) -> Result<()> {
+        let [sv, _] = *self.get_p_vj().shape() else {
+            return Err(anyhow!("Something is wrong with the j segments"));
+        };
+        let mut new_p_vj = Array2::<f64>::zeros([sv, value.len()]);
+
+        let [sdelj, _] = *self.p_del_j_given_j.shape() else {
+            return Err(anyhow!("Something is wrong with the j segments"));
+        };
+        let mut new_p_del_j_given_j = Array2::<f64>::zeros([sdelj, value.len()]);
+
+        let proba_j_default = 1. / (value.len() as f64);
+        let delj_default = self.p_del_j_given_j.sum_axis(Axis(1)) / self.p_del_j_given_j.sum();
+
+        for (ij, j) in value.iter().enumerate() {
+            match self
+                .inner
+                .seg_js
+                .iter()
+                .enumerate()
+                .find(|(_index, g)| g.name == j.name)
+            {
+                Some((index, _gene)) => {
+                    new_p_vj
+                        .slice_mut(s![.., ij])
+                        .assign(&self.get_p_vj().slice_mut(s![.., index]));
+                    new_p_del_j_given_j
+                        .slice_mut(s![.., ij])
+                        .assign(&self.p_del_j_given_j.slice_mut(s![.., index]));
+                }
+                None => {
+                    new_p_vj.slice_mut(s![.., ij]).fill(proba_j_default);
+                    new_p_del_j_given_j
+                        .slice_mut(s![.., ij])
+                        .assign(&delj_default);
+                }
+            }
+        }
+
+        // normalzie
+        new_p_vj = new_p_vj.normalize_distribution_double()?;
+        new_p_del_j_given_j = new_p_del_j_given_j.normalize_distribution()?;
+
+        self.seg_js = value;
+        self.set_p_vj(&new_p_vj)?;
+        self.p_del_j_given_j = new_p_del_j_given_j;
+        self.initialize()?;
+        Ok(())
+    }
+
     pub fn load_model(pp: &ParserParams, pm: &ParserMarginals) -> Result<Model> {
         let mut model: Model = Model {
             seg_vs: pp
@@ -684,13 +792,13 @@ impl Model {
         Ok(())
     }
 
-    pub fn from_features(&self, feature: &Features) -> Result<Model> {
-        let mut m = self.clone();
-        m.inner.update(feature)?;
-        m.update_outer_model()?;
-        m.initialize()?;
-        Ok(m)
-    }
+    // pub fn from_features(&self, feature: &Features) -> Result<Model> {
+    //     let mut m = self.clone();
+    //     m.inner.update(feature)?;
+    //     m.update_outer_model()?;
+    //     m.initialize()?;
+    //     Ok(m)
+    // }
 }
 
 impl ModelGen for Model {

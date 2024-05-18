@@ -11,7 +11,6 @@ description = "Righor creates model of Ig/TCR sequences from sequencing data."
 [lib]
 name = "righor"
 path = "src/lib.rs"
-# crate-type = ["cdylib", "lib"]
 
 [profile.release] # Not a ton of worthwhile optimization honestly
 debug = true
@@ -28,7 +27,7 @@ regex = "1.9"
 ndarray = {version="0.15", features = ["approx", "serde"]}
 csv = "1.1"
 enum_dispatch = "0.3"
-pyo3 = {version = "0.20.0", features = ["extension-module", "anyhow", "multiple-pymethods"], optional=true}
+pyo3 = {version = "0.20.3", features = ["extension-module", "anyhow", "multiple-pymethods"], optional=true}
 # ndarray-linalg = {version = "0.14", features = ["openblas"]}
 duplicate = {version = "1.0.0"}
 bio = "1.5"
@@ -45,6 +44,7 @@ serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.114"
 dyn-clone = "1.0.17"
 memoize = "0.4.2"
+cfg-if = "1.0"
 
 [features]
 default = ["kdam"]
