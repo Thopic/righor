@@ -47,7 +47,7 @@ impl Default for AlignmentParameters {
             min_score_v: -20,
             min_score_j: 0,
             max_error_d: 100,
-            left_v_cutoff: 50,
+            left_v_cutoff: 600, // long cutoff by default, to avoid issues
         }
     }
 }

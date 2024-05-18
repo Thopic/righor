@@ -643,7 +643,9 @@ impl Generator {
             rng,
         })
     }
-
+}
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
+impl Generator {
     pub fn generate(&mut self, functional: bool) -> Result<GenerationResult> {
         self.model.generate(functional, &mut self.rng)
     }

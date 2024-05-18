@@ -567,7 +567,6 @@ pub struct FeatureErrorConstant {
 
 impl FeatureErrorConstant {
     pub fn new(error_rate: f64) -> Result<FeatureErrorConstant> {
-        println!("{:?}", error_rate);
         if !(0. ..1.).contains(&error_rate) || (error_rate.is_nan()) || (error_rate.is_infinite()) {
             return Err(anyhow!(
                 "Error in FeatureErrorConstant Feature creation. Negative/NaN/infinite error rate."
