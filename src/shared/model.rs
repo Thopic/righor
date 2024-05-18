@@ -581,23 +581,23 @@ impl Model {
         Ok(())
     }
 
-    pub fn get_first_nt_bias_ins_vj(&self) -> Result<Array1<f64>> {
+    pub fn get_first_nt_bias_ins_vj(&self) -> Result<Vec<f64>> {
         match self {
-            Model::VJ(x) => Ok(x.first_nt_bias_ins_vj.clone()),
+            Model::VJ(x) => Ok(x.get_first_nt_bias_ins_vj()?.clone()),
             Model::VDJ(_) => Err(anyhow!("VDJ model does not have VJ insertions.")),
         }
     }
 
-    pub fn get_first_nt_bias_ins_vd(&self) -> Result<Array1<f64>> {
+    pub fn get_first_nt_bias_ins_vd(&self) -> Result<Vec<f64>> {
         match self {
-            Model::VDJ(x) => Ok(x.first_nt_bias_ins_vd.clone()),
+            Model::VDJ(x) => Ok(x.get_first_nt_bias_ins_vd()?.clone()),
             Model::VJ(_) => Err(anyhow!("VJ model does not have VD insertions.")),
         }
     }
 
-    pub fn get_first_nt_bias_ins_dj(&self) -> Result<Array1<f64>> {
+    pub fn get_first_nt_bias_ins_dj(&self) -> Result<Vec<f64>> {
         match self {
-            Model::VDJ(x) => Ok(x.first_nt_bias_ins_dj.clone()),
+            Model::VDJ(x) => Ok(x.get_first_nt_bias_ins_dj()?.clone()),
             Model::VJ(_) => Err(anyhow!("VJ model does not have D genes.")),
         }
     }

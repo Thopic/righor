@@ -2,7 +2,7 @@ use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
-use crate::shared::utils::Normalize2;
+use crate::shared::utils::{Normalize2, NormalizeLast};
 use crate::shared::{self, distributions::*, model::GenerationResult};
 use crate::shared::{
     utils::count_differences, utils::sorted_and_complete, utils::sorted_and_complete_0start,
@@ -145,8 +145,8 @@ pub struct Model {
     pub p_dj: Array2<f64>,
     pub p_d_given_vj: Array3<f64>,
     pub p_j_given_v: Array2<f64>,
-    pub first_nt_bias_ins_vd: Array1<f64>,
-    pub first_nt_bias_ins_dj: Array1<f64>,
+    // pub first_nt_bias_ins_vd: Array1<f64>,
+    // pub first_nt_bias_ins_dj: Array1<f64>,
     pub thymic_q: f64,
 }
 
@@ -332,8 +332,6 @@ impl Modelable for Model {
             p_del_d5_del_d3: Array3::<f64>::ones(self.p_del_d5_del_d3.dim()),
             markov_coefficients_vd: Array2::<f64>::ones(self.markov_coefficients_vd.dim()),
             markov_coefficients_dj: Array2::<f64>::ones(self.markov_coefficients_dj.dim()),
-            first_nt_bias_ins_vd: Array1::<f64>::ones(self.first_nt_bias_ins_vd.dim()),
-            first_nt_bias_ins_dj: Array1::<f64>::ones(self.first_nt_bias_ins_dj.dim()),
             error: ErrorParameters::uniform(&self.error)?,
             ..Default::default()
         };
@@ -344,13 +342,17 @@ impl Modelable for Model {
     /// Re-initialize the error model, normalize the parameters
     fn initialize(&mut self) -> Result<()> {
         self.sanitize_genes()?;
-        // load the data and normalize
-        let mut features = match self.model_type {
-            ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
-            ModelStructure::VxDJ => Features::VxDJ(v_dj::Features::new(self)?),
-        };
-        features.normalize()?;
-        Features::update(vec![features], self)?;
+
+        self.p_vdj = self.p_vdj.normalize_distribution_3()?;
+        self.set_p_vdj(&self.p_vdj.clone())?;
+        self.p_ins_vd = self.p_ins_vd.normalize_distribution()?;
+        self.p_ins_dj = self.p_ins_dj.normalize_distribution()?;
+        self.p_del_v_given_v = self.p_del_v_given_v.normalize_distribution()?;
+        self.p_del_j_given_j = self.p_del_j_given_j.normalize_distribution()?;
+        self.p_del_d5_del_d3 = self.p_del_d5_del_d3.normalize_distribution_double()?;
+        self.markov_coefficients_vd = self.markov_coefficients_vd.normalize_last()?;
+        self.markov_coefficients_dj = self.markov_coefficients_vd.normalize_last()?;
+
         self.initialize_generative_model()?;
         Ok(())
     }
@@ -1060,7 +1062,7 @@ impl Model {
                 }
             }
         } else {
-            return Err::<Model, anyhow::Error>(anyhow!("Wrong format for the VDJ probabilities"));
+            return Err(anyhow!("Wrong format for the VDJ probabilities"));
         }
 
         model.set_p_vdj(&model.p_vdj.clone())?;
@@ -1158,10 +1160,10 @@ impl Model {
             .map_err(|_e| anyhow!("Wrong size for dj_dinucl"))?;
 
         // TODO: Need to deal with potential first nt bias in the file
-        model.first_nt_bias_ins_vd =
-            Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_vd)?);
-        model.first_nt_bias_ins_dj =
-            Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_dj)?);
+        // model.first_nt_bias_ins_vd =
+        //     Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_vd)?);
+        // model.first_nt_bias_ins_dj =
+        //     Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_dj)?);
 
         model.error = pp.error.clone();
         model.thymic_q = 9.41; // TODO: deal with this
@@ -1461,8 +1463,6 @@ impl Model {
             // create the complete sequence:
             let full_seq = event.to_sequence(self);
 
-            // println!("{:?}", full_seq.get_string());
-
             // create the complete CDR3 sequence
             let cdr3_seq = event.to_cdr3(self);
 
@@ -1516,6 +1516,14 @@ impl Model {
 
     pub fn get_d_gene(&self, event: &InfEvent) -> String {
         self.seg_ds[event.d_index].name.clone()
+    }
+
+    pub fn get_first_nt_bias_ins_vd(&self) -> Result<Vec<f64>> {
+        calc_steady_state_dist(&self.markov_coefficients_vd)
+    }
+
+    pub fn get_first_nt_bias_ins_dj(&self) -> Result<Vec<f64>> {
+        calc_steady_state_dist(&self.markov_coefficients_vd)
     }
 
     fn make_d_genes_alignments(

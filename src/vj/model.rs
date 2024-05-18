@@ -4,8 +4,8 @@ use crate::shared::parser::{
 use crate::shared::utils::{sorted_and_complete, sorted_and_complete_0start};
 use crate::shared::utils::{Normalize, Normalize2};
 use crate::shared::{
-    distributions::calc_steady_state_dist, model::GenerationResult, AlignmentParameters, Dna, Gene,
-    InfEvent, InferenceParameters, ModelGen, RecordModel, ResultInference,
+    model::GenerationResult, AlignmentParameters, Dna, Gene, InfEvent, InferenceParameters,
+    ModelGen, RecordModel, ResultInference,
 };
 use crate::shared::{ErrorParameters, Features, Modelable};
 use crate::vdj::{model::EntrySequence, Model as ModelVDJ, Sequence};
@@ -93,7 +93,6 @@ pub struct Model {
 
     // Not directly useful for the model but useful for integration with other soft
     // TODO: transform these in "getter" in the python bindings, they don't need to be precomputed
-    pub first_nt_bias_ins_vj: Array1<f64>,
     pub thymic_q: f64,
 }
 
@@ -577,8 +576,8 @@ impl Model {
             .map_err(|_e| anyhow!("Wrong size for vj_dinucl"))?;
 
         // TODO: Need to deal with potential first nt bias
-        model.first_nt_bias_ins_vj =
-            Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_vj)?);
+        // model.first_nt_bias_ins_vj =
+        //     Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_vj)?);
 
         model.error = pp.error.clone();
         model.thymic_q = 9.41; // TODO: deal with this
@@ -752,11 +751,14 @@ impl Model {
         self.p_j_given_v = self.inner.p_j_given_v.clone();
         self.p_ins_vj = self.inner.p_ins_vd.clone();
         self.markov_coefficients_vj = self.inner.markov_coefficients_vd.clone();
-        self.first_nt_bias_ins_vj = self.inner.first_nt_bias_ins_vd.clone();
         self.range_del_j = self.inner.range_del_j;
         self.range_del_v = self.inner.range_del_v;
         self.error = self.inner.error.clone();
         Ok(())
+    }
+
+    pub fn get_first_nt_bias_ins_vj(&self) -> Result<Vec<f64>> {
+        self.inner.get_first_nt_bias_ins_vd()
     }
 
     pub fn get_v_gene(&self, event: &InfEvent) -> String {

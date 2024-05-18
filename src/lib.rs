@@ -8,7 +8,7 @@ pub use crate::vdj::model::EntrySequence;
 pub use crate::shared::{
     genes_matching, AlignmentParameters, AminoAcid, CategoricalFeature1, CategoricalFeature1g1,
     CategoricalFeature2, CategoricalFeature2g1, DAlignment, Dna, Gene, InferenceParameters,
-    InsertionFeature, Modelable, VJAlignment,
+    InsertionFeature, Model, Modelable, VJAlignment,
 };
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]

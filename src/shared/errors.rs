@@ -305,7 +305,7 @@ impl Default for ErrorUniformRate {
     fn default() -> ErrorUniformRate {
         // default distribution (a bit ad-hoc but well)
         ErrorUniformRate::new(
-            (0..1000).map(|x| (x as f64) / 1000.).collect(),
+            (0..1001).map(|x| (x as f64) / 1000.).collect(),
             vec![1. / 1000.; 1000],
         )
         .unwrap()
@@ -317,8 +317,10 @@ impl ErrorUniformRate {
         let mut error = ErrorUniformRate {
             bins: bins,
             probas: probas,
-            ..Default::default()
+            error_rate_gen: HistogramDistribution::default(),
+            gen: UniformError::new(),
         };
+
         error.init_generation()?;
         Ok(error)
     }
@@ -565,6 +567,7 @@ pub struct FeatureErrorConstant {
 
 impl FeatureErrorConstant {
     pub fn new(error_rate: f64) -> Result<FeatureErrorConstant> {
+        println!("{:?}", error_rate);
         if !(0. ..1.).contains(&error_rate) || (error_rate.is_nan()) || (error_rate.is_infinite()) {
             return Err(anyhow!(
                 "Error in FeatureErrorConstant Feature creation. Negative/NaN/infinite error rate."
@@ -607,26 +610,6 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
         self.total_errors_dirty *= factor;
         self.total_lengths_dirty *= factor;
     }
-
-    // fn average(
-    //     mut iter: impl Iterator<Item = FeatureErrorConstant> + Clone,
-    // ) -> Result<Vec<FeatureErrorConstant>> {
-    //     let mut len = 1;
-    //     let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-    //     let mut sum_err = first_feat.total_errors_dirty;
-    //     let mut sum_length = first_feat.total_lengths_dirty;
-    //     for feat in iter {
-    //         sum_err += feat.total_errors_dirty;
-    //         sum_length += feat.total_lengths_dirty;
-    //         len += 1;
-    //     }
-    //     let feat_averaged = FeatureErrorConstant::new(if sum_length == 0. {
-    //         sum_err / sum_length
-    //     } else {
-    //         0.
-    //     })?;
-    //     Ok(vec![feat_averaged; len])
-    // }
 }
 
 impl FeatureErrorConstant {
@@ -697,10 +680,6 @@ impl FeatureErrorUniform {
             total_probas_dirty: 0.,
         })
     }
-
-    // pub fn get_parameters(&self) -> Result<ErrorUniformRate> {
-    //     Ok(ErrorUniformRate::new(self.error_rate))
-    // }
 
     pub fn get_error_rate(&self) -> f64 {
         self.error_rate

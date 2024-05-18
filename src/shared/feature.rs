@@ -602,18 +602,6 @@ pub struct ResultInference {
     pub features: Option<Features>,
 }
 
-// impl fmt::Debug for ResultInference {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         f.debug_struct("Point")
-//             .field("likelihood", &self.likelihood)
-//             .field("pgen", &self.pgen)
-// 	    .field("best_event", &self.best_event)
-// 	    .field("best_likelihood", &self.best_likelihood)
-// 	    .field("features", &self.features)
-//          .finish()
-//     }
-// }
-
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl ResultInference {

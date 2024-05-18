@@ -29,27 +29,28 @@ fn main() -> Result<()> {
     // )?;
 
     //TODO: modify before release
-    let mut igor_model = righor::vdj::Model::load_from_name(
+    let mut igor_model = righor::Model::load_from_name(
         "human",
         "igh",
         None,
         Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
     )?;
-    igor_model.error = ErrorParameters::UniformRate(ErrorUniformRate::default());
+
+    igor_model.set_error(ErrorParameters::UniformRate(ErrorUniformRate::default()))?;
+
     // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
 
     let sequence = righor::Dna::from_string("ACCCTCCAGTCTGCCAGGCCCTCACATACCTCTCAGTACCTCTGTGCCAGCAGTGAGGACAGGGACGTCACTGAAGCTTTCTTTGGACAAGGCACC")?;
+    println!("BUH");
 
     let mut align_params = righor::AlignmentParameters::default();
     align_params.left_v_cutoff = 500;
     let mut inference_params = righor::InferenceParameters::default();
     inference_params.min_likelihood = 0.;
     inference_params.min_ratio_likelihood = 0.;
+
     let al = igor_model.align_sequence(&sequence, &align_params)?;
-    println!("{:?}", al.best_j_alignment());
-    println!("{:?}", al.best_v_alignment());
     let result = igor_model.evaluate(EntrySequence::Aligned(al), &align_params, &inference_params);
-    println!("{:?}", result);
 
     // for v in igor_model.get_v_segments() {
     //     let mut gen = righor::vdj::Generator::new(

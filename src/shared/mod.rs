@@ -8,8 +8,8 @@ pub mod gene;
 pub mod model;
 pub mod parameters;
 pub mod parser;
-pub mod py_binding;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+pub mod py_binding;
 pub mod sequence;
 pub mod utils;
 

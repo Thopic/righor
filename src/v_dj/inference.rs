@@ -48,6 +48,7 @@ impl Features {
         model.p_del_d5_del_d3 = deld.clone().probas;
         (model.p_ins_vd, model.markov_coefficients_vd) = insvd.get_parameters();
         (model.p_ins_dj, model.markov_coefficients_dj) = insdj.get_parameters();
+
         let errors = &mut ErrorParameters::update_error(
             features.iter().map(|a| a.error.clone()).collect(),
             &mut model.error,
