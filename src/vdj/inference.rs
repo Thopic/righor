@@ -164,6 +164,7 @@ impl Features {
                         &sequence.get_specific_dgene(d_idx),
                         &mut self.deld,
                         &mut self.error,
+                        &mut result.best_event,
                         ip,
                     ),
                     None => continue,
@@ -184,7 +185,11 @@ impl Features {
 impl Features {
     /// Brute-force inference
     /// for test-purpose only
-    pub fn infer_brute_force(&mut self, sequence: &Sequence) -> Result<ResultInference> {
+    pub fn infer_brute_force(
+        &mut self,
+        sequence: &Sequence,
+        ip: &InferenceParameters,
+    ) -> Result<ResultInference> {
         let mut result = ResultInference::impossible();
 
         // Main loop
@@ -246,6 +251,25 @@ impl Features {
                                         self.error.dirty_update(val.errors(delv), ll);
                                         self.error.dirty_update(jal.errors(delj), ll);
                                         self.error.dirty_update(dal.errors(deld5, deld3), ll);
+
+                                        if ip.store_best_event && (ll > result.best_likelihood) {
+                                            let event = InfEvent {
+                                                v_index: val.index,
+                                                v_start_gene: val.start_gene,
+                                                j_index: jal.index,
+                                                j_start_seq: jal.start_seq,
+                                                d_index: dal.index,
+                                                end_v: v_end,
+                                                start_d: d_start,
+                                                end_d: d_end,
+                                                start_j: j_start,
+                                                pos_d: dal.pos as i64,
+                                                likelihood: ll,
+                                                ..Default::default()
+                                            };
+                                            result.set_best_event(event, ip);
+                                            result.best_likelihood = ll;
+                                        }
                                     }
                                 }
                             }
@@ -340,9 +364,9 @@ impl Features {
                                         j_index: feature_j.index,
                                         j_start_seq: feature_j.start_seq,
                                         d_index: feature_d.index,
-                                        end_v: ev,
                                         start_d: sd,
                                         end_d: ed,
+                                        end_v: ev,
                                         start_j: sj,
                                         likelihood,
                                         ..Default::default()

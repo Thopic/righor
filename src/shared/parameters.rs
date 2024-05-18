@@ -35,10 +35,6 @@ pub struct InferenceParameters {
     pub infer_insertions: bool,
     /// If true (default) infer the deletion distribution & gene usage
     pub infer_genes: bool,
-
-    /// if true (default is false), use the P(V, D, J) complete model
-    /// rather than the P(V, J)×P(D|J) model
-    pub complete_vdj_inference: bool,
 }
 
 impl Default for AlignmentParameters {
@@ -46,7 +42,7 @@ impl Default for AlignmentParameters {
         AlignmentParameters {
             min_score_v: -20,
             min_score_j: 0,
-            max_error_d: 100,
+            max_error_d: 200,
             left_v_cutoff: 600, // long cutoff by default, to avoid issues
         }
     }
@@ -157,7 +153,7 @@ impl InferenceParameters {
         InferenceParameters::default()
     }
     fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={}, complete_vdj_inference={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features, self.store_best_event, self.compute_pgen, self.complete_vdj_inference))
+        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features, self.store_best_event, self.compute_pgen))
     }
     fn __str__(&self) -> PyResult<String> {
         // This is what will be shown when you use print() in Python
@@ -175,7 +171,6 @@ impl Default for InferenceParameters {
             compute_pgen: true,
             infer_insertions: true,
             infer_genes: true,
-            complete_vdj_inference: false,
         }
     }
 }

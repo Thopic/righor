@@ -578,6 +578,7 @@ pub struct InfEvent {
     pub start_d: i64,
     pub end_d: i64,
     pub start_j: i64,
+    pub pos_d: i64,
 
     // sequences (only added after the inference is over)
     pub ins_vd: Option<Dna>,
@@ -598,6 +599,10 @@ pub struct ResultInference {
     pub likelihood: f64,
     pub pgen: f64,
     pub best_event: Option<InfEvent>,
+    // best_likelihood is more an useful tool during inference
+    // than an actual likelihood of the best event
+    // (the definition of "event" vary between model
+    // best_event.likelihood is the way to go
     pub best_likelihood: f64,
     pub features: Option<Features>,
 }
@@ -620,7 +625,7 @@ impl ResultInference {
     }
     #[getter]
     pub fn get_likelihood_best_event(&self) -> f64 {
-        self.best_likelihood
+        self.get_best_event().likelihood
     }
 }
 
@@ -750,6 +755,7 @@ impl ResultInference {
                     .sequence
                     .extract_padded_subsequence(event.end_v, event.start_d),
             );
+
             event.ins_dj = Some(
                 sequence
                     .sequence
@@ -793,6 +799,11 @@ impl ResultInference {
                 .seq_with_pal
                 .ok_or(anyhow!("Model not loaded correctly"))?;
 
+            let gene_d = model.seg_ds[event.d_index]
+                .clone()
+                .seq_with_pal
+                .ok_or(anyhow!("Model not loaded correctly"))?;
+
             let mut full_seq = gene_v.extract_subsequence(0, event.v_start_gene);
             full_seq.extend(&sequence.sequence);
             full_seq.extend(
@@ -801,10 +812,17 @@ impl ResultInference {
             );
             event.full_sequence = Some(full_seq);
 
+            // println!("{:?}", self);
+            // println!("{:?}", sequence.sequence.get_string());
+
             let mut reconstructed_seq =
                 gene_v.extract_subsequence(0, (event.end_v + event.v_start_gene as i64) as usize);
             reconstructed_seq.extend(&event.ins_vd.clone().unwrap());
-            reconstructed_seq.extend(&event.d_segment.clone().unwrap());
+            reconstructed_seq.extend(&gene_d.extract_subsequence(
+                (-event.pos_d + event.start_d) as usize,
+                (-event.pos_d + event.end_d) as usize,
+            ));
+            //            reconstructed_seq.extend(&event.d_segment.clone().unwrap());
             reconstructed_seq.extend(&event.ins_dj.clone().unwrap());
             reconstructed_seq.extend(&gene_j.extract_padded_subsequence(
                 event.start_j - event.j_start_seq as i64,
@@ -844,72 +862,12 @@ impl Features {
         }
     }
 
-    // pub fn delv(&self) -> &CategoricalFeature1g1 {
-    //     match self {
-    //         Features::VDJ(x) => &x.delv,
-    //         Features::VxDJ(x) => &x.delv,
-    //     }
-    // }
-    // pub fn delj(&self) -> &CategoricalFeature1g1 {
-    //     match self {
-    //         Features::VDJ(x) => &x.delj,
-    //         Features::VxDJ(x) => &x.delj,
-    //     }
-    // }
-    // pub fn deld(&self) -> &CategoricalFeature2g1 {
-    //     match self {
-    //         Features::VDJ(x) => &x.deld,
-    //         Features::VxDJ(x) => &x.deld,
-    //     }
-    // }
-    // pub fn insvd(&self) -> &InsertionFeature {
-    //     match self {
-    //         Features::VDJ(x) => &x.insvd,
-    //         Features::VxDJ(x) => &x.insvd,
-    //     }
-    // }
-    // pub fn insdj(&self) -> &InsertionFeature {
-    //     match self {
-    //         Features::VDJ(x) => &x.insdj,
-    //         Features::VxDJ(x) => &x.insdj,
-    //     }
-    // }
     pub fn error(&self) -> &FeatureError {
         match self {
             Features::VDJ(x) => &x.error,
             Features::VxDJ(x) => &x.error,
         }
     }
-    // pub fn delv_mut(&mut self) -> &mut CategoricalFeature1g1 {
-    //     match self {
-    //         Features::VDJ(x) => &mut x.delv,
-    //         Features::VxDJ(x) => &mut x.delv,
-    //     }
-    // }
-    // pub fn delj_mut(&mut self) -> &mut CategoricalFeature1g1 {
-    //     match self {
-    //         Features::VDJ(x) => &mut x.delj,
-    //         Features::VxDJ(x) => &mut x.delj,
-    //     }
-    // }
-    // pub fn deld_mut(&mut self) -> &mut CategoricalFeature2g1 {
-    //     match self {
-    //         Features::VDJ(x) => &mut x.deld,
-    //         Features::VxDJ(x) => &mut x.deld,
-    //     }
-    // }
-    // pub fn insvd_mut(&mut self) -> &mut InsertionFeature {
-    //     match self {
-    //         Features::VDJ(x) => &mut x.insvd,
-    //         Features::VxDJ(x) => &mut x.insvd,
-    //     }
-    // }
-    // pub fn insdj_mut(&mut self) -> &mut InsertionFeature {
-    //     match self {
-    //         Features::VDJ(x) => &mut x.insdj,
-    //         Features::VxDJ(x) => &mut x.insdj,
-    //     }
-    // }
     pub fn error_mut(&mut self) -> &mut FeatureError {
         match self {
             Features::VDJ(x) => &mut x.error,

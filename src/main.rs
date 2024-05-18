@@ -14,6 +14,7 @@ use righor::shared::ModelGen;
 use righor::EntrySequence;
 use std::fs::File;
 
+use righor::shared::model::ModelStructure;
 use righor::shared::{errors::ErrorUniformRate, ErrorParameters};
 use righor::Modelable;
 
@@ -35,22 +36,20 @@ fn main() -> Result<()> {
         None,
         Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
     )?;
-
+    igor_model.set_model_type(ModelStructure::VxDJ)?;
     igor_model.set_error(ErrorParameters::UniformRate(ErrorUniformRate::default()))?;
 
     // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
 
     let sequence = righor::Dna::from_string("ACCCTCCAGTCTGCCAGGCCCTCACATACCTCTCAGTACCTCTGTGCCAGCAGTGAGGACAGGGACGTCACTGAAGCTTTCTTTGGACAAGGCACC")?;
-    println!("BUH");
 
     let mut align_params = righor::AlignmentParameters::default();
     align_params.left_v_cutoff = 500;
     let mut inference_params = righor::InferenceParameters::default();
     inference_params.min_likelihood = 0.;
     inference_params.min_ratio_likelihood = 0.;
-
     let al = igor_model.align_sequence(&sequence, &align_params)?;
-    let result = igor_model.evaluate(EntrySequence::Aligned(al), &align_params, &inference_params);
+    let _result = igor_model.evaluate(EntrySequence::Aligned(al), &align_params, &inference_params);
 
     // for v in igor_model.get_v_segments() {
     //     let mut gen = righor::vdj::Generator::new(

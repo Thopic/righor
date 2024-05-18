@@ -30,7 +30,7 @@ fn test_generation_simple_model() -> Result<()> {
     let model = common::simple_model_vdj();
     let mut gen = righor::vdj::Generator::new(model, Some(0), None, None)?;
     for _ in 0..100 {
-        println!("{}", gen.generate(true).full_seq);
+        println!("{}", gen.generate(false)?.full_seq);
     }
     Ok(())
 }

@@ -37,6 +37,7 @@ pub struct Generator {
     rng: SmallRng,
 }
 
+#[derive(Clone, Debug)]
 /// Make infer a generic function by allowing different entry
 pub enum EntrySequence {
     Aligned(Sequence),
@@ -333,6 +334,7 @@ impl Modelable for Model {
             markov_coefficients_vd: Array2::<f64>::ones(self.markov_coefficients_vd.dim()),
             markov_coefficients_dj: Array2::<f64>::ones(self.markov_coefficients_dj.dim()),
             error: ErrorParameters::uniform(&self.error)?,
+            model_type: self.model_type.clone(),
             ..Default::default()
         };
         m.initialize()?;
@@ -443,6 +445,7 @@ impl Modelable for Model {
                 ModelStructure::VxDJ => Features::VxDJ(v_dj::Features::new(self)?),
             };
             features_pgen.error_mut().remove_error()?; // remove the error
+
             result.pgen = features_pgen
                 .infer(&aligned_seq, inference_params)?
                 .likelihood;
@@ -686,24 +689,52 @@ impl Modelable for Model {
 impl Model {
     pub fn infer_brute_force(
         &mut self,
-        sequences: &[Sequence],
-        _inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        let features = sequences
-            .par_iter()
-            .map(|sequence| {
-                let mut feature = FeaturesVDJ::new(self)?;
-                let _ = feature.infer_brute_force(sequence)?;
-                Ok(feature)
+        sequences: &[EntrySequence],
+        features_opt: Option<Vec<Features>>,
+        alignment_params: &AlignmentParameters,
+        inference_params: &InferenceParameters,
+    ) -> Result<Vec<Features>> {
+        let features = match features_opt {
+            None => {
+                // Create new features object
+                vec![
+                    match self.model_type {
+                        ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
+                        ModelStructure::VxDJ => Features::VxDJ(v_dj::Features::new(self)?),
+                    };
+                    sequences.len()
+                ]
+            }
+            Some(feats) => feats,
+        };
+
+        let new_features = (&features, sequences)
+            .into_par_iter()
+            .map(|(feat, sequence)| {
+                let aligned = sequence.align(self, alignment_params)?;
+                let new_feat = feat.clone();
+                let mut feat_vdj = match new_feat {
+                    Features::VDJ(x) => Ok(x),
+                    Features::VxDJ(_) => Err(anyhow!("Shouldn't happen.")),
+                }?;
+
+                let _ = feat_vdj.infer_brute_force(&aligned, inference_params)?;
+                Ok(Features::VDJ(feat_vdj))
             })
             .collect::<Result<Vec<_>>>()?;
-        FeaturesVDJ::update(features, self)?;
-        Ok(())
+        Features::update(new_features, self)
     }
 
-    pub fn evaluate_brute_force(&mut self, sequence: &Sequence) -> Result<ResultInference> {
+    pub fn evaluate_brute_force(
+        &self,
+        sequence: EntrySequence,
+        alignment_params: &AlignmentParameters,
+        inference_params: &InferenceParameters,
+    ) -> Result<ResultInference> {
         let mut feature = FeaturesVDJ::new(self)?;
-        let result = feature.infer_brute_force(sequence)?;
+        let aligned = sequence.align(self, alignment_params)?;
+        let mut result = feature.infer_brute_force(&aligned, &inference_params)?;
+        result.fill_event(self, &aligned)?;
         Ok(result)
     }
 

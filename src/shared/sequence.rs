@@ -221,15 +221,21 @@ pub fn nucleotides_inv(n: u8) -> usize {
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
 pub struct Dna {
     pub seq: Vec<u8>,
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct AminoAcid {
     pub seq: Vec<u8>,
+}
+
+impl fmt::Debug for Dna {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Dna [{}]", String::from_utf8_lossy(&self.seq))
+    }
 }
 
 impl fmt::Display for Dna {
@@ -241,6 +247,12 @@ impl fmt::Display for Dna {
 impl fmt::Display for AminoAcid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", String::from_utf8_lossy(&self.seq))
+    }
+}
+
+impl fmt::Debug for AminoAcid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Amino-Acid [{}]", String::from_utf8_lossy(&self.seq))
     }
 }
 

@@ -1,5 +1,9 @@
 use anyhow::Result;
+use righor::shared::errors::ErrorConstantRate;
+use righor::shared::ErrorParameters;
+use righor::shared::ModelStructure;
 use righor::shared::{AlignmentParameters, InferenceParameters};
+use righor::EntrySequence;
 use righor::Modelable;
 
 mod common;
@@ -10,20 +14,17 @@ fn infer_comparison_v_dj_vdj_simple_model() -> Result<()> {
     let mut model2 = model.clone();
     let mut generator = righor::vdj::Generator::new(model.clone(), Some(48), None, None)?;
     let ifp = InferenceParameters::default();
-    let ifp_2 = InferenceParameters {
-        complete_vdj_inference: true,
-        ..Default::default()
-    };
+    let ifp_2 = InferenceParameters::default();
     let alp = AlignmentParameters::default();
     let mut alignments = Vec::new();
-    for _ in 0..1 {
-        let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
+    for _ in 0..10 {
+        let s = righor::Dna::from_string(&generator.generate(false)?.full_seq)?;
         let als = model.align_sequence(&s.clone(), &alp)?;
-        alignments.push(als);
+        alignments.push(EntrySequence::Aligned(als));
     }
 
-    model.infer(&alignments.clone(), &ifp)?;
-    model2.infer(&alignments.clone(), &ifp_2)?;
+    model.infer(&alignments.clone(), None, &alp, &ifp)?;
+    model2.infer(&alignments.clone(), None, &alp, &ifp_2)?;
 
     // println!("{}", model.p_ins_vd);
     // println!("{}", model2.p_ins_vd);
@@ -34,35 +35,37 @@ fn infer_comparison_v_dj_vdj_simple_model() -> Result<()> {
 #[test]
 fn infer_vs_brute_force() -> Result<()> {
     let mut model = common::simple_model_vdj();
-    model.error_rate = 0.1;
+    model.model_type = ModelStructure::VDJ;
+    model.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(0.1));
     let mut uniform_model = model.uniform()?.clone();
     let mut generator = righor::vdj::Generator::new(model.clone(), Some(42), None, None)?;
-    let ifp = InferenceParameters {
-        complete_vdj_inference: true,
-        ..Default::default()
-    };
+    let ifp = InferenceParameters::default();
 
     let alp = AlignmentParameters::default();
     let mut alignments = Vec::new();
-    for _ in 0..2 {
-        let generated = generator.generate(false);
+    for _ in 0..20 {
+        let generated = generator.generate(false)?;
         let s = righor::Dna::from_string(&generated.full_seq)?;
-        let als = model.align_sequence(&s.clone(), &alp)?;
+        let als = EntrySequence::Aligned(model.align_sequence(&s.clone(), &alp)?);
         alignments.push(als.clone());
-        let a1 = uniform_model.evaluate(&als.clone(), &ifp)?.likelihood;
-        let a2 = uniform_model.evaluate_brute_force(&als.clone())?.likelihood;
+
+        let a1 = uniform_model.evaluate(als.clone(), &alp, &ifp)?.likelihood;
+        let a2 = uniform_model
+            .evaluate_brute_force(als.clone(), &alp, &ifp)?
+            .likelihood;
+
         assert!((a1 - a2).abs() < 1e-12);
     }
 
     let mut inferred_model = model.uniform()?;
     //    inferred_model.error_rate = 0.;
     for _ in 0..1 {
-        inferred_model.infer_brute_force(&alignments.clone(), &ifp)?;
+        inferred_model.infer_brute_force(&alignments.clone(), None, &alp, &ifp)?;
     }
     let mut inferred_model2 = model.uniform()?;
     //    inferred_model2.error_rate = 0.;
     for _ in 0..1 {
-        inferred_model2.infer(&alignments.clone(), &ifp)?;
+        inferred_model2.infer(&alignments.clone(), None, &alp, &ifp)?;
     }
 
     println!("{:?}", inferred_model.p_ins_vd);
@@ -86,8 +89,8 @@ fn infer_vs_brute_force() -> Result<()> {
     println!("{:?}", inferred_model2.p_del_d5_del_d3);
 
     println!();
-    println!("{:?}", inferred_model.error_rate);
-    println!("{:?}", inferred_model2.error_rate);
+    println!("{:?}", inferred_model.error);
+    println!("{:?}", inferred_model2.error);
 
     assert!(inferred_model2
         .p_ins_vd
@@ -100,31 +103,28 @@ fn infer_vs_brute_force() -> Result<()> {
 #[test]
 fn full_inference_simple_model() -> Result<()> {
     let mut model = common::simple_model_vdj();
-    model.error_rate = 0.1;
+    model.model_type = ModelStructure::VDJ;
+    model.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(0.1));
     let mut generator = righor::vdj::Generator::new(model.clone(), Some(48), None, None)?;
-    let ifp = InferenceParameters {
-        complete_vdj_inference: true,
-        ..Default::default()
-    };
-
+    let ifp = InferenceParameters::default();
     let alp = AlignmentParameters::default();
     let mut alignments = Vec::new();
     for _ in 0..1000 {
-        let generated = generator.generate(false);
+        let generated = generator.generate(false)?;
         let s = righor::Dna::from_string(&generated.full_seq)?;
         let als = model.align_sequence(&s.clone(), &alp)?;
-        alignments.push(als);
+        alignments.push(EntrySequence::Aligned(als));
     }
 
     println!("INFERENCE");
     let mut inferred_model = model.uniform()?;
-    inferred_model.error_rate = 0.3;
+    inferred_model.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(0.3));
     for _ in 0..10 {
-        inferred_model.infer(&alignments.clone(), &ifp)?;
+        inferred_model.infer(&alignments.clone(), None, &alp, &ifp)?;
     }
 
-    println!("{}", inferred_model.error_rate);
-    println!("{}", model.error_rate);
+    println!("{:?}", inferred_model.error);
+    println!("{:?}", model.error);
 
     Ok(())
 }
@@ -165,84 +165,84 @@ fn full_inference_simple_model() -> Result<()> {
 //                       GGGACTAGCGGGAGGGC
 //                                       .ATAGCAATCAGCCCCAGCATTTTGGTGATGGGACTCGACTCTCCATCCTAG
 //                                       CA
-#[test]
-fn match_igor() -> Result<()> {
-    // let mut igor_model = righor::vdj::Model::load_from_files(
-    //     Path::new("demo/models/human/tcr_beta/models/model_parms.txt"),
-    //     Path::new("demo/models/human/tcr_beta/models/model_marginals.txt"),
-    //     Path::new("demo/models/human/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
-    //     Path::new("demo/models/human/tcr_beta/ref_genome/J_gene_CDR3_anchors.csv"),
-    // )?;
-    // let ifp = common::inference_parameters_default();
-    // let alp = common::alignment_parameters_default();
-    // igor_model.error_rate = 0.;
-    // let s = "GAAGCTGGAGTGGTTCAGTCTCCCAGATATAAGATTATAGAGAAAAAACAGCCTGTGGCTTTTTGGTGCAATCCTATTTCTGGCCACAATACCCTTTACTGGTACCTGCAGAACTTGGGACAGGGCCCGGAGCTTCTGATTCGATATGAGAATGAGGAAGCAGTAGACGATTCACAGTTGCCTAAGGATCGATTTTCTGCAGAGAGGCTCAAAGGAGTAGACTCCACTCTCAAGATCCAGCCTGCAGAGCTTGGGGACTCGGCCGTGTATCTCTGTGCCAGCAGCCACGCGGGGGGATGAGCAGTTCTTCGGGCCAGGGACACGGCTCACCGTGCTAG";
-    // let seq_aligned = igor_model
-    //     .align_sequence(righor::Dna::from_string(s).unwrap(), &alp)
-    //     .unwrap();
-    // let feat = igor_model.infer_features(&seq_aligned, &ifp).unwrap();
-    // let result = igor_model.infer(&seq_aligned, &ifp).unwrap();
-    // assert!((result.likelihood - 8.204457e-11).abs() < 1e-14);
+// #[test]
+// fn match_igor() -> Result<()> {
+//     // let mut igor_model = righor::vdj::Model::load_from_files(
+//     //     Path::new("demo/models/human/tcr_beta/models/model_parms.txt"),
+//     //     Path::new("demo/models/human/tcr_beta/models/model_marginals.txt"),
+//     //     Path::new("demo/models/human/tcr_beta/ref_genome/V_gene_CDR3_anchors.csv"),
+//     //     Path::new("demo/models/human/tcr_beta/ref_genome/J_gene_CDR3_anchors.csv"),
+//     // )?;
+//     // let ifp = common::inference_parameters_default();
+//     // let alp = common::alignment_parameters_default();
+//     // igor_model.error_rate = 0.;
+//     // let s = "GAAGCTGGAGTGGTTCAGTCTCCCAGATATAAGATTATAGAGAAAAAACAGCCTGTGGCTTTTTGGTGCAATCCTATTTCTGGCCACAATACCCTTTACTGGTACCTGCAGAACTTGGGACAGGGCCCGGAGCTTCTGATTCGATATGAGAATGAGGAAGCAGTAGACGATTCACAGTTGCCTAAGGATCGATTTTCTGCAGAGAGGCTCAAAGGAGTAGACTCCACTCTCAAGATCCAGCCTGCAGAGCTTGGGGACTCGGCCGTGTATCTCTGTGCCAGCAGCCACGCGGGGGGATGAGCAGTTCTTCGGGCCAGGGACACGGCTCACCGTGCTAG";
+//     // let seq_aligned = igor_model
+//     //     .align_sequence(righor::Dna::from_string(s).unwrap(), &alp)
+//     //     .unwrap();
+//     // let feat = igor_model.infer_features(&seq_aligned, &ifp).unwrap();
+//     // let result = igor_model.infer(&seq_aligned, &ifp).unwrap();
+//     // assert!((result.likelihood - 8.204457e-11).abs() < 1e-14);
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-#[test]
-fn infer_real_model() -> Result<()> {
-    // let mut original_model = righor::vdj::Model::load_from_files(
-    //     Path::new("models/human_T_beta/model_params.txt"),
-    //     Path::new("models/human_T_beta/model_marginals.txt"),
-    //     Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
-    //     Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
-    // )?;
-    // original_model.error_rate = 0.1;
-    // // original_model.p_del_d3_del_d5 = array![[[0.3333f64, 0.3333f64, 0.3333f64]]];
-    // // original_model.p_del_v_given_v = Array2::ones((1, original_model.p_v.dim()));
-    // // original_model.p_del_j_given_j = Array2::ones((1, original_model.p_dj.dim().1));
-    // // original_model.range_del_v = (0, 0);
-    // // original_model.range_del_j = (0, 0);
-    // // original_model.range_del_d3 = (0, 0);
-    // // original_model.range_del_d5 = (0, 0);
-    // original_model.initialize()?;
+// #[test]
+// fn infer_real_model() -> Result<()> {
+//     // let mut original_model = righor::vdj::Model::load_from_files(
+//     //     Path::new("models/human_T_beta/model_params.txt"),
+//     //     Path::new("models/human_T_beta/model_marginals.txt"),
+//     //     Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
+//     //     Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
+//     // )?;
+//     // original_model.error_rate = 0.1;
+//     // // original_model.p_del_d3_del_d5 = array![[[0.3333f64, 0.3333f64, 0.3333f64]]];
+//     // // original_model.p_del_v_given_v = Array2::ones((1, original_model.p_v.dim()));
+//     // // original_model.p_del_j_given_j = Array2::ones((1, original_model.p_dj.dim().1));
+//     // // original_model.range_del_v = (0, 0);
+//     // // original_model.range_del_j = (0, 0);
+//     // // original_model.range_del_d3 = (0, 0);
+//     // // original_model.range_del_d5 = (0, 0);
+//     // original_model.initialize()?;
 
-    // let ifp = common::inference_parameters_default();
-    // let alp = common::alignment_parameters_default();
-    // let mut gen = righor::vdj::Generator::new(original_model.clone(), Some(0));
-    // let mut sequences = Vec::new();
-    // for _ in 0..100 {
-    //     sequences.push(gen.generate(false).cdr3_nt);
-    // }
-    // println!("Generation finished");
-    // let mut model = original_model.uniform().unwrap();
-    // model.error_rate = 0.5;
-    // let mut sequences_aligned = Vec::new();
-    // for s in sequences.clone().iter() {
-    //     let seq_aligned = model
-    //         .align_sequence(righor::Dna::from_string(s).unwrap(), &alp)
-    //         .unwrap();
-    //     if seq_aligned.valid_alignment {
-    //         sequences_aligned.push(seq_aligned);
-    //     }
-    // }
+//     // let ifp = common::inference_parameters_default();
+//     // let alp = common::alignment_parameters_default();
+//     // let mut gen = righor::vdj::Generator::new(original_model.clone(), Some(0));
+//     // let mut sequences = Vec::new();
+//     // for _ in 0..100 {
+//     //     sequences.push(gen.generate(false).cdr3_nt);
+//     // }
+//     // println!("Generation finished");
+//     // let mut model = original_model.uniform().unwrap();
+//     // model.error_rate = 0.5;
+//     // let mut sequences_aligned = Vec::new();
+//     // for s in sequences.clone().iter() {
+//     //     let seq_aligned = model
+//     //         .align_sequence(righor::Dna::from_string(s).unwrap(), &alp)
+//     //         .unwrap();
+//     //     if seq_aligned.valid_alignment {
+//     //         sequences_aligned.push(seq_aligned);
+//     //     }
+//     // }
 
-    // println!("Alignment finished");
-    // for _ in 0..100 {
-    //     let mut features = Vec::new();
-    //     for sal in &sequences_aligned {
-    //         let feat = model.infer_features(&sal, &ifp).unwrap();
-    //         features.push(feat.clone());
-    //     }
+//     // println!("Alignment finished");
+//     // for _ in 0..100 {
+//     //     let mut features = Vec::new();
+//     //     for sal in &sequences_aligned {
+//     //         let feat = model.infer_features(&sal, &ifp).unwrap();
+//     //         features.push(feat.clone());
+//     //     }
 
-    //     let new_features = righor::vdj::Features::average(features).unwrap();
-    //     model.update(&new_features).unwrap();
-    //     println!("{:?}", model.error_rate);
-    //     println!("{:?}", original_model.error_rate);
-    //     println!("{:?}", model.p_ins_vd);
-    //     println!("{:?}", original_model.p_ins_vd);
-    //     println!("");
-    // }
-    Ok(())
-}
+//     //     let new_features = righor::vdj::Features::average(features).unwrap();
+//     //     model.update(&new_features).unwrap();
+//     //     println!("{:?}", model.error_rate);
+//     //     println!("{:?}", original_model.error_rate);
+//     //     println!("{:?}", model.p_ins_vd);
+//     //     println!("{:?}", original_model.p_ins_vd);
+//     //     println!("");
+//     // }
+//     Ok(())
+// }
 //                    18----------v           v--------- 30
 //              TGCTCATGCAAAAAAAAATTTTTCGCTTTTGGGGGGCAGTCAGT
 //              TGCTCATGCAAAAAAAAA
@@ -1209,25 +1209,25 @@ fn infer_real_model() -> Result<()> {
 //     generate_and_infer(&model, &al_params, &if_params, 100);
 // }
 
-#[test]
-fn test_infer_feature_real() -> Result<()> {
-    // Basic test, ne inference with a real model and a real sequence
-    // Just check that nothing panic or return an error.
-    // Note: this rely on the presence of data files, so it may
-    // fail if the data files are not present
-    // let model = righor::vdj::Model::load_from_files(
-    //     Path::new("models/human_T_beta/model_params.txt"),
-    //     Path::new("models/human_T_beta/model_marginals.txt"),
-    //     Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
-    //     Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
-    // )?;
+// #[test]
+// fn test_infer_feature_real() -> Result<()> {
+//     // Basic test, ne inference with a real model and a real sequence
+//     // Just check that nothing panic or return an error.
+//     // Note: this rely on the presence of data files, so it may
+//     // fail if the data files are not present
+//     // let model = righor::vdj::Model::load_from_files(
+//     //     Path::new("models/human_T_beta/model_params.txt"),
+//     //     Path::new("models/human_T_beta/model_marginals.txt"),
+//     //     Path::new("models/human_T_beta/V_gene_CDR3_anchors.csv"),
+//     //     Path::new("models/human_T_beta/J_gene_CDR3_anchors.csv"),
+//     // )?;
 
-    // let align_params = common::alignment_parameters_default();
+//     // let align_params = common::alignment_parameters_default();
 
-    // let inference_params = common::inference_parameters_default();
+//     // let inference_params = common::inference_parameters_default();
 
-    // let seq_str = "AGTCTGCCATCCCCAACCAGACAGCTCTTTACTTCTGTGCCACCGGGGCAGGAAGGGCTA".to_string();
-    // let seq = model.align_sequence(righor::sequence::Dna::from_string(&seq_str)?, &align_params)?;
-    // model.infer_features(&seq, &inference_params)?;
-    Ok(())
-}
+//     // let seq_str = "AGTCTGCCATCCCCAACCAGACAGCTCTTTACTTCTGTGCCACCGGGGCAGGAAGGGCTA".to_string();
+//     // let seq = model.align_sequence(righor::sequence::Dna::from_string(&seq_str)?, &align_params)?;
+//     // model.infer_features(&seq, &inference_params)?;
+//     Ok(())
+// }

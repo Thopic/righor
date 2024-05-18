@@ -134,16 +134,16 @@ impl Features {
             }
         }
 
+        if features_d.is_empty() {
+            println!("This probably shouldn't happen...");
+            return Ok(ResultInference::impossible());
+        }
+
         let mut features_dj = Vec::new();
         for jal in &sequence.j_genes {
             let feature_dj =
                 AggregatedFeatureStartDAndJ::new(jal, &features_d, &agg_ins_dj, self, ip);
             features_dj.push(feature_dj);
-        }
-
-        if features_d.is_empty() {
-            println!("This probably shouldn't happen...");
-            return Ok(ResultInference::impossible());
         }
 
         let mut result = ResultInference::impossible();
@@ -165,7 +165,14 @@ impl Features {
             }
             for (jal, dj) in sequence.j_genes.iter().zip(features_dj.iter_mut()) {
                 match dj {
-                    Some(f) => f.disaggregate(jal, &mut features_d, &mut agg_ins_dj, self, ip),
+                    Some(f) => f.disaggregate(
+                        jal,
+                        &mut features_d,
+                        &mut agg_ins_dj,
+                        self,
+                        &mut result.best_event,
+                        ip,
+                    ),
                     None => continue,
                 }
             }
@@ -174,6 +181,7 @@ impl Features {
                     &sequence.get_specific_dgene(d_idx),
                     &mut self.deld,
                     &mut self.error,
+                    &mut result.best_event,
                     ip,
                 );
             }
@@ -234,16 +242,13 @@ impl Features {
                         cutoff = (ip.min_likelihood)
                             .max(ip.min_ratio_likelihood * current_result.best_likelihood);
                         if ip.store_best_event {
+                            // We just set the ones we have right now
                             let event = InfEvent {
                                 v_index: feature_v.index,
                                 v_start_gene: feature_v.start_gene,
-                                j_index: feature_dj.j_index(),
                                 j_start_seq: feature_dj.j_start_seq(),
-                                d_index: feature_dj.most_likely_d_index,
                                 end_v: ev,
                                 start_d: sd,
-                                end_d: feature_dj.most_likely_d_end,
-                                start_j: feature_dj.most_likely_j_start,
                                 likelihood,
                                 ..Default::default()
                             };

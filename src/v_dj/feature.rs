@@ -1,4 +1,5 @@
 use crate::shared::data_structures::RangeArray1;
+use crate::shared::InfEvent;
 use crate::shared::{Feature, InferenceParameters, VJAlignment};
 use crate::v_dj::Features;
 use crate::vdj::feature::{AggregatedFeatureSpanD, FeatureDJ};
@@ -19,12 +20,13 @@ pub struct AggregatedFeatureStartDAndJ {
 
     // Store the associated J feature
     feature_j: AggregatedFeatureStartJ,
-
     // most likely start and end of the insertion sequence
-    pub most_likely_d_end: i64,
-    pub most_likely_j_start: i64,
-    // most likely d_index
-    pub most_likely_d_index: usize,
+    // pub most_likely_d_end: i64,
+    // pub most_likely_j_start: i64,
+    // // most likely d_index
+    // pub most_likely_d_index: usize,
+    // // most likely position d gene
+    // pub most_likely_pos_d: i64,
 }
 
 impl AggregatedFeatureStartDAndJ {
@@ -51,10 +53,6 @@ impl AggregatedFeatureStartDAndJ {
         let mut total_likelihood = 0.;
 
         // to find the most likely events
-        let mut most_likely_d_end = 0;
-        let mut most_likely_d_index = 0;
-        let mut most_likely_j_start = 0;
-        let mut best_likelihood = 0.;
 
         // let (min_sj, max_sj) = (
         //     cmp::max(feature_j.start_j5, feat_insdj.min_sj()),
@@ -73,12 +71,6 @@ impl AggregatedFeatureStartDAndJ {
                     agg_d.iter_fixed_dend(d_end).for_each(|(d_start, ll_deld)| {
                         let ll = ll_ins_jd * ll_deld;
                         if ll > ip.min_likelihood {
-                            if ll > best_likelihood {
-                                most_likely_d_end = d_end;
-                                most_likely_d_index = agg_d.index;
-                                most_likely_j_start = j_start;
-                                best_likelihood = ll;
-                            }
                             *likelihood.get_mut(d_start) += ll;
                             total_likelihood += ll;
                         }
@@ -97,9 +89,6 @@ impl AggregatedFeatureStartDAndJ {
             dirty_likelihood: RangeArray1::zeros(likelihood.dim()),
             likelihood,
             feature_j: feature_j,
-            most_likely_d_end,
-            most_likely_j_start,
-            most_likely_d_index,
         })
     }
 
@@ -129,12 +118,16 @@ impl AggregatedFeatureStartDAndJ {
         feature_ds: &mut [AggregatedFeatureSpanD],
         feat_insdj: &mut FeatureDJ,
         feat: &mut Features,
+        event: &mut Option<InfEvent>,
         ip: &InferenceParameters,
     ) {
         let (min_sj, max_sj) = (
             cmp::max(self.feature_j.start_j5, feat_insdj.min_sj()),
             cmp::min(self.feature_j.end_j5, feat_insdj.max_sj()),
         );
+
+        let mut best_proba = 0.;
+        let mut best_likelihood = 0.;
 
         for agg_deld in feature_ds.iter_mut() {
             let (min_ed, max_ed) = (
@@ -143,8 +136,12 @@ impl AggregatedFeatureStartDAndJ {
             );
 
             let ll_dj = feat.d.likelihood((agg_deld.index, self.feature_j.index));
+
             for d_start in agg_deld.start_d5..agg_deld.end_d5 {
                 let dirty_proba = self.dirty_likelihood.get(d_start);
+                if dirty_proba == 0. {
+                    continue;
+                }
                 let ratio_old_new = dirty_proba / self.likelihood(d_start);
                 for j_start in min_sj..max_sj {
                     let ll_j = self.feature_j.likelihood(j_start);
@@ -161,22 +158,40 @@ impl AggregatedFeatureStartDAndJ {
                         if ll > ip.min_likelihood {
                             let corrected_proba = ratio_old_new * ll;
 
-                            if dirty_proba > 0. {
-                                feat.d.dirty_update(
-                                    (agg_deld.index, self.feature_j.index),
-                                    corrected_proba,
-                                );
-                                if ip.infer_insertions {
-                                    feat_insdj.dirty_update(d_end, j_start, corrected_proba);
+                            feat.d.dirty_update(
+                                (agg_deld.index, self.feature_j.index),
+                                corrected_proba,
+                            );
+
+                            feat_insdj.dirty_update(d_end, j_start, corrected_proba);
+                            self.feature_j.dirty_update(j_start, corrected_proba);
+                            agg_deld.dirty_update(d_start, d_end, corrected_proba);
+
+                            if ip.store_best_event {
+                                if corrected_proba > best_proba {
+                                    if let Some(ev) = event {
+                                        if ev.start_d == d_start {
+                                            ev.d_index = agg_deld.index;
+                                            ev.end_d = d_end;
+                                            ev.start_j = j_start;
+                                            best_proba = corrected_proba;
+                                            best_likelihood = ll;
+                                        }
+                                    }
                                 }
-                                self.feature_j.dirty_update(j_start, corrected_proba);
-                                agg_deld.dirty_update(d_start, d_end, corrected_proba);
                             }
                         }
                     }
                 }
             }
         }
+
+        if ip.store_best_event {
+            if let Some(ev) = event {
+                ev.likelihood *= best_likelihood / self.likelihood(ev.start_d);
+            }
+        }
+
         self.feature_j
             .disaggregate(j_alignment, &mut feat.delj, &mut feat.error, ip)
     }

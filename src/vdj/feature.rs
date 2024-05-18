@@ -2,7 +2,7 @@ use crate::shared::data_structures::{RangeArray1, RangeArray2};
 use crate::shared::feature::Feature;
 use crate::shared::utils::difference_as_i64;
 use crate::shared::{
-    CategoricalFeature1g1, CategoricalFeature2g1, DAlignment, Dna, FeatureError,
+    CategoricalFeature1g1, CategoricalFeature2g1, DAlignment, Dna, FeatureError, InfEvent,
     InferenceParameters, InsertionFeature, VJAlignment,
 };
 
@@ -238,9 +238,7 @@ impl AggregatedFeatureSpanD {
 
         let dindex = ds.first().unwrap().index;
         for d in ds {
-            if d.index != dindex {
-                panic!("AggregatedFeatureSpanD received different genes.");
-            }
+            debug_assert!(d.index == dindex);
 
             for (deld5, deld3) in iproduct!(0..feat_deld.dim().0, 0..feat_deld.dim().1) {
                 let d_start = (d.pos + deld5) as i64;
@@ -252,7 +250,6 @@ impl AggregatedFeatureSpanD {
                 let ll_deld = feat_deld.likelihood((deld5, deld3, d.index));
                 let ll_errord = feat_error.likelihood(d.errors(deld5, deld3));
                 let likelihood = ll_deld * ll_errord;
-
                 if likelihood > ip.min_likelihood {
                     *likelihoods.get_mut((d_start, d_end)) += likelihood;
                     total_likelihood += likelihood;
@@ -306,8 +303,10 @@ impl AggregatedFeatureSpanD {
         ds: &[DAlignment],
         feat_deld: &mut CategoricalFeature2g1,
         feat_error: &mut FeatureError,
+        event: &mut Option<InfEvent>,
         ip: &InferenceParameters,
     ) {
+        let mut best_likelihood = 0.;
         // Now with startD and end D
         for d in ds.iter() {
             for (deld5, deld3) in iproduct!(0..feat_deld.dim().0, 0..feat_deld.dim().1) {
@@ -327,6 +326,24 @@ impl AggregatedFeatureSpanD {
                         feat_deld.dirty_update((deld5, deld3, d.index), corrected_proba);
 
                         feat_error.dirty_update(d.errors(deld5, deld3), corrected_proba);
+
+                        if ip.store_best_event {
+                            //if likelihood / self.likelihood(d_start, d_end) > best_proba {
+
+                            if let Some(ev) = event {
+                                if likelihood > best_likelihood {
+                                    // If this is the most likely d
+                                    if (ev.d_index == d.index)
+                                        && (ev.start_d == d_start)
+                                        && (ev.end_d == d_end)
+                                    {
+                                        ev.pos_d = d.pos as i64;
+                                        //best_proba = likelihood / self.likelihood(d_start, d_end);
+                                        best_likelihood = likelihood;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
