@@ -624,8 +624,11 @@ impl ResultInference {
         self.get_best_event()
     }
     #[getter]
-    pub fn get_likelihood_best_event(&self) -> f64 {
-        self.get_best_event().likelihood
+    pub fn get_likelihood_best_event(&self) -> Option<f64> {
+        match self.get_best_event() {
+            Some(x) => Some(x.likelihood),
+            None => None,
+        }
     }
 }
 
