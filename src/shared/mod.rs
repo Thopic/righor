@@ -10,7 +10,6 @@ pub mod parameters;
 pub mod parser;
 pub mod py_binding;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-pub mod pymodel;
 pub mod sequence;
 pub mod utils;
 
