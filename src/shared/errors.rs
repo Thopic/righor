@@ -55,7 +55,7 @@ impl PyErrorParameters {
 
     #[staticmethod]
     fn uniform_error(probas: Vec<f64>, bins: Vec<f64>) -> PyResult<PyErrorParameters> {
-        let error = ErrorUniformRate::new(probas, bins)?;
+        let error = ErrorUniformRate::new(bins, probas)?;
         Ok(PyErrorParameters {
             s: ErrorParameters::UniformRate(error),
         })
@@ -422,7 +422,7 @@ impl ErrorUniformRate {
         features: Vec<FeatureErrorUniform>,
         error: &mut ErrorUniformRate,
     ) -> Result<Vec<FeatureErrorUniform>> {
-        let mut counts = vec![0usize; error.bins.len()];
+        let mut counts = vec![0usize; error.bins.len() - 1];
         for feat in &features {
             let error_rate = if feat.total_lengths_dirty == 0. {
                 0.
