@@ -11,11 +11,12 @@ use kdam::tqdm;
 use ndarray::array;
 use ndarray::Axis;
 use righor::shared::ModelGen;
+use righor::Dna;
 use righor::EntrySequence;
 use std::fs::File;
 
 use righor::shared::model::ModelStructure;
-use righor::shared::{errors::ErrorUniformRate, ErrorParameters};
+use righor::shared::{errors::ErrorConstantRate, errors::ErrorUniformRate, ErrorParameters};
 use righor::Modelable;
 
 use std::io::{self, BufRead, BufReader};
@@ -37,7 +38,7 @@ fn main() -> Result<()> {
         Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
     )?;
     igor_model.set_model_type(ModelStructure::VxDJ)?;
-    igor_model.set_error(ErrorParameters::UniformRate(ErrorUniformRate::default()))?;
+    igor_model.set_error(ErrorParameters::ConstantRate(ErrorConstantRate::default()))?;
 
     // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
 
@@ -51,64 +52,55 @@ fn main() -> Result<()> {
     let al = igor_model.align_sequence(&sequence, &align_params)?;
     let _result = igor_model.evaluate(EntrySequence::Aligned(al), &align_params, &inference_params);
 
-    // for v in igor_model.get_v_segments() {
-    //     let mut gen = righor::vdj::Generator::new(
-    //         igor_model.clone(),
-    //         Some(42),
-    //         Some(vec![v]),
-    //         Some(igor_model.clone().get_j_segments()),
-    //     )?;
-    //     for _ in 0..1000 {
-    //         println!("{:?}", gen.generate(false));
-    //     }
+    let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
+
+    let v = (0..10)
+        .map(|_x| {
+            righor::EntrySequence::NucleotideSequence(
+                Dna::from_string(&generator.generate_without_errors(true).full_seq).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let mut model = igor_model.uniform()?.clone();
+
+    println!("Start inference");
+    let mut features = model.infer(&v, None, &align_params, &inference_params)?;
+
+    for ii in 1..10 {
+        println!("{:?}", model.get_error());
+        features = model.infer(&v, Some(features), &align_params, &inference_params)?;
+    }
+
+    // let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
+    // let mut uniform_model = igor_model.uniform()?;
+    // uniform_model.error_rate = 0.1;
+    // let mut _inference_params_2 = righor::InferenceParameters {
+    //     complete_vdj_inference: true,
+    //     ..Default::default()
+    // };
+
+    // let mut seq = Vec::new();
+    // for _ in tqdm!(0..200) {
+    //     let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
+    //     seq.push(s)
+
+    //     // let als = uniform_model.align_sequence(&s.clone(), &align_params)?;
+    //     // if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
+    //     //     seq.push(als.clone());
     // }
-
-    // let file = File::open("test_sequences.txt")?;
-    // let reader = BufReader::new(file);
-    // let mut sequences: Vec<righor::Dna> = Vec::new();
-
-    // for line in reader.lines() {
-    //     let line = line?.trim().to_string();
-    //     let dna = righor::Dna::from_string(&line)?;
-    //     sequences.push(dna);
-    // }
-    // println!("SEQUENCES LOADED");
-    // // let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
-    // // for _ in 0..100 {
-    // //     generator.generate_without_errors(true);
-    // // }
-    // // igor_model.save_model(Path::new("../tmp/"))?;
-    // // igor_model.error_rate = 0.1;
-
-    // // let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
-    // // let mut uniform_model = igor_model.uniform()?;
-    // // uniform_model.error_rate = 0.1;
-    // // let mut _inference_params_2 = righor::InferenceParameters {
-    // //     complete_vdj_inference: true,
-    // //     ..Default::default()
-    // // };
-
-    // // let mut seq = Vec::new();
-    // // for _ in tqdm!(0..200) {
-    // //     let s = righor::Dna::from_string(&generator.generate(false).full_seq)?;
-    // //     seq.push(s)
-
-    // //     // let als = uniform_model.align_sequence(&s.clone(), &align_params)?;
-    // //     // if !(als.v_genes.is_empty() || als.j_genes.is_empty()) {
-    // //     //     seq.push(als.clone());
-    // // }
-    // // println!(
-    // //     "{}",
-    // //     igor_model
-    // //         .evaluate(&als.clone(), &inference_params)?
-    // //         .likelihood
-    // // );
-    // // println!(
-    // //     "{}",
-    // //     igor_model
-    // //         .evaluate(&als.clone(), &inference_params_2)?
-    // //         .likelihood
-    // // );
+    // println!(
+    //     "{}",
+    //     igor_model
+    //         .evaluate(&als.clone(), &inference_params)?
+    //         .likelihood
+    // );
+    // println!(
+    //     "{}",
+    //     igor_model
+    //         .evaluate(&als.clone(), &inference_params_2)?
+    //         .likelihood
+    // );
 
     // for _ii in tqdm![0..6] {
     //     igor_model.align_and_infer(&sequences[0..1000], &align_params, &inference_params)?;

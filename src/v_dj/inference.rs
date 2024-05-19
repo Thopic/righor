@@ -28,11 +28,22 @@ pub struct Features {
 impl Features {
     /// Update the model from a vector of features and return an updated vector of features
     pub fn update(features: Vec<Features>, model: &mut Model) -> Result<Vec<Features>> {
+        let errors = &mut ErrorParameters::update_error(
+            features.iter().map(|a| a.error.clone()).collect(),
+            &mut model.error,
+        )?;
+
         let insvd = InsertionFeature::average(
-            features.iter().map(|a| a.insvd.correct_for_error(&a.error)),
+            features
+                .iter()
+                .zip(errors.iter())
+                .map(|(f, e)| f.insvd.correct_for_error(e).clone()),
         )?;
         let insdj = InsertionFeature::average(
-            features.iter().map(|a| a.insdj.correct_for_error(&a.error)),
+            features
+                .iter()
+                .zip(errors.iter())
+                .map(|(f, e)| f.insdj.correct_for_error(e).clone()),
         )?;
         let delv = CategoricalFeature1g1::average(features.iter().map(|a| a.delv.clone()))?;
         let delj = CategoricalFeature1g1::average(features.iter().map(|a| a.delj.clone()))?;
@@ -46,13 +57,9 @@ impl Features {
         model.p_del_v_given_v = delv.clone().probas;
         model.p_del_j_given_j = delj.clone().probas;
         model.p_del_d5_del_d3 = deld.clone().probas;
+
         (model.p_ins_vd, model.markov_coefficients_vd) = insvd.get_parameters();
         (model.p_ins_dj, model.markov_coefficients_dj) = insdj.get_parameters();
-
-        let errors = &mut ErrorParameters::update_error(
-            features.iter().map(|a| a.error.clone()).collect(),
-            &mut model.error,
-        )?;
 
         // Now update the features vector
         let mut new_features = Vec::new();
@@ -63,8 +70,8 @@ impl Features {
                 delv: delv.clone(),
                 delj: delj.clone(),
                 deld: deld.clone(),
-                insvd: insvd.clone(),
-                insdj: insdj.clone(),
+                insvd: insvd.correct_for_error(&error).clone(),
+                insdj: insdj.correct_for_error(&error).clone(),
                 error: error.clone(),
             })
         }

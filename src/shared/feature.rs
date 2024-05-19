@@ -467,16 +467,23 @@ impl InsertionFeature {
                 let rho = 4. * f.error_rate / 3.;
                 let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
                 let mut insfeat = self.clone();
+                // modify both the current matrix and the "dirty" one.
+                insfeat.transition_matrix = matrix.dot(&insfeat.transition_matrix.dot(&matrix));
                 insfeat.transition_matrix_dirty =
                     matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
+                insfeat.define_internal();
                 insfeat
             }
             FeatureError::UniformRate(f) => {
                 let mut insfeat = self.clone();
                 let rho = 4. * f.get_error_rate() / 3.;
                 let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
+                insfeat.transition_matrix =
+                    matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
                 insfeat.transition_matrix_dirty =
                     matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
+
+                insfeat.define_internal();
                 insfeat
             }
         }

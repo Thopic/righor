@@ -271,11 +271,12 @@ impl ErrorConstantRate {
             sum_length += feat.total_lengths_dirty;
             len += 1;
         }
-        let error_rate = if sum_length == 0. {
+        let error_rate = if sum_length != 0. {
             sum_err / sum_length
         } else {
             0.
         };
+
         // update the error model
         *error = ErrorConstantRate::new(error_rate);
         // return the features
@@ -484,45 +485,6 @@ impl TryFrom<FeatureError> for FeatureErrorUniform {
 }
 
 impl FeatureError {
-    // pub fn get_parameters(&self) -> Result<ErrorParameters> {
-    //     Ok(match self {
-    //         FeatureError::ConstantRate(x) => ErrorParameters::ConstantRate(x.get_parameters()?),
-    //         FeatureError::UniformRate(x) => ErrorParameters::UniformRate(x.get_parameters()?),
-    //     })
-    // }
-
-    // pub fn average(iter: impl Iterator<Item = FeatureError> + Clone) -> Result<Vec<FeatureError>> {
-    //     let avg_constants = FeatureErrorConstant::average(iter.clone().filter_map(|e| {
-    //         if let FeatureError::ConstantRate(fec) = e {
-    //             Some(fec)
-    //         } else {
-    //             None
-    //         }
-    //     }))?;
-
-    //     let avg_uniforms = FeatureErrorUniform::average(iter.filter_map(|e| {
-    //         if let FeatureError::UniformRate(feu) = e {
-    //             Some(feu)
-    //         } else {
-    //             None
-    //         }
-    //     }))?;
-
-    //     if !avg_uniforms.is_empty() && !avg_constants.is_empty() {
-    //         return Err(anyhow!(
-    //             "Multiple error models in the same model, this shouldn't happen."
-    //         ));
-    //     }
-
-    //     let result: Vec<FeatureError> = avg_constants
-    //         .into_iter()
-    //         .map(FeatureError::ConstantRate)
-    //         .chain(avg_uniforms.into_iter().map(FeatureError::UniformRate))
-    //         .collect();
-
-    //     Ok(result)
-    // }
-
     pub fn scale_dirty(&mut self, factor: f64) {
         match self {
             FeatureError::ConstantRate(f) => f.scale_dirty(factor),

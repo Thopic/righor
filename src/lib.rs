@@ -3,6 +3,7 @@ pub mod v_dj;
 pub mod vdj;
 pub mod vj;
 
+pub use crate::shared::Generator;
 pub use crate::vdj::model::EntrySequence;
 
 pub use crate::shared::{
