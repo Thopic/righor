@@ -10,7 +10,7 @@ pub struct StaticEvent {
     pub v_start_gene: usize, // start of the sequence in the V gene
     pub delv: usize,
     pub j_index: usize,
-    pub j_start_seq: usize, // start of the palindromic J gene (with all dels) in the sequence
+    pub j_start_seq: i64, // start of the palindromic J gene (with all dels) in the sequence
     pub delj: usize,
     pub insvj: Dna,
     pub errors: Vec<(usize, u8)>,

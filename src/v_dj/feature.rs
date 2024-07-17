@@ -92,7 +92,7 @@ impl AggregatedFeatureStartDAndJ {
         })
     }
 
-    pub fn j_start_seq(&self) -> usize {
+    pub fn j_start_seq(&self) -> i64 {
         self.feature_j.start_seq
     }
 
@@ -170,7 +170,8 @@ impl AggregatedFeatureStartDAndJ {
                             if ip.store_best_event {
                                 if corrected_proba > best_proba {
                                     if let Some(ev) = event {
-                                        if ev.start_d == d_start {
+                                        if ev.start_d == d_start && ev.j_index == j_alignment.index
+                                        {
                                             ev.d_index = agg_deld.index;
                                             ev.end_d = d_end;
                                             ev.start_j = j_start;

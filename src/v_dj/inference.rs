@@ -2,8 +2,8 @@ use crate::shared::feature::Feature;
 use crate::shared::InfEvent;
 use crate::shared::{errors::FeatureError, InferenceParameters, ResultInference};
 use crate::shared::{
-    CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1, ErrorParameters,
-    InsertionFeature,
+    CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1, DNAMarkovChain,
+    ErrorParameters, InsertionFeature,
 };
 use crate::v_dj::AggregatedFeatureStartDAndJ;
 use crate::vdj::{
@@ -12,6 +12,7 @@ use crate::vdj::{
 use anyhow::Result;
 use ndarray::Axis;
 use std::cmp;
+use std::sync::Arc;
 
 #[derive(Default, Clone, Debug)]
 pub struct Features {
@@ -86,8 +87,14 @@ impl Features {
             delv: CategoricalFeature1g1::new(&model.p_del_v_given_v)?,
             delj: CategoricalFeature1g1::new(&model.p_del_j_given_j)?,
             deld: CategoricalFeature2g1::new(&model.p_del_d5_del_d3)?, // dim: (d5, d3, d)
-            insvd: InsertionFeature::new(&model.p_ins_vd, &model.markov_coefficients_vd)?,
-            insdj: InsertionFeature::new(&model.p_ins_dj, &model.markov_coefficients_dj)?,
+            insvd: InsertionFeature::new(
+                &model.p_ins_vd,
+                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_vd)?),
+            )?,
+            insdj: InsertionFeature::new(
+                &model.p_ins_dj,
+                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_dj)?),
+            )?,
             error: model.error.get_feature()?,
         })
     }
@@ -254,6 +261,7 @@ impl Features {
                                 v_index: feature_v.index,
                                 v_start_gene: feature_v.start_gene,
                                 j_start_seq: feature_dj.j_start_seq(),
+                                j_index: feature_dj.j_index(),
                                 end_v: ev,
                                 start_d: sd,
                                 likelihood,

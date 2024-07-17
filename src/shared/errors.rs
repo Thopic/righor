@@ -1,9 +1,9 @@
+use crate::shared::alignment::ErrorAlignment;
+use crate::shared::alignment::{ErrorDAlignment, ErrorJAlignment, ErrorVAlignment};
 /// Contains all the error models defined and their features (for inference)
 use crate::shared::distributions::{HistogramDistribution, UniformError};
 use crate::shared::feature::Feature;
-
 use crate::shared::Dna;
-use crate::shared::ErrorAlignment;
 use crate::shared::StaticEvent;
 use anyhow::{anyhow, Result};
 
@@ -424,11 +424,7 @@ impl ErrorUniformRate {
     ) -> Result<Vec<FeatureErrorUniform>> {
         let mut counts = vec![0usize; error.bins.len() - 1];
         for feat in &features {
-            let error_rate = if feat.total_lengths_dirty == 0. {
-                0.
-            } else {
-                feat.total_errors_dirty / feat.total_lengths_dirty
-            };
+            let error_rate = feat.error_dirty / feat.total_likelihood_dirty;
             let idx = error
                 .bins
                 .binary_search_by(|&bin| bin.partial_cmp(&error_rate).unwrap());
@@ -504,10 +500,24 @@ impl FeatureError {
         }
     }
 
-    pub fn dirty_update(&mut self, observation: ErrorAlignment, likelihood: f64) {
+    pub fn dirty_update_v_fragment(&mut self, observation: ErrorVAlignment, likelihood: f64) {
         match self {
-            FeatureError::ConstantRate(f) => f.dirty_update(observation, likelihood),
-            FeatureError::UniformRate(f) => f.dirty_update(observation, likelihood),
+            FeatureError::ConstantRate(f) => f.dirty_update_v_fragment(observation, likelihood),
+            FeatureError::UniformRate(f) => f.dirty_update_v_fragment(observation, likelihood),
+        }
+    }
+
+    pub fn dirty_update_j_fragment(&mut self, observation: ErrorJAlignment, likelihood: f64) {
+        match self {
+            FeatureError::ConstantRate(f) => f.dirty_update_j_fragment(observation, likelihood),
+            FeatureError::UniformRate(f) => f.dirty_update_j_fragment(observation, likelihood),
+        }
+    }
+
+    pub fn dirty_update_d_fragment(&mut self, observation: ErrorDAlignment, likelihood: f64) {
+        match self {
+            FeatureError::ConstantRate(f) => f.dirty_update_d_fragment(observation, likelihood),
+            FeatureError::UniformRate(f) => f.dirty_update_d_fragment(observation, likelihood),
         }
     }
 }
@@ -549,10 +559,8 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
     /// Arguments
     /// - observation: "(nb of error, length of the sequence without insertion)"
     /// - likelihood: measured likelihood of the event
-    fn dirty_update(&mut self, observation: ErrorAlignment, likelihood: f64) {
-        self.total_lengths_dirty += likelihood * (observation.sequence_length as f64);
-        self.total_errors_dirty += likelihood * (observation.nb_errors as f64);
-        self.total_probas_dirty += likelihood;
+    fn dirty_update(&mut self, _observation: ErrorAlignment, _likelihood: f64) {
+        unimplemented!();
     }
 
     /// Arguments
@@ -574,6 +582,32 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
 }
 
 impl FeatureErrorConstant {
+    pub fn dirty_update_v_fragment(&mut self, observation: ErrorVAlignment, likelihood: f64) {
+        self.total_lengths_dirty +=
+            likelihood * (observation.val.length_with_deletion(observation.del) as f64);
+        self.total_errors_dirty += likelihood * (observation.val.nb_errors(observation.del) as f64);
+        self.total_probas_dirty += likelihood;
+    }
+
+    pub fn dirty_update_j_fragment(&mut self, observation: ErrorJAlignment, likelihood: f64) {
+        self.total_lengths_dirty +=
+            likelihood * (observation.jal.length_with_deletion(observation.del) as f64);
+        self.total_errors_dirty += likelihood * (observation.jal.nb_errors(observation.del) as f64);
+        self.total_probas_dirty += likelihood;
+    }
+
+    pub fn dirty_update_d_fragment(&mut self, observation: ErrorDAlignment, likelihood: f64) {
+        self.total_lengths_dirty += likelihood
+            * (observation
+                .dal
+                .length_with_deletion(observation.deld5, observation.deld3) as f64);
+        self.total_errors_dirty += likelihood
+            * (observation
+                .dal
+                .nb_errors(observation.deld5, observation.deld3) as f64);
+        self.total_probas_dirty += likelihood;
+    }
+
     pub fn remove_error(&mut self) -> Result<()> {
         *self = FeatureErrorConstant::new(0.)?;
         Ok(())
@@ -592,22 +626,17 @@ pub struct FeatureErrorUniform {
     pub error_rate: f64,
     logrs3: f64,
     log1mr: f64,
-    // total_lengths: f64, // For each sequence, this saves Σ P(E) L(S(E))
-    // total_errors: f64,  // For each sequence, this saves Σ P(E) N_{err}(S(E))
     // useful for dirty updating
-    total_lengths_dirty: f64,
-    total_errors_dirty: f64,
-    total_probas_dirty: f64, // For each sequence, this saves Σ P(E)
+    error_dirty: f64,
+    total_likelihood_dirty: f64,
 }
 
 impl Feature<ErrorAlignment> for FeatureErrorUniform {
     /// Arguments
     /// - observation: "(nb of error, length of the sequence without insertion)"
     /// - likelihood: measured likelihood of the event
-    fn dirty_update(&mut self, observation: ErrorAlignment, likelihood: f64) {
-        self.total_lengths_dirty += likelihood * (observation.sequence_length as f64);
-        self.total_errors_dirty += likelihood * (observation.nb_errors as f64);
-        self.total_probas_dirty += likelihood;
+    fn dirty_update(&mut self, _observation: ErrorAlignment, _likelihood: f64) {
+        unimplemented!();
     }
 
     /// Arguments
@@ -636,13 +665,23 @@ impl FeatureErrorUniform {
             error_rate,
             logrs3: (error_rate / 3.).log2(),
             log1mr: (1. - error_rate).log2(),
-            total_lengths_dirty: 0.,
-            total_errors_dirty: 0.,
-            total_probas_dirty: 0.,
+            error_dirty: 0.,
+            total_likelihood_dirty: 0.,
         })
     }
 
     pub fn get_error_rate(&self) -> f64 {
         self.error_rate
     }
+    pub fn dirty_update_v_fragment(&mut self, observation: ErrorVAlignment, likelihood: f64) {
+        self.error_dirty += observation
+            .val
+            .estimated_error_rate(observation.val.max_del_v.unwrap())
+            * likelihood;
+        self.total_likelihood_dirty += likelihood;
+    }
+
+    pub fn dirty_update_j_fragment(&mut self, _observation: ErrorJAlignment, _likelihood: f64) {}
+
+    pub fn dirty_update_d_fragment(&mut self, _observation: ErrorDAlignment, _likelihood: f64) {}
 }

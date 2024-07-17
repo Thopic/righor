@@ -1,5 +1,6 @@
 use anyhow::Result;
 use righor::shared::errors::ErrorConstantRate;
+use righor::shared::DnaLike;
 use righor::shared::ErrorParameters;
 use righor::shared::ModelStructure;
 use righor::shared::{AlignmentParameters, InferenceParameters};
@@ -19,7 +20,7 @@ fn infer_comparison_v_dj_vdj_simple_model() -> Result<()> {
     let mut alignments = Vec::new();
     for _ in 0..10 {
         let s = righor::Dna::from_string(&generator.generate(false)?.full_seq)?;
-        let als = model.align_sequence(&s.clone(), &alp)?;
+        let als = model.align_sequence(DnaLike::from_dna(s.clone()), &alp)?;
         alignments.push(EntrySequence::Aligned(als));
     }
 
@@ -46,7 +47,7 @@ fn infer_vs_brute_force() -> Result<()> {
     for _ in 0..20 {
         let generated = generator.generate(false)?;
         let s = righor::Dna::from_string(&generated.full_seq)?;
-        let als = EntrySequence::Aligned(model.align_sequence(&s.clone(), &alp)?);
+        let als = EntrySequence::Aligned(model.align_sequence(DnaLike::from_dna(s.clone()), &alp)?);
         alignments.push(als.clone());
 
         let a1 = uniform_model.evaluate(als.clone(), &alp, &ifp)?.likelihood;
@@ -112,7 +113,7 @@ fn full_inference_simple_model() -> Result<()> {
     for _ in 0..1000 {
         let generated = generator.generate(false)?;
         let s = righor::Dna::from_string(&generated.full_seq)?;
-        let als = model.align_sequence(&s.clone(), &alp)?;
+        let als = model.align_sequence(DnaLike::from_dna(s.clone()), &alp)?;
         alignments.push(EntrySequence::Aligned(als));
     }
 

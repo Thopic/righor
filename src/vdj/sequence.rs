@@ -1,7 +1,5 @@
-use crate::shared::{
-    utils::count_differences, utils::difference_as_i64, AlignmentParameters, DAlignment, Dna,
-    VJAlignment,
-};
+use crate::shared::DnaLike;
+use crate::shared::{utils::difference_as_i64, AlignmentParameters, DAlignment, Dna, VJAlignment};
 use crate::vdj::{Event, Model};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
@@ -10,7 +8,7 @@ use std::sync::Arc;
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Clone, Debug)]
 pub struct Sequence {
-    pub sequence: Dna,
+    pub sequence: DnaLike,
     // subset of reasonable v_genes, j_genes
     pub v_genes: Vec<VJAlignment>,
     pub j_genes: Vec<VJAlignment>,
@@ -19,7 +17,7 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    pub fn get_subsequence(&self, start: i64, end: i64) -> Dna {
+    pub fn get_subsequence(&self, start: i64, end: i64) -> DnaLike {
         self.sequence.extract_padded_subsequence(start, end)
     }
 
@@ -39,7 +37,7 @@ impl Sequence {
             .collect()
     }
 
-    pub fn get_insertions_vd_dj(&self, e: &Event) -> (Dna, Dna) {
+    pub fn get_insertions_vd_dj(&self, e: &Event) -> (DnaLike, DnaLike) {
         // seq         :          SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
         // V-gene      : VVVVVVVVVVVVVVVVVVVV
         // del V-gene  :                   xx
@@ -69,15 +67,15 @@ impl Sequence {
         let j = e.j.unwrap();
 
         let start_insvd = difference_as_i64(v.end_seq, e.delv);
-        let end_insvd = d.pos + e.deld5;
-        let start_insdj = d.pos + d.len() - e.deld3;
-        let end_insdj = j.start_seq + e.delj;
+        let end_insvd = d.pos + e.deld5 as i64;
+        let start_insdj = d.pos + d.len() as i64 - e.deld3 as i64;
+        let end_insdj = j.start_seq as i64 - j.start_gene as i64 + e.delj as i64;
         let insvd = self
             .sequence
             .extract_padded_subsequence(start_insvd, end_insvd as i64);
         let insdj = self
             .sequence
-            .extract_padded_subsequence(start_insdj as i64, end_insdj as i64);
+            .extract_padded_subsequence(start_insdj as i64, end_insdj);
         (insvd, insdj)
     }
 }
@@ -110,14 +108,14 @@ pub fn display_v_alignment(
 }
 
 pub fn align_all_vgenes(
-    seq: &Dna,
+    seq: DnaLike,
     model: &Model,
     align_params: &AlignmentParameters,
 ) -> Vec<VJAlignment> {
     let mut v_genes: Vec<VJAlignment> = Vec::new();
     for (indexv, v) in model.seg_vs.iter().enumerate() {
         let palv = v.seq_with_pal.as_ref().unwrap();
-        let alignment = match Dna::v_alignment(palv, seq, align_params) {
+        let alignment = match DnaLike::v_alignment(palv, seq.clone(), align_params) {
             Some(al) => al,
             None => continue,
         };
@@ -131,10 +129,11 @@ pub fn align_all_vgenes(
         let mut errors = vec![0; max_del_v];
         for (del_v, err_delv) in errors.iter_mut().enumerate() {
             if del_v <= palv.len() && del_v <= alignment.yend - alignment.ystart {
-                *err_delv = count_differences(
-                    &seq.seq[alignment.ystart..alignment.yend - del_v],
-                    &palv.seq[alignment.xstart..alignment.xend - del_v],
-                );
+                *err_delv = seq
+                    .extract_subsequence(alignment.ystart, alignment.yend - del_v)
+                    .count_differences(
+                        &palv.extract_subsequence(alignment.xstart, alignment.xend - del_v),
+                    );
             }
         }
 
@@ -146,34 +145,43 @@ pub fn align_all_vgenes(
             end_seq: alignment.yend,
             errors,
             score: alignment.score,
+            max_del_v: Some(model.p_del_v_given_v.shape()[0]),
         });
     }
     v_genes
 }
 
 pub fn align_all_jgenes(
-    seq: &Dna,
+    seq: DnaLike,
     model: &Model,
     align_params: &AlignmentParameters,
 ) -> Vec<VJAlignment> {
     let mut j_aligns: Vec<VJAlignment> = Vec::new();
     for (indexj, j) in model.seg_js.iter().enumerate() {
-        let palj = j.seq_with_pal.as_ref().unwrap();
-        let alignment = Dna::align_left_right(seq, palj, align_params);
+        let palj = j.seq_with_pal.clone().unwrap();
+        let alignment =
+            DnaLike::align_left_right(seq.clone(), DnaLike::from_dna(palj.clone()), align_params);
         if align_params.valid_j_alignment(&alignment) {
             // println!(
             //     "{}",
             //     alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 200)
             // );
             // println!("J: {:?}", alignment.score);
+
             let max_del_j = model.p_del_j_given_j.dim().0;
             let mut errors = vec![0; max_del_j];
             for (del_j, err_delj) in errors.iter_mut().enumerate() {
+                if (del_j as i64 - alignment.ystart as i64 + alignment.xstart as i64) < 0 {
+                    // in theory this never happens (ach it does ?)
+                    *err_delj = 100000; // very high
+                    panic!("The sequence should fully cover the J gene.")
+                }
                 if del_j <= palj.len() && del_j <= alignment.yend - alignment.ystart {
-                    *err_delj = count_differences(
-                        &seq.seq[del_j + alignment.xstart..alignment.xend],
-                        &palj.seq[del_j + alignment.ystart..alignment.yend],
-                    );
+                    *err_delj = seq
+                        .extract_subsequence(del_j + alignment.xstart, alignment.xend)
+                        .count_differences(
+                            &palj.extract_subsequence(del_j + alignment.ystart, alignment.yend),
+                        );
                 }
             }
 
@@ -185,6 +193,7 @@ pub fn align_all_jgenes(
                 end_seq: alignment.xend,
                 errors,
                 score: alignment.score,
+                max_del_v: None,
             });
         }
     }
@@ -192,10 +201,10 @@ pub fn align_all_jgenes(
 }
 
 pub fn align_all_dgenes(
-    seq: &Dna,
+    seq: &DnaLike,
     model: &Model,
-    limit_5side: usize,
-    limit_3side: usize,
+    limit_5side: i64,
+    limit_3side: i64,
     align_params: &AlignmentParameters,
 ) -> Vec<DAlignment> {
     // For each D gene, we test all the potential positions of insertion
@@ -210,8 +219,13 @@ pub fn align_all_dgenes(
     for (indexd, d) in model.seg_ds.iter().enumerate() {
         let dpal = d.seq_with_pal.as_ref().unwrap();
         let dpal_ref = Arc::new(d.seq_with_pal.clone().unwrap());
-        for pos in limit_5side..=limit_3side - dpal.len() {
-            if count_differences(&seq.seq[pos..pos + dpal.len()], &dpal.seq[0..dpal.len()])
+        for pos in limit_5side..=limit_3side - dpal.len() as i64 {
+            if pos + (dpal.len() as i64) < 0 {
+                continue;
+            }
+            if seq
+                .extract_padded_subsequence(pos, pos + dpal.len() as i64)
+                .count_differences(&dpal.extract_subsequence(0, dpal.len()))
                 > align_params.max_error_d
             {
                 continue;

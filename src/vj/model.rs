@@ -13,6 +13,7 @@ use anyhow::{anyhow, Result};
 use ndarray::s;
 use ndarray::{array, Array1, Array2, Array3, Axis};
 
+use crate::shared::DnaLike;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
@@ -332,7 +333,7 @@ impl Modelable for Model {
 
     fn align_from_cdr3(
         &self,
-        cdr3_seq: &Dna,
+        cdr3_seq: &DnaLike,
         vgenes: &Vec<Gene>,
         jgenes: &Vec<Gene>,
     ) -> Result<Sequence> {
@@ -341,7 +342,7 @@ impl Modelable for Model {
 
     fn align_sequence(
         &self,
-        dna_seq: &Dna,
+        dna_seq: DnaLike,
         align_params: &AlignmentParameters,
     ) -> Result<Sequence> {
         self.inner.align_sequence(dna_seq, align_params)

@@ -11,6 +11,15 @@ pub fn count_differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> usize {
         .count()
 }
 
+/// euclidian modulo (it's nightly)
+pub fn mod_euclid(a: i64, b: u64) -> u64 {
+    const UPPER: u64 = i64::MAX as u64;
+    match b {
+        1..=UPPER => a.rem_euclid(b as i64) as u64,
+        _ => a as u64 - (a < 0) as u64,
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RecordModel {
     pub species: Vec<String>,

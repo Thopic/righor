@@ -136,6 +136,7 @@ impl AlignmentParameters {
     }
 
     pub fn valid_v_alignment(&self, al: &Alignment) -> bool {
+        // right now: no insert
         al.xend - al.xstart == al.yend - al.ystart
     }
 

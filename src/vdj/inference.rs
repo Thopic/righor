@@ -1,6 +1,7 @@
 use crate::shared::feature::*;
 use crate::shared::utils::difference_as_i64;
 use crate::shared::{errors::FeatureError, ErrorParameters, InferenceParameters};
+use crate::shared::{DNAMarkovChain, ErrorDAlignment, ErrorJAlignment, ErrorVAlignment};
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
     Model, Sequence,
@@ -8,6 +9,7 @@ use crate::vdj::{
 use anyhow::Result;
 
 use std::cmp;
+use std::sync::Arc;
 
 #[derive(Default, Clone, Debug)]
 pub struct Features {
@@ -27,8 +29,14 @@ impl Features {
             delv: CategoricalFeature1g1::new(&model.p_del_v_given_v)?,
             delj: CategoricalFeature1g1::new(&model.p_del_j_given_j)?,
             deld: CategoricalFeature2g1::new(&model.p_del_d5_del_d3)?, // dim: (d5, d3, d)
-            insvd: InsertionFeature::new(&model.p_ins_vd, &model.markov_coefficients_vd)?,
-            insdj: InsertionFeature::new(&model.p_ins_dj, &model.markov_coefficients_dj)?,
+            insvd: InsertionFeature::new(
+                &model.p_ins_vd,
+                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_vd)?),
+            )?,
+            insdj: InsertionFeature::new(
+                &model.p_ins_dj,
+                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_dj)?),
+            )?,
             error: model.error.get_feature()?,
         })
     }
@@ -207,11 +215,19 @@ impl Features {
                         for delj in 0..self.delj.dim().0 {
                             for deld5 in 0..self.deld.dim().0 {
                                 for deld3 in 0..self.deld.dim().1 {
-                                    let d_start = (dal.pos + deld5) as i64;
-                                    let d_end = (dal.pos + dal.len() - deld3) as i64;
-                                    let j_start = (jal.start_seq + delj) as i64;
+                                    let d_start = dal.pos + deld5 as i64;
+                                    let d_end = dal.pos + (dal.len() - deld3) as i64;
+                                    let j_start =
+                                        jal.start_seq as i64 - jal.start_gene as i64 + delj as i64;
                                     let v_end = difference_as_i64(val.end_seq, delv);
                                     if (d_start > d_end) || (j_start < d_end) || (d_start < v_end) {
+                                        continue;
+                                    }
+                                    if (d_start < 0)
+                                        || (d_start >= sequence.sequence.len() as i64)
+                                        || (d_end < 0)
+                                        || (d_end > sequence.sequence.len() as i64)
+                                    {
                                         continue;
                                     }
 
@@ -255,16 +271,36 @@ impl Features {
                                         self.deld.dirty_update((deld5, deld3, dal.index), ll);
                                         self.insdj.dirty_update(&ins_dj_plus_last, ll);
                                         self.insvd.dirty_update(&ins_vd_plus_first, ll);
-                                        self.error.dirty_update(val.errors(delv), ll);
-                                        self.error.dirty_update(jal.errors(delj), ll);
-                                        self.error.dirty_update(dal.errors(deld5, deld3), ll);
+                                        self.error.dirty_update_v_fragment(
+                                            ErrorVAlignment {
+                                                val: &val,
+                                                del: delv,
+                                            },
+                                            ll,
+                                        );
+                                        self.error.dirty_update_j_fragment(
+                                            ErrorJAlignment {
+                                                jal: &jal,
+                                                del: delj,
+                                            },
+                                            ll,
+                                        );
+                                        self.error.dirty_update_d_fragment(
+                                            ErrorDAlignment {
+                                                dal: &dal,
+                                                deld5,
+                                                deld3,
+                                            },
+                                            ll,
+                                        );
 
                                         if ip.store_best_event && (ll > result.best_likelihood) {
                                             let event = InfEvent {
                                                 v_index: val.index,
                                                 v_start_gene: val.start_gene,
                                                 j_index: jal.index,
-                                                j_start_seq: jal.start_seq,
+                                                j_start_seq: jal.start_seq as i64
+                                                    - jal.start_gene as i64,
                                                 d_index: dal.index,
                                                 end_v: v_end,
                                                 start_d: d_start,

@@ -5,10 +5,9 @@ use crate::shared::parser::{
 use crate::shared::utils::{Normalize2, NormalizeLast};
 use crate::shared::{self, distributions::*, model::GenerationResult};
 use crate::shared::{
-    utils::count_differences, utils::sorted_and_complete, utils::sorted_and_complete_0start,
-    utils::Normalize, utils::Normalize3, AlignmentParameters, AminoAcid, DAlignment, Dna, Features,
-    Gene, InfEvent, InferenceParameters, ModelGen, ModelStructure, RecordModel, ResultInference,
-    VJAlignment,
+    utils::sorted_and_complete, utils::sorted_and_complete_0start, utils::Normalize,
+    utils::Normalize3, AlignmentParameters, AminoAcid, DAlignment, Dna, Features, Gene, InfEvent,
+    InferenceParameters, ModelGen, ModelStructure, RecordModel, ResultInference, VJAlignment,
 };
 use crate::shared::{ErrorParameters, Modelable};
 use crate::vdj::Features as FeaturesVDJ;
@@ -25,6 +24,7 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 
+use crate::shared::DnaLike;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::BufReader;
@@ -41,15 +41,17 @@ pub struct Generator {
 /// Make infer a generic function by allowing different entry
 pub enum EntrySequence {
     Aligned(Sequence),
-    NucleotideSequence(Dna),
-    NucleotideCDR3((Dna, Vec<Gene>, Vec<Gene>)),
+    NucleotideSequence(DnaLike),
+    NucleotideCDR3((DnaLike, Vec<Gene>, Vec<Gene>)),
 }
 
 impl EntrySequence {
     pub fn align(&self, model: &Model, align_params: &AlignmentParameters) -> Result<Sequence> {
         match self {
             EntrySequence::Aligned(x) => Ok(x.clone()),
-            EntrySequence::NucleotideSequence(seq) => model.align_sequence(&seq, align_params),
+            EntrySequence::NucleotideSequence(seq) => {
+                model.align_sequence(seq.clone(), align_params)
+            }
             EntrySequence::NucleotideCDR3((seq, v, j)) => model.align_from_cdr3(&seq, &v, &j),
         }
     }
@@ -436,9 +438,12 @@ impl Modelable for Model {
             let seq_without_err = event.reconstructed_sequence.ok_or(anyhow!(
                 "Error with event reconstruction during pgen inference"
             ))?;
+
             // full sequence, so default alignment parameters should be fine.
-            let aligned_seq =
-                self.align_sequence(&seq_without_err, &AlignmentParameters::default())?;
+            let aligned_seq = self.align_sequence(
+                DnaLike::from_dna(seq_without_err),
+                &AlignmentParameters::default(),
+            )?;
 
             let mut features_pgen = match self.model_type {
                 ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
@@ -514,14 +519,13 @@ impl Modelable for Model {
 
     fn align_from_cdr3(
         &self,
-        cdr3_seq: &Dna,
+        cdr3_seq: &DnaLike,
         vgenes: &Vec<Gene>,
         jgenes: &Vec<Gene>,
     ) -> Result<Sequence> {
         let v_alignments = vgenes
             .iter()
             .map(|vg| {
-                let start_gene = vg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
                 let index = self
                     .seg_vs
                     .iter()
@@ -533,15 +537,30 @@ impl Modelable for Model {
                     .ok_or(anyhow!("Model not fully loaded yet."))?;
                 let cdr3_pos = vg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
                 let start_seq = 0;
+                if pal_v.len() < cdr3_pos {
+                    return Err(anyhow!(
+                        "cdr3 position farther up than v length ({})",
+                        vg.name
+                    ));
+                }
+                let start_gene = cdr3_pos;
                 let end_seq = pal_v.len() - cdr3_pos;
                 let end_gene = start_gene + pal_v.len() - cdr3_pos;
+
                 let mut errors = vec![0; self.p_del_v_given_v.dim().0];
                 for (del_v, err_delv) in errors.iter_mut().enumerate() {
-                    if del_v <= pal_v.len() && del_v <= end_seq - start_seq {
-                        *err_delv = count_differences(
-                            &cdr3_seq.seq[0..end_seq - del_v],
-                            &pal_v.seq[start_gene..end_gene - del_v],
-                        );
+                    if end_seq > del_v + cdr3_seq.len() {
+                        *err_delv = 10000; // large number
+                    } else if start_seq + del_v <= end_seq
+                        && start_gene + del_v <= end_gene
+                        && end_seq <= del_v + cdr3_seq.len()
+                        && end_gene <= del_v + pal_v.len()
+                    {
+                        *err_delv = cdr3_seq
+                            .extract_subsequence(start_seq, end_seq - del_v)
+                            .count_differences(
+                                &pal_v.extract_subsequence(start_gene, end_gene - del_v),
+                            );
                     }
                 }
 
@@ -553,6 +572,7 @@ impl Modelable for Model {
                     end_gene,
                     errors,
                     score: 0, // meaningless
+                    max_del_v: Some(self.p_del_v_given_v.shape()[0]),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -570,18 +590,46 @@ impl Modelable for Model {
                     .as_ref()
                     .ok_or(anyhow!("Model not fully loaded yet."))?;
                 let cdr3_pos = jg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
-                let start_seq =
-                    ((cdr3_seq.len() - cdr3_pos - 3) as i64 + self.range_del_j.0) as usize;
-                let start_gene = 0;
+
+                if cdr3_pos + 3 > pal_j.len() {
+                    return Err(anyhow!(
+                        "cdr3 position farther up than j length ({})",
+                        jg.name
+                    ));
+                }
+
+                // begin_seq is the position of the start of the sequence
+                // with respect to the start of the gene. Can be <= 0 if the J gene fully
+                // cover the sequence (plausible)
+                let begin_seq = (cdr3_seq.len() - cdr3_pos - 3) as i64 + self.range_del_j.0 as i64;
+
+                let start_seq = if begin_seq < 0 { 0 } else { begin_seq as usize };
+
+                // if the J gene fully cover, the alignment start is later in the sequence
+                let start_gene = if begin_seq < 0 {
+                    3 + cdr3_pos - cdr3_seq.len() as usize
+                } else {
+                    0
+                };
+
+                // assume the J gene is long enough (prob. fine)
                 let end_seq = cdr3_seq.len();
-                let end_gene = (cdr3_pos as i64 + 3 - self.range_del_j.0) as usize; // careful, palindromic insert
+
+                debug_assert!(end_seq - start_seq > 0); // should be fine
+                let end_gene = start_gene + (end_seq - start_seq);
                 let mut errors = vec![0; self.p_del_j_given_j.dim().0];
                 for (del_j, err_delj) in errors.iter_mut().enumerate() {
-                    if del_j <= pal_j.len() && del_j <= end_gene - start_gene {
-                        *err_delj = count_differences(
-                            &cdr3_seq.seq[del_j + start_seq..end_seq],
-                            &pal_j.seq[del_j + start_gene..end_gene],
-                        );
+                    if (del_j as i64 + start_seq as i64 - start_gene as i64) < 0 {
+                        *err_delj = 10000; // BIG NUMBER!!
+                    } else if del_j + start_seq <= end_seq && del_j + start_gene <= end_gene {
+                        *err_delj = cdr3_seq
+                            .extract_subsequence(
+                                (del_j as i64 + start_seq as i64 - start_gene as i64) as usize,
+                                end_seq,
+                            )
+                            .count_differences(
+                                &pal_j.extract_subsequence(start_gene + del_j, end_gene),
+                            );
                     }
                 }
 
@@ -593,6 +641,7 @@ impl Modelable for Model {
                     end_gene,
                     errors,
                     score: 0, // meaningless
+                    max_del_v: None,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -613,13 +662,13 @@ impl Modelable for Model {
 
     fn align_sequence(
         &self,
-        dna_seq: &Dna,
+        dna_seq: DnaLike,
         align_params: &AlignmentParameters,
     ) -> Result<Sequence> {
         let mut seq = Sequence {
             sequence: dna_seq.clone(),
-            v_genes: align_all_vgenes(dna_seq, self, align_params),
-            j_genes: align_all_jgenes(dna_seq, self, align_params),
+            v_genes: align_all_vgenes(dna_seq.clone(), self, align_params),
+            j_genes: align_all_jgenes(dna_seq.clone(), self, align_params),
             d_genes: Vec::new(),
             valid_alignment: true,
         };
@@ -1485,11 +1534,11 @@ impl Model {
             event.insdj = ins_seq_dj.clone();
             event.insvd = ins_seq_vd.clone();
             event.v_start_gene = 0;
-            event.d_start_seq = seq_v.len() - event.delv - event.deld5 + ins_vd;
-            event.j_start_seq = seq_v.len() - event.delv + ins_vd + ins_dj + seq_d.len()
+            event.d_start_seq = (seq_v.len() - event.delv - event.deld5 + ins_vd) as i64;
+            event.j_start_seq = (seq_v.len() - event.delv + ins_vd + ins_dj + seq_d.len()
                 - event.deld5
                 - event.deld3
-                - event.delj;
+                - event.delj) as i64;
 
             // create the complete sequence:
             let full_seq = event.to_sequence(self);
@@ -1568,11 +1617,8 @@ impl Model {
             .v_genes
             .iter()
             .map(|v| {
-                if v.end_seq > self.p_del_v_given_v.dim().0 + self.p_del_d5_del_d3.dim().0 {
-                    v.end_seq - (self.p_del_v_given_v.dim().0 + self.p_del_d5_del_d3.dim().0)
-                } else {
-                    0
-                }
+                v.end_seq as i64
+                    - (self.p_del_v_given_v.dim().0 + self.p_del_d5_del_d3.dim().0) as i64
             })
             .min()
             .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
@@ -1582,8 +1628,9 @@ impl Model {
             .iter()
             .map(|j| {
                 cmp::min(
-                    j.start_seq + (self.p_del_j_given_j.dim().0 + self.p_del_d5_del_d3.dim().1),
-                    seq.sequence.len(),
+                    (j.start_seq as i64 - j.start_gene as i64)
+                        + (self.p_del_j_given_j.dim().0 + self.p_del_d5_del_d3.dim().1) as i64,
+                    seq.sequence.len() as i64,
                 )
             })
             .max()

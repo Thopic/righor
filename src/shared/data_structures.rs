@@ -6,97 +6,97 @@ fn max_vector(arr: &[f64]) -> Option<f64> {
     arr.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied()
 }
 
-/// Implement an array structure containing f64, indexed by min..max where min/max are i64
-/// Only valid for sizes < 50
-#[derive(Clone, Debug)]
-pub struct RangeArray1Stack {
-    pub array: [f64; 50],
-    pub min: i64,
-    pub max: i64, // other extremity of the range (min + array.len())
-}
+// /// Implement an array structure containing f64, indexed by min..max where min/max are i64
+// /// Only valid for sizes < 50
+// #[derive(Clone, Debug)]
+// pub struct RangeArray1Stack {
+//     pub array: [f64; 50],
+//     pub min: i64, // can be negative
+//     pub max: i64, // other extremity of the range (min + array.len())
+// }
 
-impl Default for RangeArray1Stack {
-    fn default() -> RangeArray1Stack {
-        RangeArray1Stack::zeros((0, 0))
-    }
-}
+// impl Default for RangeArray1Stack {
+//     fn default() -> RangeArray1Stack {
+//         RangeArray1Stack::zeros((0, 0))
+//     }
+// }
 
-impl RangeArray1Stack {
-    // iterate over index & value
-    pub fn iter(&self) -> impl Iterator<Item = (i64, &f64)> + '_ {
-        (self.min..self.max).zip(self.array.iter())
-    }
+// impl RangeArray1Stack {
+//     // iterate over index & value
+//     pub fn iter(&self) -> impl Iterator<Item = (i64, &f64)> + '_ {
+//         (self.min..self.max).zip(self.array.iter())
+//     }
 
-    pub fn new(values: &Vec<(i64, f64)>) -> RangeArray1Stack {
-        if values.is_empty() {
-            return RangeArray1Stack::default();
-        }
+//     pub fn new(values: &Vec<(i64, f64)>) -> RangeArray1Stack {
+//         if values.is_empty() {
+//             return RangeArray1Stack::default();
+//         }
 
-        let min = values.iter().map(|x| x.0).min().unwrap();
-        let max = values.iter().map(|x| x.0).max().unwrap() + 1;
-        if (max - min) as usize > 50 {
-            panic!("Too large for array");
-        }
+//         let min = values.iter().map(|x| x.0).min().unwrap();
+//         let max = values.iter().map(|x| x.0).max().unwrap() + 1;
+//         if (max - min) as usize > 50 {
+//             panic!("Too large for array");
+//         }
 
-        let mut array = [0.; 50];
-        for (idx, value) in values {
-            array[(idx - min) as usize] += value;
-        }
+//         let mut array = [0.; 50];
+//         for (idx, value) in values {
+//             array[(idx - min) as usize] += value;
+//         }
 
-        RangeArray1Stack { array, min, max }
-    }
+//         RangeArray1Stack { array, min, max }
+//     }
 
-    pub fn get(&self, idx: i64) -> f64 {
-        debug_assert!(idx >= self.min && idx < self.max);
-        //unsafe because improve perf
-        //        unsafe {
-        *self.array.get((idx - self.min) as usize).unwrap()
-        //}
-    }
+//     pub fn get(&self, idx: i64) -> f64 {
+//         debug_assert!(idx >= self.min && idx < self.max);
+//         //unsafe because improve perf
+//         //        unsafe {
+//         *self.array.get((idx - self.min) as usize).unwrap()
+//         //}
+//     }
 
-    pub fn dim(&self) -> (i64, i64) {
-        (self.min, self.max)
-    }
+//     pub fn dim(&self) -> (i64, i64) {
+//         (self.min, self.max)
+//     }
 
-    pub fn len(&self) -> usize {
-        (self.max - self.min) as usize
-    }
+//     pub fn len(&self) -> usize {
+//         (self.max - self.min) as usize
+//     }
 
-    pub fn is_empty(&self) -> bool {
-        self.max == self.min
-    }
+//     pub fn is_empty(&self) -> bool {
+//         self.max == self.min
+//     }
 
-    pub fn zeros(range: (i64, i64)) -> RangeArray1Stack {
-        RangeArray1Stack {
-            min: range.0,
-            max: range.1,
-            array: [0.; 50],
-        }
-    }
+//     pub fn zeros(range: (i64, i64)) -> RangeArray1Stack {
+//         RangeArray1Stack {
+//             min: range.0,
+//             max: range.1,
+//             array: [0.; 50],
+//         }
+//     }
 
-    pub fn constant(range: (i64, i64), cstt: f64) -> RangeArray1Stack {
-        RangeArray1Stack {
-            min: range.0,
-            max: range.1,
-            array: [cstt; 50],
-        }
-    }
+//     pub fn constant(range: (i64, i64), cstt: f64) -> RangeArray1Stack {
+//         RangeArray1Stack {
+//             min: range.0,
+//             max: range.1,
+//             array: [cstt; 50],
+//         }
+//     }
 
-    pub fn get_mut(&mut self, idx: i64) -> &mut f64 {
-        debug_assert!(idx >= self.min && idx < self.max);
-        //unsafe because improve perf
-        //        unsafe {
-        self.array.get_mut((idx - self.min) as usize).unwrap()
-        //}
-    }
+//     pub fn get_mut(&mut self, idx: i64) -> &mut f64 {
+//         debug_assert!(idx >= self.min && idx < self.max);
+//         //unsafe because improve perf
+//         //        unsafe {
+//         self.array.get_mut((idx - self.min) as usize).unwrap()
+//         //}
+//     }
 
-    pub fn mut_map<F>(&mut self, mut f: F)
-    where
-        F: FnMut(f64) -> f64,
-    {
-        self.array.iter_mut().for_each(|x| *x = f(*x));
-    }
-}
+//     pub fn mut_map<F>(&mut self, mut f: F)
+//     where
+//         F: FnMut(f64) -> f64,
+//     {
+//         self.array.iter_mut().for_each(|x| *x = f(*x));
+//     }
+// }
 
 /// Implement an array structure containing f64, indexed by min..max where min/max are i64
 #[derive(Default, Clone, Debug)]

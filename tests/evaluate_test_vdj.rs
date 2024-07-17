@@ -1,5 +1,5 @@
 use anyhow::Result;
-use righor::shared::{AlignmentParameters, InferenceParameters};
+use righor::shared::{AlignmentParameters, DnaLike, InferenceParameters};
 mod common;
 use righor::shared::errors::ErrorConstantRate;
 use righor::shared::ErrorParameters;
@@ -28,7 +28,7 @@ fn evaluate_simple_model_vdj() -> Result<()> {
     let alp = AlignmentParameters::default();
     for _ in 0..100 {
         let s = righor::Dna::from_string(&generator.generate(false)?.full_seq)?;
-        let als = EntrySequence::Aligned(model.align_sequence(&s.clone(), &alp)?);
+        let als = EntrySequence::Aligned(model.align_sequence(DnaLike::from_dna(s.clone()), &alp)?);
         let result_model_vdj = model.evaluate(als.clone(), &alp, &ifp)?;
         let result_model_v_dj = model2.evaluate(als.clone(), &alp, &ifp)?;
         let result_model_brute_force = model.evaluate_brute_force(als.clone(), &alp, &ifp)?;

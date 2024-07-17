@@ -16,7 +16,9 @@ use righor::EntrySequence;
 use std::fs::File;
 
 use righor::shared::model::ModelStructure;
-use righor::shared::{errors::ErrorConstantRate, errors::ErrorUniformRate, ErrorParameters};
+use righor::shared::{
+    errors::ErrorConstantRate, errors::ErrorUniformRate, DnaLike, ErrorParameters,
+};
 use righor::Modelable;
 
 use std::io::{self, BufRead, BufReader};
@@ -33,44 +35,61 @@ fn main() -> Result<()> {
     //TODO: modify before release
     let mut igor_model = righor::Model::load_from_name(
         "human",
-        "igh",
+        "trb",
         None,
         Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
     )?;
     igor_model.set_model_type(ModelStructure::VxDJ)?;
-    igor_model.set_error(ErrorParameters::ConstantRate(ErrorConstantRate::default()))?;
+    igor_model.set_error(ErrorParameters::UniformRate(ErrorUniformRate::default()))?;
 
     // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
 
-    let sequence = righor::Dna::from_string("ACCCTCCAGTCTGCCAGGCCCTCACATACCTCTCAGTACCTCTGTGCCAGCAGTGAGGACAGGGACGTCACTGAAGCTTTCTTTGGACAAGGCACC")?;
+    let sequence = righor::Dna::from_string("TGTGCCAGCCGACGGACAGCTAACTATGGCTACACCTTC")?;
 
     let mut align_params = righor::AlignmentParameters::default();
     align_params.left_v_cutoff = 500;
     let mut inference_params = righor::InferenceParameters::default();
     inference_params.min_likelihood = 0.;
     inference_params.min_ratio_likelihood = 0.;
-    let al = igor_model.align_sequence(&sequence, &align_params)?;
-    let _result = igor_model.evaluate(EntrySequence::Aligned(al), &align_params, &inference_params);
+    // let al = igor_model.align_from_cdr3(
+    //     &DnaLike::from_dna(sequence),
+    //     &igor_model.get_v_segments(),
+    //     &igor_model.get_j_segments(),
+    // )?;
+    let result = if let righor::Model::VDJ(m) = igor_model {
+        m.evaluate(
+            EntrySequence::NucleotideCDR3((
+                DnaLike::from_dna(sequence),
+                m.get_v_segments(),
+                m.get_j_segments(),
+            )),
+            &align_params,
+            &inference_params,
+        )
+    } else {
+        panic!("")
+    };
+    println!("{:?}", result);
 
-    let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
+    // let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
 
-    let v = (0..10)
-        .map(|_x| {
-            righor::EntrySequence::NucleotideSequence(
-                Dna::from_string(&generator.generate_without_errors(true).full_seq).unwrap(),
-            )
-        })
-        .collect::<Vec<_>>();
+    // let v = (0..10)
+    //     .map(|_x| {
+    //         righor::EntrySequence::NucleotideSequence(DnaLike::from_dna(
+    //             Dna::from_string(&generator.generate_without_errors(true).full_seq).unwrap(),
+    //         ))
+    //     })
+    //     .collect::<Vec<_>>();
 
-    let mut model = igor_model.uniform()?.clone();
+    // let mut model = igor_model.uniform()?.clone();
 
-    println!("Start inference");
-    let mut features = model.infer(&v, None, &align_params, &inference_params)?;
+    // println!("Start inference");
+    // let mut features = model.infer(&v, None, &align_params, &inference_params)?;
 
-    for ii in 1..10 {
-        println!("{:?}", model.get_error());
-        features = model.infer(&v, Some(features), &align_params, &inference_params)?;
-    }
+    // for _ii in 1..10 {
+    //     println!("{:?}", model.get_error());
+    //     features = model.infer(&v, Some(features), &align_params, &inference_params)?;
+    // }
 
     // let mut generator = righor::vdj::Generator::new(igor_model.clone(), Some(42), None, None)?;
     // let mut uniform_model = igor_model.uniform()?;

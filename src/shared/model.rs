@@ -1,7 +1,7 @@
+use crate::shared::alignment::VJAlignment;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::shared::event::PyStaticEvent;
 use crate::shared::StaticEvent;
-use crate::shared::VJAlignment;
 use crate::shared::{AlignmentParameters, ErrorParameters, Features, InferenceParameters};
 use crate::shared::{Dna, Gene, ResultInference};
 use crate::vdj::model::EntrySequence;
@@ -14,6 +14,7 @@ use anyhow::{anyhow, Result};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
+use crate::shared::DnaLike;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -231,7 +232,7 @@ impl Model {
     /// Given a cdr3 sequence + V/J genes return a "aligned" `Sequence` object
     pub fn align_from_cdr3(
         &self,
-        cdr3_seq: &Dna,
+        cdr3_seq: &DnaLike,
         vgenes: &Vec<Gene>,
         jgenes: &Vec<Gene>,
     ) -> Result<Sequence> {
@@ -244,7 +245,7 @@ impl Model {
     /// Align one nucleotide sequence and return a `Sequence` object
     pub fn align_sequence(
         &self,
-        dna_seq: &Dna,
+        dna_seq: DnaLike,
         align_params: &AlignmentParameters,
     ) -> Result<Sequence> {
         match self {
@@ -759,14 +760,17 @@ pub trait Modelable {
     /// Given a cdr3 sequence + V/J genes return a "aligned" `Sequence` object
     fn align_from_cdr3(
         &self,
-        cdr3_seq: &Dna,
+        cdr3_seq: &DnaLike,
         vgenes: &Vec<Gene>,
         jgenes: &Vec<Gene>,
     ) -> Result<Sequence>;
 
     /// Align one nucleotide sequence and return a `Sequence` object
-    fn align_sequence(&self, dna_seq: &Dna, align_params: &AlignmentParameters)
-        -> Result<Sequence>;
+    fn align_sequence(
+        &self,
+        dna_seq: DnaLike,
+        align_params: &AlignmentParameters,
+    ) -> Result<Sequence>;
 
     /// Recreate the full sequence from the CDR3/vgene/jgene
     fn recreate_full_sequence(&self, dna_cdr3: &Dna, vgene: &Gene, jgene: &Gene) -> Dna;

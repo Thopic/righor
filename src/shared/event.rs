@@ -61,7 +61,7 @@ impl PyStaticEvent {
     }
 
     #[getter]
-    fn get_j_start_seq(&self) -> PyResult<usize> {
+    fn get_j_start_seq(&self) -> PyResult<i64> {
         Ok(match &self.s {
             StaticEvent::VDJ(x) => x.j_start_seq,
             StaticEvent::VJ(x) => x.j_start_seq,
@@ -85,7 +85,7 @@ impl PyStaticEvent {
     }
 
     #[getter]
-    fn get_d_start_seq(&self) -> PyResult<usize> {
+    fn get_d_start_seq(&self) -> PyResult<i64> {
         match &self.s {
             StaticEvent::VDJ(x) => Ok(x.d_start_seq),
             StaticEvent::VJ(_) => Err(anyhow!("No D sequence in a VJ model"))?,
