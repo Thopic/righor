@@ -70,7 +70,8 @@ impl CategoricalFeature2g1 {
 impl InsertionFeature {
     #[getter]
     fn get_transition_matrix(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.transition_matrix
+        self.transition
+            .transition_matrix
             .to_owned()
             .into_pyarray(py)
             .to_owned()
@@ -84,7 +85,7 @@ impl InsertionFeature {
     }
     #[getter]
     fn get_initial_distribution(&self, py: Python) -> Py<PyArray1<f64>> {
-        calc_steady_state_dist(&self.transition_matrix)
+        calc_steady_state_dist(&self.transition.transition_matrix)
             .unwrap()
             .to_owned()
             .into_pyarray(py)

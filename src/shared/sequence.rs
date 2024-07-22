@@ -196,7 +196,14 @@ impl DnaLikeEnum {
     /// Return dna[start:end] but padded with N if start < 0 or end >= dna.len()
     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> DnaLikeEnum {
         match self {
-            DnaLikeEnum::DNA(s) => DnaLikeEnum::DNA(s.extract_padded_subsequence(start, end)),
+            DnaLikeEnum::DNA(s) => {
+                let result = s.extract_padded_subsequence(start, end);
+                if result.seq.contains(&b'N') {
+                    DnaLikeEnum::DegenerateDNA(result)
+                } else {
+                    DnaLikeEnum::DNA(result)
+                }
+            }
             DnaLikeEnum::DegenerateDNA(s) => {
                 DnaLikeEnum::DegenerateDNA(s.extract_padded_subsequence(start, end))
             }
@@ -1212,7 +1219,7 @@ impl Dna {
     }
     pub fn from_string(s: &str) -> Result<Dna> {
         for &byte in s.as_bytes() {
-            if NUCLEOTIDES_INV.contains_key(&byte) {
+            if !NUCLEOTIDES_INV.contains_key(&byte) {
                 // Handle the error if the byte is not in the map
                 return Err(anyhow!(format!("Invalid byte: {}", byte)));
             }
