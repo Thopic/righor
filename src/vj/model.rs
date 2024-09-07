@@ -732,7 +732,11 @@ impl Model {
         }
         for ii in 0..arr.shape()[0] {
             for jj in 0..arr.shape()[1] {
-                self.p_j_given_v[[jj, ii]] = arr[[ii, jj]] / self.p_v[ii]
+                if arr[[ii, jj]] == 0.0 {
+                    self.p_j_given_v[[jj, ii]] = 0.0
+                } else {
+                    self.p_j_given_v[[jj, ii]] = arr[[ii, jj]] / self.p_v[ii]
+                }
             }
         }
         self.initialize()?;
