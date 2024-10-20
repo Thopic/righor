@@ -1,5 +1,6 @@
 use crate::shared::feature::Feature;
-use crate::shared::parameters::SequenceType;
+use crate::shared::sequence::SequenceType;
+
 use crate::shared::utils::difference_as_i64;
 use crate::shared::{
     data_structures::RangeArray1, data_structures::RangeArray2, CategoricalFeature1g1,
@@ -89,8 +90,8 @@ impl AggregatedFeatureEndV {
             let ll = ll_delv * ll_v_err;
             if ll > ip.min_likelihood {
                 let likelihood = match ip.likelihood_type {
-                    SequenceType::Known => Likelihood::Scalar(ll),
-                    SequenceType::Ambiguous => {
+                    SequenceType::Dna => Likelihood::Scalar(ll),
+                    SequenceType::Protein => {
                         unimplemented!("Not yet");
                         // let mut ll_vec = Vector16::zeros();
                         // for idx in v.allowed_indices(delv) {
@@ -181,8 +182,8 @@ impl AggregatedFeatureStartJ {
             let ll = ll_delj * ll_errj;
             if ll > ip.min_likelihood {
                 let likelihood = match ip.likelihood_type {
-                    SequenceType::Known => Likelihood::Scalar(ll),
-                    SequenceType::Ambiguous => {
+                    SequenceType::Dna => Likelihood::Scalar(ll),
+                    SequenceType::Protein => {
                         unimplemented!("Not yet");
                         // let mut m = Matrix16::zeros();
                         // m[j.start_idx(delj)] = ll;
@@ -291,7 +292,7 @@ impl AggregatedFeatureSpanD {
                 let ll = ll_deld * ll_errord;
                 if ll > ip.min_likelihood {
                     let likelihood = match ip.likelihood_type {
-                        SequenceType::Ambiguous => {
+                        SequenceType::Protein => {
                             unimplemented!("Not yet");
                             // let mut matrix = Matrix16::zeros();
                             // for (left, right, _) in
@@ -301,7 +302,7 @@ impl AggregatedFeatureSpanD {
                             // }
                             // Likelihood::Matrix(matrix)
                         }
-                        SequenceType::Known => Likelihood::Scalar(ll),
+                        SequenceType::Dna => Likelihood::Scalar(ll),
                     };
 
                     likelihoods.add_to((d_start, d_end), likelihood);
@@ -458,10 +459,10 @@ impl FeatureVD {
                     let ins_vd = sequence.get_subsequence(ev, sd);
                     for first_nucleotide in 0..4 {
                         let likelihood = match ip.likelihood_type {
-                            SequenceType::Ambiguous => {
+                            SequenceType::Protein => {
                                 unimplemented!("Not yet");
                             }
-                            SequenceType::Known => {
+                            SequenceType::Dna => {
                                 Likelihood::Scalar(feat_insvd.likelihood(&ins_vd, first_nucleotide))
                             }
                         };

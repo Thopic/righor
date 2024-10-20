@@ -1,5 +1,7 @@
 //! The structs used for specifying the parameters of the model
 
+use crate::shared::sequence::SequenceType;
+
 use bio::alignment::{pairwise, Alignment};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
@@ -13,14 +15,6 @@ pub struct AlignmentParameters {
     pub min_score_j: i32,
     pub max_error_d: usize,
     pub left_v_cutoff: usize,
-}
-
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Clone, Debug, Copy, Default)]
-pub enum SequenceType {
-    #[default]
-    Known,
-    Ambiguous,
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]

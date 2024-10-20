@@ -15,14 +15,13 @@ use std::fmt;
 // Structures
 /////////////////////////////////////
 
-// #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
-// #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default)]
-// pub enum DnaType {
-//     #[default]
-//     Dna,
-//     DegenerateDna,
-//     AA,
-// }
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Clone, Debug, Copy, Default)]
+pub enum SequenceType {
+    #[default]
+    Dna,
+    Protein,
+}
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
@@ -35,15 +34,15 @@ pub struct DnaLike {
 /// Enum that deals with the different type of Dna
 /// will use different algorithms depending on the type of Dna
 pub enum DnaLikeEnum {
-    DNA(Dna),           // known Dna (A/T/G/C)
-    DegenerateDNA(Dna), // degenerate Dna (contains degenerate nucleotides N/H...)
-    AA(ExtendedDna),    // reverse-translated amino-acid sequence
+    Known(Dna),                       // known Dna (A/T/G/C)
+    Ambiguous(Dna),                   // degenerate Dna (contains degenerate nucleotides N/H...)
+    Protein(DegenerateCodonSequence), // reverse-translated amino-acid sequence
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 /// Partially defined dna sequence created from an amino-acid sequence
 /// Example: NHLRH, 1, 2 corresponds to (among many others) .atcacctaagacat
-pub struct ExtendedDna {
+pub struct DegenerateCodonSequence {
     // List of codons
     pub codons: Vec<DegenerateCodon>,
     // the start of the actual nucleotide sequence (potentially mid-codon)
@@ -86,7 +85,7 @@ impl From<DnaLike> for DnaLikeEnum {
 
 impl Default for DnaLikeEnum {
     fn default() -> Self {
-        DnaLikeEnum::DNA(Dna::default())
+        DnaLikeEnum::Known(Dna::default())
     }
 }
 
@@ -127,9 +126,8 @@ impl From<AminoAcid> for DnaLike {
 impl DnaLikeEnum {
     pub fn len(&self) -> usize {
         match self {
-            DnaLikeEnum::DNA(s) => s.len(),
-            DnaLikeEnum::DegenerateDNA(s) => s.len(),
-            DnaLikeEnum::AA(s) => s.len(),
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.len(),
+            DnaLikeEnum::Protein(s) => s.len(),
         }
     }
 
@@ -137,42 +135,37 @@ impl DnaLikeEnum {
     // i.e 4*nucleotide[0] + nucleotide[1]
     pub fn to_matrix_idx(&self) -> Vec<usize> {
         match self {
-            DnaLikeEnum::DNA(s) => s.to_matrix_idx(),
-            DnaLikeEnum::DegenerateDNA(s) => s.to_matrix_idx(),
-            DnaLikeEnum::AA(s) => s.to_matrix_idx(),
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.to_matrix_idx(),
+            DnaLikeEnum::Protein(s) => s.to_matrix_idx(),
         }
     }
 
     pub fn reverse(&mut self) {
         match self {
-            DnaLikeEnum::DNA(s) => s.reverse(),
-            DnaLikeEnum::DegenerateDNA(s) => s.reverse(),
-            DnaLikeEnum::AA(s) => s.reverse(),
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.reverse(),
+            DnaLikeEnum::Protein(s) => s.reverse(),
         }
     }
 
     /// Send the DnaLikeEnum to a Dna object. Can be lossy
     pub fn to_dna(&self) -> Dna {
         match self {
-            DnaLikeEnum::DNA(s) => s.clone(),
-            DnaLikeEnum::DegenerateDNA(s) => s.clone(),
-            DnaLikeEnum::AA(s) => s.to_dna(),
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.clone(),
+            DnaLikeEnum::Protein(s) => s.to_dna(),
         }
     }
 
     pub fn get_string(&self) -> String {
         match self {
-            DnaLikeEnum::DNA(s) => s.get_string(),
-            DnaLikeEnum::DegenerateDNA(s) => s.get_string(),
-            DnaLikeEnum::AA(s) => s.to_dna().get_string(),
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.get_string(),
+            DnaLikeEnum::Protein(s) => s.to_dna().get_string(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         match self {
-            DnaLikeEnum::DNA(s) => s.is_empty(),
-            DnaLikeEnum::DegenerateDNA(s) => s.is_empty(),
-            DnaLikeEnum::AA(s) => s.is_empty(),
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.is_empty(),
+            DnaLikeEnum::Protein(s) => s.is_empty(),
         }
     }
 
@@ -182,91 +175,101 @@ impl DnaLikeEnum {
             .iter()
             .all(|&x| x == b'A' || x == b'T' || x == b'G' || x == b'C')
         {
-            DnaLikeEnum::DNA(seq)
+            DnaLikeEnum::Known(seq)
         } else {
-            DnaLikeEnum::DegenerateDNA(seq)
+            DnaLikeEnum::Ambiguous(seq)
         }
     }
 
     pub fn from_amino_acid(seq: AminoAcid) -> DnaLikeEnum {
-        DnaLikeEnum::AA(ExtendedDna::from_aminoacid(seq))
+        DnaLikeEnum::Protein(DegenerateCodonSequence::from_aminoacid(seq))
     }
 
+    // TODO: this can be coded better (but probably doesn't matter)
     pub fn extend(&mut self, other: &DnaLikeEnum) {
-        match other {
-            DnaLikeEnum::DNA(other_dna) => {
-                if let DnaLikeEnum::DNA(self_dna) = self {
-                    self_dna.extend(other_dna);
-                }
+        *self = match (self.clone(), other) {
+            // Known cases
+            (DnaLikeEnum::Known(mut self_dna), DnaLikeEnum::Known(other_dna)) => {
+                self_dna.extend(other_dna);
+                DnaLikeEnum::Known(self_dna.clone())
             }
-            DnaLikeEnum::DegenerateDNA(other_dna) => {
-                if let DnaLikeEnum::DegenerateDNA(self_dna) = self {
-                    self_dna.extend(other_dna);
-                }
+            (DnaLikeEnum::Known(self_dna), DnaLikeEnum::Ambiguous(other_dna)) => {
+                let mut new_dna = self_dna.clone();
+                new_dna.extend(other_dna);
+                DnaLikeEnum::Ambiguous(new_dna)
             }
-
-            DnaLikeEnum::AA(other_ext_dna) => match self {
-                DnaLikeEnum::DNA(self_dna) => {
-                    let mut new_ext_dna = other_ext_dna.clone();
-                    new_ext_dna.append_to_dna(self_dna);
-                    *self = DnaLikeEnum::AA(new_ext_dna);
-                }
-                DnaLikeEnum::DegenerateDNA(self_dna) => {
-                    let mut new_ext_dna = other_ext_dna.clone();
-                    new_ext_dna.append_to_dna(self_dna);
-                    *self = DnaLikeEnum::AA(new_ext_dna);
-                }
-                DnaLikeEnum::AA(self_ext_dna) => {
-                    self_ext_dna.extend(other_ext_dna);
-                }
-            },
-        }
+            (DnaLikeEnum::Known(self_dna), DnaLikeEnum::Protein(other_protein)) => {
+                let mut new_protein = other_protein.clone();
+                new_protein.append_to_dna(&self_dna);
+                DnaLikeEnum::Protein(new_protein)
+            }
+            // Ambiguous cases
+            (DnaLikeEnum::Ambiguous(mut self_dna), DnaLikeEnum::Known(other_dna)) => {
+                self_dna.extend(other_dna);
+                DnaLikeEnum::Ambiguous(self_dna.clone())
+            }
+            (DnaLikeEnum::Ambiguous(mut self_dna), DnaLikeEnum::Ambiguous(other_dna)) => {
+                self_dna.extend(other_dna);
+                DnaLikeEnum::Ambiguous(self_dna.clone())
+            }
+            (DnaLikeEnum::Ambiguous(self_dna), DnaLikeEnum::Protein(other_protein)) => {
+                let mut new_protein = other_protein.clone();
+                new_protein.append_to_dna(&self_dna);
+                DnaLikeEnum::Protein(new_protein)
+            }
+            // Protein cases
+            (DnaLikeEnum::Protein(mut self_protein), DnaLikeEnum::Known(other_dna)) => {
+                self_protein.extend_dna(other_dna);
+                DnaLikeEnum::Protein(self_protein.clone())
+            }
+            (DnaLikeEnum::Protein(mut self_protein), DnaLikeEnum::Ambiguous(other_dna)) => {
+                self_protein.extend_dna(other_dna);
+                DnaLikeEnum::Protein(self_protein.clone())
+            }
+            (DnaLikeEnum::Protein(mut self_protein), DnaLikeEnum::Protein(other_protein)) => {
+                self_protein.extend(other_protein);
+                DnaLikeEnum::Protein(self_protein.clone())
+            }
+        };
     }
+
     pub fn extract_subsequence(&self, start: usize, end: usize) -> DnaLikeEnum {
         match self {
-            DnaLikeEnum::DNA(s) => DnaLikeEnum::DNA(s.extract_subsequence(start, end)),
-            DnaLikeEnum::DegenerateDNA(s) => {
-                DnaLikeEnum::DegenerateDNA(s.extract_subsequence(start, end))
-            }
-            DnaLikeEnum::AA(s) => DnaLikeEnum::AA(s.extract_subsequence(start, end)),
+            DnaLikeEnum::Known(s) => DnaLikeEnum::Known(s.extract_subsequence(start, end)),
+            DnaLikeEnum::Ambiguous(s) => DnaLikeEnum::Ambiguous(s.extract_subsequence(start, end)),
+            DnaLikeEnum::Protein(s) => DnaLikeEnum::Protein(s.extract_subsequence(start, end)),
         }
     }
 
     /// Return dna[start:end] but padded with N if start < 0 or end >= dna.len()
     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> DnaLikeEnum {
         match self {
-            DnaLikeEnum::DNA(s) => {
+            DnaLikeEnum::Known(s) => {
                 let result = s.extract_padded_subsequence(start, end);
                 if result.seq.contains(&b'N') {
-                    DnaLikeEnum::DegenerateDNA(result)
+                    DnaLikeEnum::Ambiguous(result)
                 } else {
-                    DnaLikeEnum::DNA(result)
+                    DnaLikeEnum::Known(result)
                 }
             }
-            DnaLikeEnum::DegenerateDNA(s) => {
-                DnaLikeEnum::DegenerateDNA(s.extract_padded_subsequence(start, end))
+            DnaLikeEnum::Ambiguous(s) => {
+                let result = s.extract_padded_subsequence(start, end);
+                if result
+                    .seq
+                    .iter()
+                    .all(|&x| x == b'A' || x == b'T' || x == b'G' || x == b'C')
+                {
+                    DnaLikeEnum::Known(result)
+                } else {
+                    DnaLikeEnum::Ambiguous(result)
+                }
             }
-            DnaLikeEnum::AA(s) => DnaLikeEnum::AA(s.extract_padded_subsequence(start, end)),
+
+            DnaLikeEnum::Protein(s) => {
+                DnaLikeEnum::Protein(s.extract_padded_subsequence(start, end))
+            }
         }
     }
-
-    // pub fn get_nucleotide_index(&self, pos: i64) -> usize {
-    //     match self {
-    //         DnaLikeEnum::DNA(s) => {
-    //             if pos >= 0 && pos < s.seq.len() as i64 {
-    //                 nucleotides_inv(s.seq[pos as usize])
-    //             } else {
-    //                 nucleotides_inv(b'N') // N
-    //             }
-    //         }
-    //         DnaLikeEnum::DegenerateDNA(_s) => {
-    //             unimplemented!("Not yet.");
-    //         }
-    //         DnaLikeEnum::AA(_s) => {
-    //             unimplemented!("Not yet.");
-    //         }
-    //     }
-    // }
 
     pub fn align_left_right(
         sleft: &DnaLikeEnum,
@@ -283,9 +286,10 @@ impl DnaLikeEnum {
         align_params: &AlignmentParameters,
     ) -> Option<Alignment> {
         match sequence {
-            DnaLikeEnum::DNA(seq) => Dna::v_alignment(vgene, seq, align_params),
-            DnaLikeEnum::DegenerateDNA(seq) => Dna::v_alignment(vgene, seq, align_params),
-            DnaLikeEnum::AA(seq) => Dna::v_alignment(vgene, &seq.to_dna(), align_params),
+            DnaLikeEnum::Known(seq) | DnaLikeEnum::Ambiguous(seq) => {
+                Dna::v_alignment(vgene, seq, align_params)
+            }
+            DnaLikeEnum::Protein(seq) => Dna::v_alignment(vgene, &seq.to_dna(), align_params),
         }
     }
 
@@ -293,18 +297,16 @@ impl DnaLikeEnum {
     /// Assuming they both start at the same point
     pub fn count_differences(&self, template: &Dna) -> usize {
         match self {
-            DnaLikeEnum::DNA(s) => s.count_differences(template),
-            DnaLikeEnum::DegenerateDNA(s) => s.count_differences(template),
-            DnaLikeEnum::AA(s) => s.count_differences(template),
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.count_differences(template),
+            DnaLikeEnum::Protein(s) => s.count_differences(template),
         }
     }
 
     /// Translate the sequence
     pub fn translate(&self) -> Result<AminoAcid> {
         match self {
-            DnaLikeEnum::DNA(s) => s.translate(),
-            DnaLikeEnum::DegenerateDNA(s) => s.translate(),
-            DnaLikeEnum::AA(s) => s.translate(),
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.translate(),
+            DnaLikeEnum::Protein(s) => s.translate(),
         }
     }
 
@@ -313,9 +315,9 @@ impl DnaLikeEnum {
     // /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
     // pub fn extremities(&self) -> Vec<(usize, usize)> {
     //     match self {
-    //         DnaLikeEnum::DNA(s) => s.extremities(),
+    //         DnaLikeEnum::Known(s) => s.extremities(),
     //         DnaLikeEnum::DegenerateDNA(s) => s.extremities(),
-    //         DnaLikeEnum::AA(s) => s.extremities(),
+    //         DnaLikeEnum::Protein(s) => s.extremities(),
     //     }
     // }
 }
@@ -721,7 +723,7 @@ impl DegenerateCodon {
     }
 }
 
-impl ExtendedDna {
+impl DegenerateCodonSequence {
     pub fn pad_right(&mut self, n: usize) {
         // X for undefined amino-acid
         self.extend_dna(&Dna { seq: vec![b'N'; n] });
@@ -733,8 +735,8 @@ impl ExtendedDna {
     }
 
     /// Make an amino-acid sequence into an "UndefinedDna" sequence
-    pub fn from_aminoacid(aa: AminoAcid) -> ExtendedDna {
-        ExtendedDna {
+    pub fn from_aminoacid(aa: AminoAcid) -> DegenerateCodonSequence {
+        DegenerateCodonSequence {
             codons: aa
                 .seq
                 .iter()
@@ -745,9 +747,9 @@ impl ExtendedDna {
         }
     }
 
-    /// Make a nucleotide sequence into an "UndefinedDna" sequence
+    /// Make a (non-degenerate) nucleotide sequence into an "UndefinedDna" sequence
     /// For example ATCG, start = 1 would give [[NAT],[CGN]]
-    pub fn from_dna(seq: &Dna, start: usize) -> ExtendedDna {
+    pub fn from_dna(seq: &Dna, start: usize) -> DegenerateCodonSequence {
         let end = mod_euclid(3 - seq.len() as i64 - start as i64, 3) as usize;
         let mut padded_dna = Dna {
             seq: vec![b'N'; start],
@@ -757,7 +759,7 @@ impl ExtendedDna {
             seq: vec![b'N'; end],
         });
 
-        ExtendedDna {
+        DegenerateCodonSequence {
             codons: padded_dna.seq[..]
                 .chunks(3)
                 .map(|x| DegenerateCodon::from_u8(x))
@@ -808,7 +810,7 @@ impl ExtendedDna {
 
     // /// For a sequence of length >= 1 return a vector with
     // /// all possible sequences given the first nucleotide (repr. as 0/1/2/3)
-    // pub fn fix_first(&self, n: usize) -> Vec<(u8, ExtendedDna)> {
+    // pub fn fix_first(&self, n: usize) -> Vec<(u8, DegenerateCodonSequence)> {
     //     debug_assert!(self.len() >= n);
 
     //     let left_extr = vec![];
@@ -823,7 +825,7 @@ impl ExtendedDna {
     //         let mut new_codons = self.codons.clone();
     //         new_codons[0] = first_codon;
 
-    //         left_extr.push(ExtendedDna {
+    //         left_extr.push(DegenerateCodonSequence {
     //             codons: new_codons,
     //             codon_start: self.codon_start + 1,
     //             codon_end: self.codon_end,
@@ -834,7 +836,7 @@ impl ExtendedDna {
     /// For a sequence of length larger than 2, return a vector
     /// with all possible left extremities + the sequence
     /// For ex (AT|GA)CNTA => [(4*0 + 3, ATCNTA), (4*2 + 0, GACNTA)]
-    pub fn fix_left(&self) -> Vec<(usize, ExtendedDna)> {
+    pub fn fix_left(&self) -> Vec<(usize, DegenerateCodonSequence)> {
         debug_assert!(self.len() >= 2);
         let mut left_extr = vec![];
 
@@ -846,7 +848,7 @@ impl ExtendedDna {
                 };
                 left_extr.push((
                     4 * left_codon[0] + left_codon[1],
-                    ExtendedDna {
+                    DegenerateCodonSequence {
                         codons: new_codons,
                         codon_start: 0,
                         codon_end: self.codon_end,
@@ -863,7 +865,7 @@ impl ExtendedDna {
                 };
                 left_extr.push((
                     4 * left_codon[1] + left_codon[2],
-                    ExtendedDna {
+                    DegenerateCodonSequence {
                         codons: new_codons,
                         codon_start: 1,
                         codon_end: self.codon_end,
@@ -884,7 +886,7 @@ impl ExtendedDna {
                     };
                     left_extr.push((
                         4 * left_codon[2] + left_2_codon[0],
-                        ExtendedDna {
+                        DegenerateCodonSequence {
                             codons: new_codons,
                             codon_start: 2,
                             codon_end: self.codon_end,
@@ -898,7 +900,7 @@ impl ExtendedDna {
 
     /// For a sequence, return a vector with all possible right extremities
     /// (len+1, len+2) + the sequence
-    pub fn fix_right(&self) -> Vec<(usize, ExtendedDna)> {
+    pub fn fix_right(&self) -> Vec<(usize, DegenerateCodonSequence)> {
         debug_assert!(self.len() >= 2);
         let mut right_extr = vec![];
         let idx_last = self.codons.len() - 1;
@@ -911,7 +913,7 @@ impl ExtendedDna {
         }
         if self.codon_end == 1 {
             for a in 0..16 {
-                let mut sequence = ExtendedDna {
+                let mut sequence = DegenerateCodonSequence {
                     codons: vec![],
                     codon_start: self.codon_start,
                     codon_end: self.codon_end,
@@ -929,7 +931,7 @@ impl ExtendedDna {
 
         if self.codon_end == 2 {
             for a in 0..16 {
-                let mut sequence = ExtendedDna {
+                let mut sequence = DegenerateCodonSequence {
                     codons: vec![],
                     codon_start: self.codon_start,
                     codon_end: self.codon_end,
@@ -951,7 +953,7 @@ impl ExtendedDna {
     /// and the sequence with these extremities on.
     /// Extremities corresponds to 4*s[0] + s[1] and
     /// 4 * s[len] + s[len+1]
-    pub fn fix_extremities(&self) -> Vec<(usize, usize, ExtendedDna)> {
+    pub fn fix_extremities(&self) -> Vec<(usize, usize, DegenerateCodonSequence)> {
         let mut all_extremities = vec![];
         // first the weird cases where left and right interact
         if self.len() == 0 {
@@ -990,7 +992,7 @@ impl ExtendedDna {
     }
 
     /// Extract a subsequence from the dna. No particular checks.
-    pub fn extract_subsequence(&self, start: usize, end: usize) -> ExtendedDna {
+    pub fn extract_subsequence(&self, start: usize, end: usize) -> DegenerateCodonSequence {
         // where to start in the amino-acid sequence
 
         // example:
@@ -1010,7 +1012,7 @@ impl ExtendedDna {
         let aa_start = shift_start / 3;
         // we check where is the last element, divide by 3 then add 1.
         let aa_end = (shift_end + 3 - 1) / 3;
-        ExtendedDna {
+        DegenerateCodonSequence {
             codons: self.codons[aa_start..aa_end].to_vec(),
             codon_start: shift_start % 3,
             codon_end: 3 * (aa_end) - shift_end,
@@ -1018,7 +1020,7 @@ impl ExtendedDna {
     }
 
     /// Return dna[start:end] but padded with N if start < 0 or end >= dna.len()
-    pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> ExtendedDna {
+    pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> DegenerateCodonSequence {
         // example:
         // start = -4, end = 17
         // codon_start = 2, codon_end = 0
@@ -1092,12 +1094,12 @@ impl ExtendedDna {
         std::mem::swap(&mut self.codon_start, &mut self.codon_end);
     }
 
-    pub fn extend(&mut self, _dna: &ExtendedDna) {
+    pub fn extend(&mut self, _dna: &DegenerateCodonSequence) {
         // this is very weird because frame shift, should happend
-        unimplemented!("Appending two ExtendedDna shouldn't happen.")
+        unimplemented!("Appending two DegenerateCodonSequence shouldn't happen.")
     }
 
-    /// Add a dna sequence at the end of an ExtendedDna sequence
+    /// Add a dna sequence at the end of an DegenerateCodonSequence sequence
     pub fn extend_dna(&mut self, dna: &Dna) {
         //               <---------->xxxxxx
         //             ..............xxxxxx
@@ -1119,14 +1121,18 @@ impl ExtendedDna {
         }
 
         self.codons.extend(
-            ExtendedDna::from_dna(&dna.extract_subsequence(self.codon_end, dna.len()), 0).codons,
+            DegenerateCodonSequence::from_dna(
+                &dna.extract_subsequence(self.codon_end, dna.len()),
+                0,
+            )
+            .codons,
         );
 
         // self.codon_end + dna.len())
         self.codon_end = mod_euclid(self.codon_end as i64 - dna.len() as i64, 3) as usize;
     }
 
-    /// Add a dna sequence before an ExtendedDna sequence
+    /// Add a dna sequence before an DegenerateCodonSequence sequence
     pub fn append_to_dna(&mut self, dna: &Dna) {
         // need to complete the first codon
         let len = self.codons.len();
@@ -1144,7 +1150,7 @@ impl ExtendedDna {
             return;
         }
 
-        let mut codons = ExtendedDna::from_dna(
+        let mut codons = DegenerateCodonSequence::from_dna(
             &dna.extract_subsequence(0, dna.len() - self.codon_start),
             start,
         )
@@ -1338,29 +1344,29 @@ pub fn nucleotides_inv(n: u8) -> usize {
 // /// Dna that contains a degenerate codon (i.e. N, R, W ...)
 // #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 // #[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
-// struct DegenerateDna {
+// struct DegenerateCodonSequence {
 //     // while Dna cannot be constructed with degenerate codons, we bypass it here
 //     // so we can directly use most methods of Dna.
 //     pub inner: Dna,
 // }
 
-// impl fmt::Debug for DegenerateDna {
+// impl fmt::Debug for DegenerateCodonSequence {
 //     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 //         write!(
 //             f,
-//             "DegenerateDna [{}]",
+//             "DegenerateCodonSequence [{}]",
 //             String::from_utf8_lossy(&self.inner.seq)
 //         )
 //     }
 // }
 
-// impl fmt::Display for DegenerateDna {
+// impl fmt::Display for DegenerateCodonSequence {
 //     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 //         write!(f, "{}", String::from_utf8_lossy(&self.inner.seq))
 //     }
 // }
 
-// impl DegenerateDna {
+// impl DegenerateCodonSequence {
 //     fn __repr__(&self) -> String {
 //         self.inner.__repr__()
 //     }
@@ -1390,8 +1396,8 @@ pub fn nucleotides_inv(n: u8) -> usize {
 //     }
 // }
 
-// impl DegenerateDna {
-//     pub fn hamming_distance(&self, d: &DegenerateDna) -> usize {
+// impl DegenerateCodonSequence {
+//     pub fn hamming_distance(&self, d: &DegenerateCodonSequence) -> usize {
 //         self.inner
 //             .seq
 //             .iter()
@@ -1400,7 +1406,7 @@ pub fn nucleotides_inv(n: u8) -> usize {
 //             .sum()
 //     }
 
-//     pub fn count_differences(&self, template: &DegenerateDna) -> usize {
+//     pub fn count_differences(&self, template: &DegenerateCodonSequence) -> usize {
 //         self.hamming_distance(template)
 //     }
 
@@ -1428,28 +1434,28 @@ pub fn nucleotides_inv(n: u8) -> usize {
 //             .sum()
 //     }
 
-//     pub fn reverse_complement(&self) -> DegenerateDna {
-//         DegenerateDna {
+//     pub fn reverse_complement(&self) -> DegenerateCodonSequence {
+//         DegenerateCodonSequence {
 //             inner: self.inner.reverse_complement,
 //         }
 //     }
 
-//     pub fn extract_subsequence(&self, start: usize, end: usize) -> DegenerateDna {
+//     pub fn extract_subsequence(&self, start: usize, end: usize) -> DegenerateCodonSequence {
 //         // Return dna[start:end]
-//         DegenerateDna {
+//         DegenerateCodonSequence {
 //             inner: self.inner.extract_subsequence,
 //         }
 //     }
 
-//     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> DegenerateDna {
-//         DegenerateDna {
+//     pub fn extract_padded_subsequence(&self, start: i64, end: i64) -> DegenerateCodonSequence {
+//         DegenerateCodonSequence {
 //             inner: self.inner.extract_padded_subsequence(start, end),
 //         }
 //     }
 
 //     pub fn v_alignment(
 //         v: &Dna,
-//         seq: &DegenerateDna,
+//         seq: &DegenerateCodonSequence,
 //         align_params: &AlignmentParameters,
 //     ) -> Option<Alignment> {
 //         v_alignment(v, seq.inner, align_params)

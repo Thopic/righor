@@ -1,6 +1,7 @@
 use crate::shared::data_structures::RangeArray1;
 use crate::shared::likelihood::{Likelihood, Likelihood1DContainer, LikelihoodType};
-use crate::shared::parameters::SequenceType;
+use crate::shared::sequence::SequenceType;
+
 use crate::shared::InfEvent;
 use crate::shared::{Feature, InferenceParameters, VJAlignment};
 use crate::v_dj::Features;
@@ -47,8 +48,8 @@ impl AggregatedFeatureStartDAndJ {
         );
 
         let mut total_likelihood = Likelihood::zero(match ip.likelihood_type {
-            SequenceType::Known => LikelihoodType::Scalar,
-            SequenceType::Ambiguous => LikelihoodType::Vector,
+            SequenceType::Dna => LikelihoodType::Scalar,
+            SequenceType::Protein => LikelihoodType::Vector,
         });
 
         // for every parameters, iterate over delj / d / deld3 / deld5
