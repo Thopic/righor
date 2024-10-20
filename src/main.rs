@@ -11,26 +11,24 @@ use kdam::tqdm;
 use ndarray::array;
 use ndarray::Axis;
 use righor::shared::ModelGen;
-use righor::Dna;
 use righor::EntrySequence;
+use righor::{AminoAcid, Dna, DnaLike};
 use std::fs::File;
 
 use righor::shared::model::ModelStructure;
-use righor::shared::{
-    errors::ErrorConstantRate, errors::ErrorUniformRate, DnaLike, ErrorParameters,
-};
+use righor::shared::{errors::ErrorConstantRate, errors::ErrorUniformRate, ErrorParameters};
 use righor::Modelable;
 
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
 fn main() -> Result<()> {
-    // let mut igor_model = righor::vdj::Model::load_from_files(
-    //     Path::new("../Berk_round_15/model_params.txt"),
-    //     Path::new("../Berk_round_15/model_marginals.txt"),
-    //     Path::new("../Berk_round_15/V_gene_CDR3_anchors.csv"),
-    //     Path::new("../Berk_round_15/J_gene_CDR3_anchors.csv"),
-    // )?;
+    let mut a: DnaLike = AminoAcid::from_string("RVTVVSPLHF").unwrap().into();
+    a = a.extract_subsequence(1, a.len());
+    let b = Dna::from_string("GGAGCTCCTATAATTCACCCCTCCACTTT").unwrap();
+    println!("{}", a.to_dna().get_string());
+    println!("{}", b.get_string());
+    println!("{}", a.count_differences(&b));
 
     //TODO: modify before release
     let mut igor_model = righor::Model::load_from_name(

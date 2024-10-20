@@ -12,6 +12,8 @@ use pyo3::prelude::*;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+pub const MAX_NB_ERRORS: usize = 10000;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ErrorParameters {
     ConstantRate(ErrorConstantRate),
@@ -570,6 +572,9 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
         if observation.nb_errors == 0 {
             return (observation.sequence_length as f64 * self.log1mr).exp2();
         }
+        if observation.nb_errors == MAX_NB_ERRORS {
+            return 0.;
+        }
         ((observation.nb_errors as f64) * self.logrs3
             + ((observation.sequence_length - observation.nb_errors) as f64) * self.log1mr)
             .exp2()
@@ -646,6 +651,10 @@ impl Feature<ErrorAlignment> for FeatureErrorUniform {
         if observation.nb_errors == 0 {
             return (observation.sequence_length as f64 * self.log1mr).exp2();
         }
+        if observation.nb_errors == MAX_NB_ERRORS {
+            return 0.;
+        }
+
         ((observation.nb_errors as f64) * self.logrs3
             + ((observation.sequence_length - observation.nb_errors) as f64) * self.log1mr)
             .exp2()

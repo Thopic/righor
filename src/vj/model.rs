@@ -394,7 +394,7 @@ impl Model {
             }
         }
 
-        // normalzie
+        // normalize
         new_p_vj = new_p_vj.normalize_distribution_double()?;
         new_p_del_v_given_v = new_p_del_v_given_v.normalize_distribution()?;
 
@@ -445,7 +445,7 @@ impl Model {
             }
         }
 
-        // normalzie
+        // normalize
         new_p_vj = new_p_vj.normalize_distribution_double()?;
         new_p_del_j_given_j = new_p_del_j_given_j.normalize_distribution()?;
 
@@ -788,7 +788,11 @@ impl Model {
         }
         for ii in 0..arr.shape()[0] {
             for jj in 0..arr.shape()[1] {
-                self.p_j_given_v[[jj, ii]] = arr[[ii, jj]] / self.p_v[ii]
+                if arr[[ii, jj]] == 0.0 {
+                    self.p_j_given_v[[jj, ii]] = arr[[ii, jj]] / self.p_v[ii]
+                } else {
+                    self.p_j_given_v[[jj, ii]] = arr[[ii, jj]] / self.p_v[ii]
+                }
             }
         }
         self.initialize()?;

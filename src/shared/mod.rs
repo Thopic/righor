@@ -6,6 +6,7 @@ pub mod errors;
 pub mod event;
 pub mod feature;
 pub mod gene;
+pub mod likelihood;
 pub mod markov_chain;
 pub mod model;
 pub mod parameters;
@@ -27,6 +28,10 @@ pub use alignment::{
     DAlignment, ErrorAlignment, ErrorDAlignment, ErrorJAlignment, ErrorVAlignment, VJAlignment,
 };
 pub use gene::{genes_matching, Gene, ModelGen};
+pub use likelihood::{
+    Likelihood, Likelihood1DContainer, Likelihood2DContainer, LikelihoodInsContainer,
+    LikelihoodType,
+};
 pub use markov_chain::DNAMarkovChain;
 pub use model::{GenerationResult, Generator, Model, ModelStructure, Modelable};
 pub use parameters::{AlignmentParameters, InferenceParameters};

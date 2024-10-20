@@ -148,8 +148,6 @@ pub struct Model {
     pub p_dj: Array2<f64>,
     pub p_d_given_vj: Array3<f64>,
     pub p_j_given_v: Array2<f64>,
-    // pub first_nt_bias_ins_vd: Array1<f64>,
-    // pub first_nt_bias_ins_dj: Array1<f64>,
     pub thymic_q: f64,
 }
 
@@ -416,6 +414,7 @@ impl Modelable for Model {
 
         let aligned_sequence = sequence.align(self, alignment_params)?;
         let mut result = features.infer(&aligned_sequence, inference_params)?;
+
         result.fill_event(self, &aligned_sequence)?;
 
         // no error: likelihood = pgen
@@ -550,7 +549,7 @@ impl Modelable for Model {
                 let mut errors = vec![0; self.p_del_v_given_v.dim().0];
                 for (del_v, err_delv) in errors.iter_mut().enumerate() {
                     if end_seq > del_v + cdr3_seq.len() {
-                        *err_delv = 10000; // large number
+                        *err_delv = 10000; // large number (ugly hack, but shouldn't create issues)
                     } else if start_seq + del_v <= end_seq
                         && start_gene + del_v <= end_gene
                         && end_seq <= del_v + cdr3_seq.len()
@@ -573,6 +572,7 @@ impl Modelable for Model {
                     errors,
                     score: 0, // meaningless
                     max_del_v: Some(self.p_del_v_given_v.shape()[0]),
+                    gene_sequence: pal_v.clone(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -623,16 +623,33 @@ impl Modelable for Model {
                         *err_delj = 10000; // BIG NUMBER!!
                     } else if del_j + start_seq <= end_seq && del_j + start_gene <= end_gene {
                         *err_delj = cdr3_seq
-                            .extract_subsequence(
-                                (del_j as i64 + start_seq as i64 - start_gene as i64) as usize,
-                                end_seq,
+                            .extract_padded_subsequence(
+                                del_j as i64 + start_seq as i64 - start_gene as i64,
+                                end_seq as i64,
                             )
                             .count_differences(
                                 &pal_j.extract_subsequence(start_gene + del_j, end_gene),
                             );
+                        // println!(
+                        //     "{}",
+                        //     &pal_j
+                        //         .extract_subsequence(start_gene + del_j, end_gene)
+                        //         .get_string()
+                        // );
+                        // println!(
+                        //     "{}",
+                        //     cdr3_seq
+                        //         .extract_subsequence(
+                        //             (del_j as i64 + start_seq as i64 - start_gene as i64) as usize,
+                        //             end_seq,
+                        //         )
+                        //         .to_dna()
+                        //         .get_string()
+                        // );
+                        // println!("DIFF {:?}", err_delj);
                     }
                 }
-
+                //                unimplemented!();
                 Ok(VJAlignment {
                     index,
                     start_seq,
@@ -642,6 +659,7 @@ impl Modelable for Model {
                     errors,
                     score: 0, // meaningless
                     max_del_v: None,
+                    gene_sequence: pal_j.clone(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -657,6 +675,7 @@ impl Modelable for Model {
         let align_params = AlignmentParameters::default();
 
         seq.d_genes = self.make_d_genes_alignments(&seq, &align_params)?;
+
         Ok(seq)
     }
 

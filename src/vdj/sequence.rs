@@ -119,11 +119,7 @@ pub fn align_all_vgenes(
             Some(al) => al,
             None => continue,
         };
-        // println!(
-        //     "{}",
-        //     alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 200)
-        // );
-        // println!("V: {:?}", alignment.score);
+
         let max_del_v = model.p_del_v_given_v.dim().0;
 
         let mut errors = vec![0; max_del_v];
@@ -146,6 +142,7 @@ pub fn align_all_vgenes(
             errors,
             score: alignment.score,
             max_del_v: Some(model.p_del_v_given_v.shape()[0]),
+            gene_sequence: palv.clone(),
         });
     }
     v_genes
@@ -162,12 +159,6 @@ pub fn align_all_jgenes(
         let alignment =
             DnaLike::align_left_right(seq.clone(), DnaLike::from_dna(palj.clone()), align_params);
         if align_params.valid_j_alignment(&alignment) {
-            // println!(
-            //     "{}",
-            //     alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 200)
-            // );
-            // println!("J: {:?}", alignment.score);
-
             let max_del_j = model.p_del_j_given_j.dim().0;
             let mut errors = vec![0; max_del_j];
             for (del_j, err_delj) in errors.iter_mut().enumerate() {
@@ -194,6 +185,7 @@ pub fn align_all_jgenes(
                 errors,
                 score: alignment.score,
                 max_del_v: None,
+                gene_sequence: palj.clone(),
             });
         }
     }

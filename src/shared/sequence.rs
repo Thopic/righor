@@ -5,8 +5,6 @@ use anyhow::{anyhow, Result};
 use bio::alignment::{pairwise, Alignment};
 use std::collections::HashSet;
 
-use nalgebra::{Matrix4, Vector4};
-use ndarray::{Array1, Array2};
 use phf::phf_map;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
@@ -16,6 +14,15 @@ use std::fmt;
 /////////////////////////////////////
 // Structures
 /////////////////////////////////////
+
+// #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
+// #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default)]
+// pub enum DnaType {
+//     #[default]
+//     Dna,
+//     DegenerateDna,
+//     AA,
+// }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
@@ -95,12 +102,44 @@ impl From<AminoAcid> for DnaLikeEnum {
     }
 }
 
+impl From<DnaLikeEnum> for DnaLike {
+    fn from(dnalike: DnaLikeEnum) -> Self {
+        DnaLike { inner: dnalike }
+    }
+}
+
+impl From<Dna> for DnaLike {
+    fn from(dna: Dna) -> Self {
+        DnaLike {
+            inner: DnaLikeEnum::from_dna(dna),
+        }
+    }
+}
+
+impl From<AminoAcid> for DnaLike {
+    fn from(aminoacid: AminoAcid) -> Self {
+        DnaLike {
+            inner: DnaLikeEnum::from_amino_acid(aminoacid),
+        }
+    }
+}
+
 impl DnaLikeEnum {
     pub fn len(&self) -> usize {
         match self {
             DnaLikeEnum::DNA(s) => s.len(),
             DnaLikeEnum::DegenerateDNA(s) => s.len(),
             DnaLikeEnum::AA(s) => s.len(),
+        }
+    }
+
+    // for a sequence of length 2, return all the possible matrix idx
+    // i.e 4*nucleotide[0] + nucleotide[1]
+    pub fn to_matrix_idx(&self) -> Vec<usize> {
+        match self {
+            DnaLikeEnum::DNA(s) => s.to_matrix_idx(),
+            DnaLikeEnum::DegenerateDNA(s) => s.to_matrix_idx(),
+            DnaLikeEnum::AA(s) => s.to_matrix_idx(),
         }
     }
 
@@ -211,6 +250,24 @@ impl DnaLikeEnum {
         }
     }
 
+    // pub fn get_nucleotide_index(&self, pos: i64) -> usize {
+    //     match self {
+    //         DnaLikeEnum::DNA(s) => {
+    //             if pos >= 0 && pos < s.seq.len() as i64 {
+    //                 nucleotides_inv(s.seq[pos as usize])
+    //             } else {
+    //                 nucleotides_inv(b'N') // N
+    //             }
+    //         }
+    //         DnaLikeEnum::DegenerateDNA(_s) => {
+    //             unimplemented!("Not yet.");
+    //         }
+    //         DnaLikeEnum::AA(_s) => {
+    //             unimplemented!("Not yet.");
+    //         }
+    //     }
+    // }
+
     pub fn align_left_right(
         sleft: &DnaLikeEnum,
         sright: &DnaLikeEnum,
@@ -250,30 +307,41 @@ impl DnaLikeEnum {
             DnaLikeEnum::AA(s) => s.translate(),
         }
     }
+
+    // /// return all possible extremities for a given sequence
+    // /// the extremities are encoded in the index form for the 16x16 likelihood matrix
+    // /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
+    // pub fn extremities(&self) -> Vec<(usize, usize)> {
+    //     match self {
+    //         DnaLikeEnum::DNA(s) => s.extremities(),
+    //         DnaLikeEnum::DegenerateDNA(s) => s.extremities(),
+    //         DnaLikeEnum::AA(s) => s.extremities(),
+    //     }
+    // }
 }
 
 impl DegenerateCodon {
-    /// Return a matrix A(τ, σ), where τ is the last nucleotide of the previous codon and
-    /// σ is the last nucleotide
-    pub fn likelihood_matrix(&self, transition_matrix_undefined: &Array2<f64>) -> Matrix4<f64> {
-        let mut matrix = Matrix4::new(
-            0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-        );
+    // Return a matrix A(τ, σ), where τ is the last nucleotide of the previous codon and
+    // σ is the last nucleotide
+    // pub fn likelihood_matrix(&self, transition_matrix_undefined: &Array2<f64>) -> Matrix4<f64> {
+    //     let mut matrix = Matrix4::new(
+    //         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+    //     );
 
-        for x in self.triplets.iter() {
-            for ii in 0..4 {
-                for jj in 0..4 {
-                    if compatible_nucleotides(NUCLEOTIDES[x[2]], NUCLEOTIDES[jj]) {
-                        matrix[(ii, jj)] += transition_matrix_undefined[[ii, x[0]]]
-                            * transition_matrix_undefined[[x[0], x[1]]]
-                            * transition_matrix_undefined[[x[1], jj]];
-                    }
-                }
-            }
-        }
+    //     for x in self.triplets.iter() {
+    //         for ii in 0..4 {
+    //             for jj in 0..4 {
+    //                 if compatible_nucleotides(NUCLEOTIDES[x[2]], NUCLEOTIDES[jj]) {
+    //                     matrix[(ii, jj)] += transition_matrix_undefined[[ii, x[0]]]
+    //                         * transition_matrix_undefined[[x[0], x[1]]]
+    //                         * transition_matrix_undefined[[x[1], jj]];
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        matrix
-    }
+    //     matrix
+    // }
 
     pub fn translate(&self) -> u8 {
         let mut b = None;
@@ -292,97 +360,97 @@ impl DegenerateCodon {
         }
     }
 
-    /// Return the likelihood vector "probability that the next nucleotide after this codon is X".
-    pub fn likelihood_start(
-        &self,
-        start: usize,
-        transition_matrix_undefined: &Array2<f64>,
-    ) -> Vector4<f64> {
-        let mut vector = Vector4::new(0., 0., 0., 0.);
-        if start == 0 {
-            for x in &self.triplets {
-                for ii in 0..4 {
-                    vector[ii] += transition_matrix_undefined[[x[0], x[1]]]
-                        * transition_matrix_undefined[[x[1], x[2]]]
-                        * transition_matrix_undefined[[x[2], ii]];
-                }
-            }
-        } else if start == 1 {
-            for x in &self.triplets {
-                for ii in 0..4 {
-                    vector[ii] += transition_matrix_undefined[[x[1], x[2]]]
-                        * transition_matrix_undefined[[x[2], ii]];
-                }
-            }
-        } else if start == 2 {
-            for x in &self.triplets {
-                for ii in 0..4 {
-                    vector[ii] += transition_matrix_undefined[[x[2], ii]];
-                }
-            }
-        }
-        vector
-    }
+    // /// Return the likelihood vector "probability that the next nucleotide after this codon is X".
+    // pub fn likelihood_start(
+    //     &self,
+    //     start: usize,
+    //     transition_matrix_undefined: &Array2<f64>,
+    // ) -> Vector4<f64> {
+    //     let mut vector = Vector4::new(0., 0., 0., 0.);
+    //     if start == 0 {
+    //         for x in &self.triplets {
+    //             for ii in 0..4 {
+    //                 vector[ii] += transition_matrix_undefined[[x[0], x[1]]]
+    //                     * transition_matrix_undefined[[x[1], x[2]]]
+    //                     * transition_matrix_undefined[[x[2], ii]];
+    //             }
+    //         }
+    //     } else if start == 1 {
+    //         for x in &self.triplets {
+    //             for ii in 0..4 {
+    //                 vector[ii] += transition_matrix_undefined[[x[1], x[2]]]
+    //                     * transition_matrix_undefined[[x[2], ii]];
+    //             }
+    //         }
+    //     } else if start == 2 {
+    //         for x in &self.triplets {
+    //             for ii in 0..4 {
+    //                 vector[ii] += transition_matrix_undefined[[x[2], ii]];
+    //             }
+    //         }
+    //     }
+    //     vector
+    // }
 
-    /// Return the likelihood vector p(ii, last)
-    pub fn likelihood_end(
-        &self,
-        end: usize,
-        transition_matrix_undefined: &Array2<f64>,
-    ) -> Vector4<f64> {
-        let mut vector = Vector4::new(0., 0., 0., 0.);
-        if end == 0 {
-            for x in &self.triplets {
-                for ii in 0..4 {
-                    vector[ii] += transition_matrix_undefined[[ii, x[0]]]
-                        * transition_matrix_undefined[[x[0], x[1]]]
-                        * transition_matrix_undefined[[x[1], x[2]]];
-                }
-            }
-        } else if end == 1 {
-            for x in &self.triplets {
-                for ii in 0..4 {
-                    vector[ii] += transition_matrix_undefined[[ii, x[0]]]
-                        * transition_matrix_undefined[[x[0], x[1]]];
-                }
-            }
-        } else if end == 2 {
-            for x in &self.triplets {
-                for ii in 0..4 {
-                    vector[ii] += transition_matrix_undefined[[ii, x[0]]];
-                }
-            }
-        }
-        vector
-    }
+    // /// Return the likelihood vector p(ii, last)
+    // pub fn likelihood_end(
+    //     &self,
+    //     end: usize,
+    //     transition_matrix_undefined: &Array2<f64>,
+    // ) -> Vector4<f64> {
+    //     let mut vector = Vector4::new(0., 0., 0., 0.);
+    //     if end == 0 {
+    //         for x in &self.triplets {
+    //             for ii in 0..4 {
+    //                 vector[ii] += transition_matrix_undefined[[ii, x[0]]]
+    //                     * transition_matrix_undefined[[x[0], x[1]]]
+    //                     * transition_matrix_undefined[[x[1], x[2]]];
+    //             }
+    //         }
+    //     } else if end == 1 {
+    //         for x in &self.triplets {
+    //             for ii in 0..4 {
+    //                 vector[ii] += transition_matrix_undefined[[ii, x[0]]]
+    //                     * transition_matrix_undefined[[x[0], x[1]]];
+    //             }
+    //         }
+    //     } else if end == 2 {
+    //         for x in &self.triplets {
+    //             for ii in 0..4 {
+    //                 vector[ii] += transition_matrix_undefined[[ii, x[0]]];
+    //             }
+    //         }
+    //     }
+    //     vector
+    // }
 
-    /// Return the likelihood within one codon (special case)
-    pub fn likelihood_one_codon(
-        &self,
-        start: usize,
-        end: usize,
-        transition_matrix: &Array2<f64>,
-    ) -> f64 {
-        // this should depend of the first nucleotide.
-        match (start, end) {
-            (0, 1) => self
-                .triplets
-                .iter()
-                .map(|x| transition_matrix[[x[0], x[1]]])
-                .sum(),
-            (1, 0) => self
-                .triplets
-                .iter()
-                .map(|x| transition_matrix[[x[1], x[2]]])
-                .sum(),
-            (0, 0) => self
-                .triplets
-                .iter()
-                .map(|x| transition_matrix[[x[0], x[1]]] * transition_matrix[[x[1], x[2]]])
-                .sum(),
-            (_, _) => panic!("Wrong values in codon likelihood computation (likelihood_one_codon)"),
-        }
-    }
+    // /// Return the likelihood within one codon (special case)
+    // pub fn likelihood_one_codon(
+    //     &self,
+    //     start: usize,
+    //     end: usize,
+    //     transition_matrix: &Array2<f64>,
+    // ) -> f64 {
+    //     // this should depend of the first nucleotide.
+    //     match (start, end) {
+    //         (0, 1) => self
+    //             .triplets
+    //             .iter()
+    //             .map(|x| transition_matrix[[x[0], x[1]]])
+    //             .sum(),
+    //         (1, 0) => self
+    //             .triplets
+    //             .iter()
+    //             .map(|x| transition_matrix[[x[1], x[2]]])
+    //             .sum(),
+    //         (0, 0) => self
+    //             .triplets
+    //             .iter()
+    //             .map(|x| transition_matrix[[x[0], x[1]]] * transition_matrix[[x[1], x[2]]])
+    //             .sum(),
+    //         (_, _) => panic!("Wrong values in codon likelihood computation (likelihood_one_codon)"),
+    //     }
+    // }
 
     /// Return all the possible codons (64), in a fixed order
     pub fn all_codons() -> Vec<[usize; 3]> {
@@ -413,15 +481,15 @@ impl DegenerateCodon {
                 b'G' => vec![[2, 2, 3], [2, 2, 1], [2, 2, 0], [2, 2, 2]], // GGN
                 b'H' => vec![[1, 0, 3], [1, 0, 1]],                       // CAY
                 b'I' => vec![[0, 3, 3], [0, 3, 1], [0, 3, 0]],            // ATH
-                b'L' => vec![[0, 0, 0], [0, 0, 2]],                       // CTN, TTR
-                b'K' => vec![
-                    [3, 3, 0],
-                    [3, 3, 2],
+                b'L' => vec![
                     [1, 3, 3],
                     [1, 3, 1],
                     [1, 3, 0],
                     [1, 3, 2],
-                ], // AAR
+                    [3, 3, 0],
+                    [3, 3, 2],
+                ], // CTN, TTR
+                b'K' => vec![[0, 0, 0], [0, 0, 2]],                       // AAR
                 b'M' => vec![[0, 3, 2]],                                  // ATG
                 b'N' => vec![[0, 0, 3], [0, 0, 1]],                       //AAY
                 b'P' => vec![[1, 1, 3], [1, 1, 1], [1, 1, 0], [1, 1, 2]], // CCN
@@ -601,7 +669,7 @@ impl DegenerateCodon {
     /// Replace the start nucleotides at the end of the codon with the dna sequence
     pub fn start_replace(&self, start: usize, seq: &Dna) -> DegenerateCodon {
         debug_assert!(seq.len() == start);
-        debug_assert!(start == 1 || start == 2);
+        debug_assert!(start == 1 || start == 2 || start == 0);
         DegenerateCodon {
             triplets: match start {
                 1 => self
@@ -626,11 +694,22 @@ impl DegenerateCodon {
         }
     }
 
-    /// Return the hamming distance between the codon and a dna sequence of length 3
-    pub fn hamming_distance(&self, seq: &Dna) -> usize {
+    /// Return the hamming distance between the codon and a dna sequence
+    /// of length 3 - start - end. start + end <= 2
+    pub fn hamming_distance(&self, seq: &Dna, start: usize, end: usize) -> usize {
+        debug_assert!(seq.len() == 3 - start - end);
+
+        // println!(
+        //     "TRUC: {:?}",
+        //     self.triplets
+        //         .iter()
+        //         .map(|x| (x, seq.hamming_distance_index_slice(x, start, end)))
+        //         .collect::<Vec<_>>()
+        // );
+
         self.triplets
             .iter()
-            .map(|x| seq.hamming_distance_index_slice(x))
+            .map(|x| seq.hamming_distance_index_slice(x, start, end))
             .min()
             .unwrap()
     }
@@ -699,6 +778,208 @@ impl ExtendedDna {
         })
     }
 
+    pub fn to_matrix_idx(&self) -> Vec<usize> {
+        debug_assert!(self.len() == 2);
+
+        let mut result = vec![];
+
+        if self.codon_start == 0 {
+            for cod in self.codons[0].triplets.iter() {
+                result.push(4 * cod[0] + cod[1]);
+            }
+        } else if self.codon_start == 1 {
+            for cod in self.codons[0].triplets.iter() {
+                result.push(4 * cod[1] + cod[2]);
+            }
+        } else if self.codon_start == 2 {
+            for cod1 in self.codons[0].triplets.iter() {
+                for cod2 in self.codons[1].triplets.iter() {
+                    result.push(4 * cod1[2] + cod2[0]);
+                }
+            }
+        }
+        return result;
+    }
+
+    //    /// return all possible extremities for a given sequence
+    //    /// the extremities are encoded in the index form for the 16x16 likelihood matrix
+    //    /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
+    //    pub fn extremities(&self) -> Vec<usize> {}
+
+    // /// For a sequence of length >= 1 return a vector with
+    // /// all possible sequences given the first nucleotide (repr. as 0/1/2/3)
+    // pub fn fix_first(&self, n: usize) -> Vec<(u8, ExtendedDna)> {
+    //     debug_assert!(self.len() >= n);
+
+    //     let left_extr = vec![];
+
+    //     for nuc in 0..4 {
+    //         let first_codon = DegenerateCodon {
+    //             triplets: self.codons[0]
+    //                 .triplets
+    //                 .iter()
+    //                 .filter(|x| x[self.codon_start] == nuc),
+    //         };
+    //         let mut new_codons = self.codons.clone();
+    //         new_codons[0] = first_codon;
+
+    //         left_extr.push(ExtendedDna {
+    //             codons: new_codons,
+    //             codon_start: self.codon_start + 1,
+    //             codon_end: self.codon_end,
+    //         })
+    //     }
+    // }
+
+    /// For a sequence of length larger than 2, return a vector
+    /// with all possible left extremities + the sequence
+    /// For ex (AT|GA)CNTA => [(4*0 + 3, ATCNTA), (4*2 + 0, GACNTA)]
+    pub fn fix_left(&self) -> Vec<(usize, ExtendedDna)> {
+        debug_assert!(self.len() >= 2);
+        let mut left_extr = vec![];
+
+        if self.codon_start == 0 {
+            for left_codon in self.codons[0].triplets.iter() {
+                let mut new_codons = self.codons.clone();
+                new_codons[0] = DegenerateCodon {
+                    triplets: vec![*left_codon],
+                };
+                left_extr.push((
+                    4 * left_codon[0] + left_codon[1],
+                    ExtendedDna {
+                        codons: new_codons,
+                        codon_start: 0,
+                        codon_end: self.codon_end,
+                    },
+                ))
+            }
+        }
+
+        if self.codon_start == 1 {
+            for left_codon in self.codons[0].triplets.iter() {
+                let mut new_codons = self.codons.clone();
+                new_codons[0] = DegenerateCodon {
+                    triplets: vec![*left_codon],
+                };
+                left_extr.push((
+                    4 * left_codon[1] + left_codon[2],
+                    ExtendedDna {
+                        codons: new_codons,
+                        codon_start: 1,
+                        codon_end: self.codon_end,
+                    },
+                ))
+            }
+        }
+
+        if self.codon_start == 2 {
+            for left_codon in self.codons[0].triplets.iter() {
+                for left_2_codon in self.codons[1].triplets.iter() {
+                    let mut new_codons = self.codons.clone();
+                    new_codons[0] = DegenerateCodon {
+                        triplets: vec![*left_codon],
+                    };
+                    new_codons[1] = DegenerateCodon {
+                        triplets: vec![*left_2_codon],
+                    };
+                    left_extr.push((
+                        4 * left_codon[2] + left_2_codon[0],
+                        ExtendedDna {
+                            codons: new_codons,
+                            codon_start: 2,
+                            codon_end: self.codon_end,
+                        },
+                    ))
+                }
+            }
+        }
+        left_extr
+    }
+
+    /// For a sequence, return a vector with all possible right extremities
+    /// (len+1, len+2) + the sequence
+    pub fn fix_right(&self) -> Vec<(usize, ExtendedDna)> {
+        debug_assert!(self.len() >= 2);
+        let mut right_extr = vec![];
+        let idx_last = self.codons.len() - 1;
+
+        if self.codon_end == 0 {
+            // all extremities are possible
+            for a in 0..16 {
+                right_extr.push((a, self.clone()))
+            }
+        }
+        if self.codon_end == 1 {
+            for a in 0..16 {
+                let mut sequence = ExtendedDna {
+                    codons: vec![],
+                    codon_start: self.codon_start,
+                    codon_end: self.codon_end,
+                };
+                for right_codon in self.codons[idx_last].triplets.iter() {
+                    if right_codon[2] == a / 4 {
+                        sequence.codons.push(DegenerateCodon {
+                            triplets: vec![*right_codon],
+                        })
+                    }
+                }
+                right_extr.push((a, sequence));
+            }
+        }
+
+        if self.codon_end == 2 {
+            for a in 0..16 {
+                let mut sequence = ExtendedDna {
+                    codons: vec![],
+                    codon_start: self.codon_start,
+                    codon_end: self.codon_end,
+                };
+                for right_codon in self.codons[idx_last].triplets.iter() {
+                    if 4 * right_codon[1] + right_codon[2] == a {
+                        sequence.codons.push(DegenerateCodon {
+                            triplets: vec![*right_codon],
+                        })
+                    }
+                }
+                right_extr.push((a, sequence));
+            }
+        }
+        right_extr
+    }
+
+    /// Return all possible extremities for a given sequence
+    /// and the sequence with these extremities on.
+    /// Extremities corresponds to 4*s[0] + s[1] and
+    /// 4 * s[len] + s[len+1]
+    pub fn fix_extremities(&self) -> Vec<(usize, usize, ExtendedDna)> {
+        let mut all_extremities = vec![];
+        // first the weird cases where left and right interact
+        if self.len() == 0 {
+            // identity matrix
+            for extr in 0..16 {
+                all_extremities.push((extr, extr, self.clone()))
+            }
+            return all_extremities;
+        } else if self.len() == 1 {
+            for (left_extr, seq) in self.fix_left() {
+                for (right_extr, fixed_seq) in seq.fix_right() {
+                    if right_extr / 4 == left_extr % 4 {
+                        all_extremities.push((left_extr, right_extr, fixed_seq.clone()))
+                    }
+                }
+            }
+            return all_extremities;
+        }
+
+        // now the normal situation where left_extr and right_extr are fully separated
+        for (left_extr, seq) in self.fix_left() {
+            for (right_extr, fixed_seq) in seq.fix_right() {
+                all_extremities.push((left_extr, right_extr, fixed_seq.clone()))
+            }
+        }
+        return all_extremities;
+    }
+
     /// lossy process, remove some information about the codon
     pub fn to_dna(&self) -> Dna {
         let sequence = Dna {
@@ -721,7 +1002,7 @@ impl ExtendedDna {
         //             <-------->                  : extracted sequence
         //             ..........                  : stored data for extracted sequence
         //
-        assert!(end <= self.len()); // TODO add debug
+        debug_assert!(end <= self.len());
 
         let shift_start = start + self.codon_start;
         let shift_end = end + self.codon_start;
@@ -764,52 +1045,38 @@ impl ExtendedDna {
     /// Count the number of difference between the sequence and a template
     /// Hamming distance, choosing the most favorable codon each time
     pub fn count_differences(&self, template: &Dna) -> usize {
-        template.seq[..]
-            .chunks(3)
-            .zip(&self.codons)
-            .map(|(x, y)| y.hamming_distance(&Dna { seq: x.to_vec() }))
-            .sum()
-    }
+        let mut distance = 0;
+        let mut current = 0;
+        for (ii, cs) in self.codons.iter().enumerate() {
+            let start = if ii == 0 { self.codon_start } else { 0 };
+            let end = if ii == self.codons.len() - 1 {
+                self.codon_end
+            } else {
+                0
+            };
 
-    // /// Return the likelihood of the sequence given the transition matrix
-    // /// The first element is taken as fixed and not used to measure the likelihood
-    // pub fn likelihood(&self, transition_matrix: &Array2<f64>, first_nt_bias: &Array1<f64>) -> f64 {
-    //     debug_assert!(self.len() >= 1);
-
-    //     if self.len() == 1 {
-    //         return 1.;
-    //     }
-
-    //     if self.codons.len() == 1 {
-    //         return self.codons[0].likelihood_one_codon(
-    //             self.codon_start,
-    //             self.codon_end,
-    //             transition_matrix,
-    //         );
-    //     }
-
-    //     // first codon
-    //     let mut vector = self.codons[0]
-    //         .likelihood_start(self.codon_start, transition_matrix, first_nt_bias)
-    //         .transpose();
-
-    //     for codon in &self.codons[1..self.codons.len() - 1] {
-    //         vector = vector * codon.likelihood_matrix(transition_matrix, first_nt_bias);
-    //     }
-
-    //     // last codon
-    //     (vector
-    //         * self
-    //             .codons
-    //             .last()
-    //             .unwrap() // we know that there is at least one element
-    //             .likelihood_end(self.codon_end, transition_matrix, first_nt_bias))[(0, 0)]
-    // }
-
-    pub fn update_transition_matrix(&self, tm: &mut Array2<f64>, likelihood: f64) {
-        // TODO: improve this.
-        // Right now bad approximation (but it's not for learning, so it's probably fine-ish)
-        self.to_dna().update_transition_matrix(tm, likelihood);
+            distance += cs.hamming_distance(
+                &Dna {
+                    seq: template.seq[current..current + 3 - start - end].to_vec(),
+                },
+                start,
+                end,
+            );
+            // println!(
+            //     "{:?} {:?}",
+            //     cs,
+            //     Dna {
+            //         seq: template.seq[current..current + 3 - start - end]
+            //             .iter()
+            //             .cloned()
+            //             .collect::<Vec<_>>()
+            //     }
+            //     .to_string()
+            // );
+            // println!("DIST {}", distance);
+            current += 3 - start - end;
+        }
+        distance
     }
 
     pub fn len(&self) -> usize {
@@ -1229,6 +1496,21 @@ impl Dna {
             seq: s.as_bytes().to_vec(),
         })
     }
+
+    // for a sequence of length 2, return the matrix idx
+    // i.e 4*nucleotide[0] + nucleotide[1]
+    pub fn to_matrix_idx(&self) -> Vec<usize> {
+        vec![(4 * self.seq[0] + self.seq[1]).into()]
+    }
+
+    /// return all possible extremities for a given sequence
+    /// the extremities are encoded in the index form for the 16x16 likelihood matrix
+    /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
+    pub fn extremities(&self) -> Vec<(usize, usize)> {
+        (0..16)
+            .map(|x| ((4 * self.seq[0] + self.seq[1]).into(), x))
+            .collect()
+    }
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
@@ -1299,10 +1581,12 @@ impl Dna {
     }
 
     // also work with index of usize (A,C,G,T => 0,1,2,3)
-    pub fn hamming_distance_index_slice(&self, d: &[usize]) -> usize {
+    pub fn hamming_distance_index_slice(&self, d: &[usize; 3], start: usize, end: usize) -> usize {
+        debug_assert!(start + end <= 2);
+        debug_assert!(self.len() == 3 - start - end);
         self.seq
             .iter()
-            .zip(d)
+            .zip(d[start..3 - end].iter())
             .map(|(&x, &y)| {
                 if compatible_nucleotides(x, NUCLEOTIDES[y]) {
                     0
@@ -1324,97 +1608,24 @@ impl Dna {
         }
     }
 
-    pub fn likelihood(&self, transition_matrix: &Array2<f64>, _first_nt_bias: &Array1<f64>) -> f64 {
-        let mut proba = 1.;
-        for ii in 1..self.len() {
-            proba *= transition_matrix[[
-                nucleotides_inv(self.seq[ii - 1]),
-                nucleotides_inv(self.seq[ii]),
-            ]];
-        }
-        proba
-    }
-
-    pub fn update_transition_matrix(&self, tm: &mut Array2<f64>, likelihood: f64) {
-        for ii in 1..self.len() {
-            tm[[
-                nucleotides_inv(self.seq[ii - 1]),
-                nucleotides_inv(self.seq[ii]),
-            ]] += likelihood
-        }
-    }
-
-    // pub fn likelihood_degenerate(
-    //     &self,
-    //     transition_matrix: &Array2<f64>,
-    //     first_nt_bias: &Array1<f64>,
-    // ) -> f64 {
+    // pub fn likelihood(&self, transition_matrix: &Array2<f64>, _first_nt_bias: &Array1<f64>) -> f64 {
     //     let mut proba = 1.;
-
-    //     // deal with first element
-    //     let mut vector = make_start_vector_markov(self.seq[0], first_nt_bias).transpose();
-
-    //     // let mut proba = 1.;
     //     for ii in 1..self.len() {
-    //         vector = vector * make_matrix_markov(self.seq[ii - 1], self.seq[ii], transition_matrix)
+    //         proba *= transition_matrix[[
+    //             nucleotides_inv(self.seq[ii - 1]),
+    //             nucleotides_inv(self.seq[ii]),
+    //         ]];
     //     }
-
-    //     vector * make_end_vector_markov(self.seq[self.len() - 1])[(0, 0)]
+    //     proba
     // }
 
-    // fn make_matrix_markov(previous_nuc: u8, next_nuc: u8, tm: &Array2<f64>) -> Matrix4<f64> {
-    //     let mut matrix = Matrix4::new(
-    //         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-    //     );
-
-    //     for ii in 0..4 {
-    //         for jj in 0..4 {
-    //             if compatible_nucleotides(NUCLEOTIDES[ii], previous_nuc)
-    //                 && compatible_nucleotides(NUCLEOTIDES[jj], next_nuc)
-    //             {
-    //                 matrix[(ii, jj)] = tm[[ii, jj]]
-    //             }
-    //         }
-    //     }
-    //     matrix
-    // }
-
-    // fn make_start_vector(first_nuc: u8, nt_bias: &Array1<f64>) -> Vector4<f64> {
-    //     let mut vector = Vector4::new(0., 0., 0., 0.);
-    //     for ii in 0..4 {
-    //         if compatible_nucleotides(NUCLEOTIDES[ii], first_nuc) {
-    //             vector[ii] = nt_bias[ii]
-    //         }
-    //     }
-    //     vector / vector.sum()
-    // }
-
-    // fn make_end_vector(first_nuc: u8) -> Vector4<f64> {
-    //     let mut vector = Vector4::new(0., 0., 0., 0.);
-    //     for ii in 0..4 {
-    //         for jj in 0..4 {
-    //             if compatible_nucleotides(NUCLEOTIDES[ii], first_nuc) {
-    //                 vector[ii] = 1.
-    //             }
-    //         }
-    //     }
-    //     vector
-    // }
-
-    // pub fn update_transition_matrix_degenerate(&self, tm: &mut Array2<f64>, likelihood: f64) {
+    // pub fn update_transition_matrix(&self, tm: &mut Array2<f64>, likelihood: f64) {
     //     for ii in 1..self.len() {
-    //         for nuc1 in 0..4 {
-    //             for nuc2 in 0..4 {
-    //                 if compatible_nucleotides(nuc1, self.seq[ii - 1])
-    //                     && compatible_nucleotides(nuc2, self.seq[ii])
-    //                 {
-    //                     tm[[nucleotides_inv(nuc1), nucleotides_inv(nuc2)]] += likelihood
-    //                 }
-    //             }
-    //         }
+    //         tm[[
+    //             nucleotides_inv(self.seq[ii - 1]),
+    //             nucleotides_inv(self.seq[ii]),
+    //         ]] += likelihood
     //     }
-
-    //     self.to_dna().update_transition_matrix(tm, likelihood);
     // }
 
     pub fn extract_subsequence(&self, start: usize, end: usize) -> Dna {
@@ -1567,6 +1778,25 @@ impl AminoAcid {
             seq: s.as_bytes().to_vec(),
         });
     }
+
+    pub fn to_dnas(self) -> Vec<Dna> {
+        let mut all_nts = vec![Dna::new()];
+        for amino in self.seq {
+            let codons = DegenerateCodon::from_amino(amino);
+            let mut new_combinations = Vec::new();
+
+            for cod in codons.triplets {
+                for nt in &all_nts {
+                    let mut new_seq = nt.seq.clone();
+                    new_seq.extend(cod.iter().map(|&x| NUCLEOTIDES[x]));
+                    new_combinations.push(Dna { seq: new_seq });
+                }
+            }
+
+            all_nts = new_combinations;
+        }
+        all_nts
+    }
 }
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -1700,6 +1930,10 @@ impl DnaLike {
         }
     }
 
+    // pub fn get_nucleotide_index(&self, pos: i64) -> usize {
+    //     self.inner.get_nucleotide_index(pos)
+    // }
+
     pub fn align_left_right(
         sleft: DnaLike,
         sright: DnaLike,
@@ -1719,12 +1953,4 @@ impl DnaLike {
     pub fn count_differences(&self, template: &Dna) -> usize {
         self.inner.count_differences(template)
     }
-
-    // pub fn likelihood(&self, transition_matrix: &Array2<f64>, first_nt_bias: &Array1<f64>) -> f64 {
-    //     self.inner.likelihood(transition_matrix, first_nt_bias)
-    // }
-
-    // pub fn update_transition_matrix(&self, tm: &mut Array2<f64>, likelihood: f64) {
-    //     self.inner.update_transition_matrix(tm, likelihood)
-    // }
 }

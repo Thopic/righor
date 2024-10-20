@@ -46,6 +46,7 @@ dyn-clone = "1.0.17"
 memoize = "0.4.2"
 cfg-if = "1.0"
 nalgebra = {version = "0.32.6"}
+nohash-hasher = "0.2"
 
 [features]
 default = ["kdam"]

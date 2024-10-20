@@ -147,9 +147,9 @@ impl Features {
                 features_d.push(feature_d.unwrap());
             }
         }
-
         if features_d.is_empty() {
-            println!("This probably shouldn't happen...");
+            // this will happen if (for example), the error rate is 0
+            // println!("This probably shouldn't happen...");
             return Ok(ResultInference::impossible());
         }
 
@@ -169,41 +169,40 @@ impl Features {
             }
         }
 
-        if ip.infer_features {
-            // disaggregate the v/dj features
-            for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
-                match v {
-                    Some(f) => f.disaggregate(val, &mut self.delv, &mut self.error, ip),
-                    None => continue,
-                }
+        // disaggregate the v/dj features
+        for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
+            match v {
+                Some(f) => f.disaggregate(val, &mut self.delv, &mut self.error, ip),
+                None => continue,
             }
-            for (jal, dj) in sequence.j_genes.iter().zip(features_dj.iter_mut()) {
-                match dj {
-                    Some(f) => f.disaggregate(
-                        jal,
-                        &mut features_d,
-                        &mut agg_ins_dj,
-                        self,
-                        &mut result.best_event,
-                        ip,
-                    ),
-                    None => continue,
-                }
-            }
-            for (d_idx, d) in features_d.iter_mut().enumerate() {
-                d.disaggregate(
-                    &sequence.get_specific_dgene(d_idx),
-                    &mut self.deld,
-                    &mut self.error,
+        }
+        for (jal, dj) in sequence.j_genes.iter().zip(features_dj.iter_mut()) {
+            match dj {
+                Some(f) => f.disaggregate(
+                    jal,
+                    &mut features_d,
+                    &mut agg_ins_dj,
+                    self,
                     &mut result.best_event,
                     ip,
-                );
+                ),
+                None => continue,
             }
-
-            // disaggregate the insertion features
-            agg_ins_vd.disaggregate(&sequence.sequence, &mut self.insvd, ip);
-            agg_ins_dj.disaggregate(&sequence.sequence, &mut self.insdj, ip);
         }
+        for (d_idx, d) in features_d.iter_mut().enumerate() {
+            d.disaggregate(
+                &sequence.get_specific_dgene(d_idx),
+                &mut self.deld,
+                &mut self.error,
+                &mut result.best_event,
+                ip,
+            );
+        }
+
+        // disaggregate the insertion features
+        agg_ins_vd.disaggregate(&sequence.sequence, &mut self.insvd, ip);
+        agg_ins_dj.disaggregate(&sequence.sequence, &mut self.insdj, ip);
+
         if result.likelihood > 0. {
             self.cleanup(result.likelihood)?;
         }
@@ -241,13 +240,20 @@ impl Features {
 
         for ev in min_ev..max_ev {
             let likelihood_v = feature_v.likelihood(ev);
-            if likelihood_v * likelihood_vj < cutoff {
+            if (likelihood_v * likelihood_vj).max() < cutoff {
                 continue;
             }
             for sd in cmp::max(ev, min_sd)..max_sd {
-                let likelihood_ins_vd = ins_vd.likelihood(ev, sd);
+                let likelihood_ins_vd = ins_vd.likelihood(
+                    ev,
+                    sd,
+                    feature_v
+                        .alignment
+                        .get_last_nucleotide((feature_v.end_v3 - ev) as usize),
+                );
                 let likelihood_dj = feature_dj.likelihood(sd);
-                let likelihood = likelihood_v * likelihood_ins_vd * likelihood_dj * likelihood_vj;
+                let likelihood = (likelihood_v * likelihood_ins_vd * likelihood_dj * likelihood_vj)
+                    .to_scalar() as f64;
 
                 if likelihood > cutoff {
                     current_result.likelihood += likelihood;
@@ -273,7 +279,14 @@ impl Features {
                     if ip.infer_features {
                         feature_v.dirty_update(ev, likelihood);
                         feature_dj.dirty_update(sd, likelihood);
-                        ins_vd.dirty_update(ev, sd, likelihood);
+                        ins_vd.dirty_update(
+                            ev,
+                            sd,
+                            feature_v
+                                .alignment
+                                .get_last_nucleotide((feature_v.end_v3 - ev) as usize),
+                            likelihood,
+                        );
                         self.vj
                             .dirty_update((feature_v.index, feature_dj.j_index()), likelihood);
                     }

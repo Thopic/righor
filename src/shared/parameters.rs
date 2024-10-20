@@ -1,4 +1,5 @@
 //! The structs used for specifying the parameters of the model
+
 use bio::alignment::{pairwise, Alignment};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
@@ -12,6 +13,14 @@ pub struct AlignmentParameters {
     pub min_score_j: i32,
     pub max_error_d: usize,
     pub left_v_cutoff: usize,
+}
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Clone, Debug, Copy, Default)]
+pub enum SequenceType {
+    #[default]
+    Known,
+    Ambiguous,
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
@@ -35,6 +44,9 @@ pub struct InferenceParameters {
     pub infer_insertions: bool,
     /// If true (default) infer the deletion distribution & gene usage
     pub infer_genes: bool,
+
+    /// Type of sequence
+    pub likelihood_type: SequenceType,
 }
 
 impl Default for AlignmentParameters {
@@ -172,6 +184,7 @@ impl Default for InferenceParameters {
             compute_pgen: true,
             infer_insertions: true,
             infer_genes: true,
+            likelihood_type: SequenceType::default(),
         }
     }
 }

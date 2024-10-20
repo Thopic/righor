@@ -33,9 +33,6 @@ pub trait Feature<T> {
     fn dirty_update(&mut self, observation: T, likelihood: f64);
     fn likelihood(&self, observation: T) -> f64;
     fn scale_dirty(&mut self, factor: f64);
-    // fn average(iter: impl Iterator<Item = Self> + Clone) -> Result<Vec<Self>>
-    // where
-    //     Self: Sized;
 }
 
 // One-dimensional categorical distribution
@@ -396,62 +393,46 @@ pub struct InsertionFeature {
     // give the likelihood of a given sequence
     pub transition: Arc<DNAMarkovChain>,
 
-    // pub transition_matrix: Array2<f64>,
-
-    // pub initial_distribution: Array1<f64>,
-    // // include non-standard nucleotides & dna-like
-    // transition_matrix_internal: Array2<f64>,
-
     // for updating
     pub transition_matrix_dirty: Array2<f64>,
     pub length_distribution_dirty: Array1<f64>,
-    //  initial_distribution_dirty: Array1<f64>,
 }
 
-impl Feature<&DnaLike> for InsertionFeature {
-    /// Observation plus one contains the sequence of interest with the nucleotide
-    /// preceding it, so if we're interested in the insertion CTGGC that pops up
-    /// in the sequence CAACTGGCAC we would send ACTGGC.
-    fn dirty_update(&mut self, observation_plus_one: &DnaLike, likelihood: f64) {
-        if observation_plus_one.len() == 1 {
+impl InsertionFeature {
+    /// - observation: sequence of interest
+    /// - first_nucleotide: the nucleotide preceding the sequence of interest
+    /// - likelihood: likelihood value to be updated
+    pub fn dirty_update(
+        &mut self,
+        observation: &DnaLike,
+        first_nucleotide: usize,
+        likelihood: f64,
+    ) {
+        if observation.len() == 0 {
             self.length_distribution_dirty[0] += likelihood;
             return;
         }
-        self.length_distribution_dirty[observation_plus_one.len() - 1] += likelihood;
+        self.length_distribution_dirty[observation.len()] += likelihood;
 
-        self.transition_matrix_dirty = self.transition.update(observation_plus_one, likelihood);
-
-        // for ii in 1..observation_plus_one.len() {
-        //     // TODO: The way I deal with N is not quite exact, need to fix that (not a big deal though)
-        //     // if (likelihood != 0.) {
-        //     //     println!("{}\t{}", observation_plus_one.get_string(), likelihood);
-        //     // }
-        //     if (observation_plus_one.seq[ii - 1] != b'N') && (observation_plus_one.seq[ii] != b'N')
-        //     {
-        //         self.transition_matrix_dirty[[
-        //             nucleotides_inv(observation_plus_one.seq[ii - 1]),
-        //             nucleotides_inv(observation_plus_one.seq[ii]),
-        //         ]] += likelihood
-        //     }
-        // }
+        self.transition_matrix_dirty =
+            self.transition
+                .update(observation, first_nucleotide, likelihood);
     }
 
-    /// Observation plus one contains the sequence of interest with the nucleotide
-    /// preceding it, so if we're interested in the insertion CTGGC that pops up
-    /// in the sequence CAACTGGCAC we would send ACTGGC.
-    fn likelihood(&self, observation_plus_one: &DnaLike) -> f64 {
-        if observation_plus_one.len() > self.length_distribution.len() {
+    /// - observation: sequence of interest
+    /// - first_nucleotide: the nucleotide preceding the sequence of interest
+    pub fn likelihood(&self, observation: &DnaLike, first_nucleotide: usize) -> f64 {
+        if observation.len() >= self.length_distribution.len() {
             return 0.;
         }
-        if observation_plus_one.len() == 1 {
+        if observation.len() == 0 {
             return self.length_distribution[0];
         }
-        let len = observation_plus_one.len() - 1;
-        self.transition.likelihood(observation_plus_one) * self.length_distribution[len]
-        //observation_plus_one.likelihood(&self.transition_matrix, &self.initial_distribution)
+        let len = observation.len();
+        self.transition.likelihood(observation, first_nucleotide) * self.length_distribution[len]
     }
 
-    fn scale_dirty(&mut self, factor: f64) {
+    pub fn scale_dirty(&mut self, factor: f64) {
         self.length_distribution_dirty *= factor;
         self.transition_matrix_dirty *= factor;
     }
@@ -468,25 +449,16 @@ impl InsertionFeature {
                 let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
                 let mut insfeat = self.clone();
                 // we just modify the "dirty" matrix (no choice ...)
-                // insfeat.transition.set_transition(
-                //     &matrix.dot(&insfeat.transition.transition_matrix.dot(&matrix)),
-                // );
                 insfeat.transition_matrix_dirty =
                     matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
-                //                insfeat.define_internal();
                 insfeat
             }
             FeatureError::UniformRate(f) => {
                 let mut insfeat = self.clone();
                 let rho = 4. * f.get_error_rate() / 3.;
                 let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
-                // insfeat.transition.set_transition(
-                //     &matrix.dot(&insfeat.transition.transition_matrix.dot(&matrix)),
-                // );
                 insfeat.transition_matrix_dirty =
                     matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
-
-                //insfeat.define_internal();
                 insfeat
             }
         }
@@ -531,23 +503,6 @@ impl InsertionFeature {
         self.length_distribution.len()
     }
 
-    /// deal with undefined (N, R, Y ...) nucleotides
-    // fn define_internal(&mut self) {
-    //     for aa in 0..4 {
-    //         for ii in 0..15 {
-    //             if compatible_nucleotides(NUCLEOTIDES[aa], NUCLEOTIDES[ii]) {
-    //                 for bb in 0..4 {
-    //                     for jj in 0..15 {
-    //                         if compatible_nucleotides(NUCLEOTIDES[bb], NUCLEOTIDES[jj]) {
-    //                             self.transition_matrix_internal[[ii, jj]] +=
-    //                                 self.transition_matrix[[aa, bb]];
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
     pub fn average(
         mut iter: impl Iterator<Item = InsertionFeature> + Clone,
     ) -> Result<InsertionFeature> {
@@ -779,7 +734,6 @@ impl ResultInference {
                     .extract_padded_subsequence(event.end_d, event.start_j)
                     .into(),
             );
-
             event.d_segment = Some(
                 sequence
                     .sequence
