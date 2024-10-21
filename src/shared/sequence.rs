@@ -701,13 +701,15 @@ impl DegenerateCodon {
     pub fn hamming_distance(&self, seq: &Dna, start: usize, end: usize) -> usize {
         debug_assert!(seq.len() == 3 - start - end);
 
-        // println!(
-        //     "TRUC: {:?}",
-        //     self.triplets
-        //         .iter()
-        //         .map(|x| (x, seq.hamming_distance_index_slice(x, start, end)))
-        //         .collect::<Vec<_>>()
-        // );
+        let a = self
+            .triplets
+            .iter()
+            .map(|x| seq.hamming_distance_index_slice(x, start, end))
+            .min()
+            .unwrap();
+        if a > seq.len() {
+            println!("TRUC: {:?} {:?} {:?}", a, 3 - start - end, seq.len(),);
+        }
 
         self.triplets
             .iter()
@@ -1075,7 +1077,7 @@ impl DegenerateCodonSequence {
             //     }
             //     .to_string()
             // );
-            // println!("DIST {}", distance);
+            //             println!("DIST {} {}", distance, template.len());
             current += 3 - start - end;
         }
         distance
@@ -1588,7 +1590,10 @@ impl Dna {
 
     // also work with index of usize (A,C,G,T => 0,1,2,3)
     pub fn hamming_distance_index_slice(&self, d: &[usize; 3], start: usize, end: usize) -> usize {
-        debug_assert!(start + end <= 2);
+        debug_assert!(start + end <= 3);
+        if start + end == 3 {
+            return 0;
+        }
         debug_assert!(self.len() == 3 - start - end);
         self.seq
             .iter()

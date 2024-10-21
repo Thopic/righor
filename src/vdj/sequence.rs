@@ -1,3 +1,4 @@
+use crate::shared::errors::MAX_NB_ERRORS;
 use crate::shared::DnaLike;
 use crate::shared::{utils::difference_as_i64, AlignmentParameters, DAlignment, Dna, VJAlignment};
 use crate::vdj::{Event, Model};
@@ -164,7 +165,7 @@ pub fn align_all_jgenes(
             for (del_j, err_delj) in errors.iter_mut().enumerate() {
                 if (del_j as i64 - alignment.ystart as i64 + alignment.xstart as i64) < 0 {
                     // in theory this never happens (ach it does ?)
-                    *err_delj = 100000; // very high
+                    *err_delj = MAX_NB_ERRORS; // very high
                     panic!("The sequence should fully cover the J gene.")
                 }
                 if del_j <= palj.len() && del_j <= alignment.yend - alignment.ystart {

@@ -42,22 +42,17 @@ fn main() -> Result<()> {
 
     // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
 
-    let sequence = righor::Dna::from_string("TGTGCCAGCCGACGGACAGCTAACTATGGCTACACCTTC")?;
-
     let mut align_params = righor::AlignmentParameters::default();
     align_params.left_v_cutoff = 500;
     let mut inference_params = righor::InferenceParameters::default();
     inference_params.min_likelihood = 0.;
     inference_params.min_ratio_likelihood = 0.;
-    // let al = igor_model.align_from_cdr3(
-    //     &DnaLike::from_dna(sequence),
-    //     &igor_model.get_v_segments(),
-    //     &igor_model.get_j_segments(),
-    // )?;
+
+    let sequence = righor::AminoAcid::from_string("CASRGGF")?;
     let result = if let righor::Model::VDJ(m) = igor_model {
         m.evaluate(
             EntrySequence::NucleotideCDR3((
-                DnaLike::from_dna(sequence),
+                DnaLike::from_amino_acid(sequence),
                 m.get_v_segments(),
                 m.get_j_segments(),
             )),
@@ -68,6 +63,28 @@ fn main() -> Result<()> {
         panic!("")
     };
     println!("{:?}", result);
+
+    // let sequence = righor::Dna::from_string("TGTGCCAGCCGACGGACAGCTAACTATGGCTACACCTTC")?;
+
+    // let al = igor_model.align_from_cdr3(
+    //     &DnaLike::from_dna(sequence),
+    //     &igor_model.get_v_segments(),
+    //     &igor_model.get_j_segments(),
+    // )?;
+    // let result = if let righor::Model::VDJ(m) = igor_model {
+    //     m.evaluate(
+    //         EntrySequence::NucleotideCDR3((
+    //             DnaLike::from_dna(sequence),
+    //             m.get_v_segments(),
+    //             m.get_j_segments(),
+    //         )),
+    //         &align_params,
+    //         &inference_params,
+    //     )
+    // } else {
+    //     panic!("")
+    // };
+    // println!("{:?}", result);
 
     // let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
 

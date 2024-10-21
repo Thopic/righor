@@ -655,6 +655,11 @@ impl Feature<ErrorAlignment> for FeatureErrorUniform {
             return 0.;
         }
 
+        // println!(
+        //     "{:?} {:?}",
+        //     observation.sequence_length, observation.nb_errors
+        // );
+
         ((observation.nb_errors as f64) * self.logrs3
             + ((observation.sequence_length - observation.nb_errors) as f64) * self.log1mr)
             .exp2()

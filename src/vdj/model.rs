@@ -3,7 +3,7 @@ use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
 use crate::shared::utils::{Normalize2, NormalizeLast};
-use crate::shared::{self, distributions::*, model::GenerationResult};
+use crate::shared::{self, distributions::*, errors::MAX_NB_ERRORS, model::GenerationResult};
 use crate::shared::{
     utils::sorted_and_complete, utils::sorted_and_complete_0start, utils::Normalize,
     utils::Normalize3, AlignmentParameters, AminoAcid, DAlignment, Dna, Features, Gene, InfEvent,
@@ -136,7 +136,7 @@ pub struct Model {
     pub gen: Generative,
     pub markov_coefficients_vd: Array2<f64>,
     pub markov_coefficients_dj: Array2<f64>,
-    pub range_del_v: (i64, i64),
+    pub range_del_v: (i64, i64), // range of "real deletions", e.g -5, 12 (neg. del. => pal. ins.)
     pub range_del_j: (i64, i64),
     pub range_del_d3: (i64, i64),
     pub range_del_d5: (i64, i64),
@@ -549,7 +549,7 @@ impl Modelable for Model {
                 let mut errors = vec![0; self.p_del_v_given_v.dim().0];
                 for (del_v, err_delv) in errors.iter_mut().enumerate() {
                     if end_seq > del_v + cdr3_seq.len() {
-                        *err_delv = 10000; // large number (ugly hack, but shouldn't create issues)
+                        *err_delv = MAX_NB_ERRORS; // large number (ugly hack, but shouldn't create issues)
                     } else if start_seq + del_v <= end_seq
                         && start_gene + del_v <= end_gene
                         && end_seq <= del_v + cdr3_seq.len()
@@ -562,6 +562,8 @@ impl Modelable for Model {
                             );
                     }
                 }
+
+                println!("ERRORS V: {:?}", errors);
 
                 Ok(VJAlignment {
                     index,
@@ -601,13 +603,12 @@ impl Modelable for Model {
                 // begin_seq is the position of the start of the sequence
                 // with respect to the start of the gene. Can be <= 0 if the J gene fully
                 // cover the sequence (plausible)
-                let begin_seq = (cdr3_seq.len() - cdr3_pos - 3) as i64 + self.range_del_j.0 as i64;
-
+                let begin_seq = cdr3_seq.len() as i64 - cdr3_pos as i64 - 3 + self.range_del_j.0;
                 let start_seq = if begin_seq < 0 { 0 } else { begin_seq as usize };
 
                 // if the J gene fully cover, the alignment start is later in the sequence
                 let start_gene = if begin_seq < 0 {
-                    3 + cdr3_pos - cdr3_seq.len() as usize
+                    (3 + cdr3_pos as i64 - cdr3_seq.len() as i64 - self.range_del_j.0) as usize
                 } else {
                     0
                 };
@@ -619,37 +620,23 @@ impl Modelable for Model {
                 let end_gene = start_gene + (end_seq - start_seq);
                 let mut errors = vec![0; self.p_del_j_given_j.dim().0];
                 for (del_j, err_delj) in errors.iter_mut().enumerate() {
+                    //
                     if (del_j as i64 + start_seq as i64 - start_gene as i64) < 0 {
-                        *err_delj = 10000; // BIG NUMBER!!
-                    } else if del_j + start_seq <= end_seq && del_j + start_gene <= end_gene {
+                        *err_delj = MAX_NB_ERRORS;
+                    } else if del_j as i64 + start_seq as i64 - start_gene as i64 <= end_seq as i64
+                        && del_j <= end_gene
+                    {
                         *err_delj = cdr3_seq
                             .extract_padded_subsequence(
                                 del_j as i64 + start_seq as i64 - start_gene as i64,
                                 end_seq as i64,
                             )
-                            .count_differences(
-                                &pal_j.extract_subsequence(start_gene + del_j, end_gene),
-                            );
-                        // println!(
-                        //     "{}",
-                        //     &pal_j
-                        //         .extract_subsequence(start_gene + del_j, end_gene)
-                        //         .get_string()
-                        // );
-                        // println!(
-                        //     "{}",
-                        //     cdr3_seq
-                        //         .extract_subsequence(
-                        //             (del_j as i64 + start_seq as i64 - start_gene as i64) as usize,
-                        //             end_seq,
-                        //         )
-                        //         .to_dna()
-                        //         .get_string()
-                        // );
-                        // println!("DIFF {:?}", err_delj);
+                            .count_differences(&pal_j.extract_subsequence(del_j, end_gene));
                     }
                 }
+                println!("ERRORS J: {:?}", errors);
                 //                unimplemented!();
+
                 Ok(VJAlignment {
                     index,
                     start_seq,
