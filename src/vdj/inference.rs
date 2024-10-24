@@ -31,11 +31,11 @@ impl Features {
             deld: CategoricalFeature2g1::new(&model.p_del_d5_del_d3)?, // dim: (d5, d3, d)
             insvd: InsertionFeature::new(
                 &model.p_ins_vd,
-                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_vd)?),
+                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_vd, false)?),
             )?,
             insdj: InsertionFeature::new(
                 &model.p_ins_dj,
-                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_dj)?),
+                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_dj, true)?),
             )?,
             error: model.error.get_feature()?,
         })
@@ -97,6 +97,9 @@ impl Features {
         sequence: &Sequence,
         ip: &InferenceParameters,
     ) -> Result<ResultInference> {
+        // println!("VAL {:?}", sequence.v_genes[0]);
+        // println!("JAL {:?}", sequence.j_genes[0]);
+
         // Estimate the likelihood of all possible insertions
         let mut ins_vd = match FeatureVD::new(
             sequence,
@@ -154,34 +157,36 @@ impl Features {
             }
         }
 
-        // disaggregate the insertion features
-        ins_vd.disaggregate(&sequence.sequence, &mut self.insvd, ip);
-        ins_dj.disaggregate(&sequence.sequence, &mut self.insdj, ip);
+        if ip.infer_features {
+            // disaggregate the insertion features
+            ins_vd.disaggregate(&sequence.sequence, &mut self.insvd, ip);
+            ins_dj.disaggregate(&sequence.sequence, &mut self.insdj, ip);
 
-        // disaggregate the v/d/j features
-        for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
-            match v {
-                Some(f) => f.disaggregate(val, &mut self.delv, &mut self.error, ip),
-                None => continue,
+            // disaggregate the v/d/j features
+            for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
+                match v {
+                    Some(f) => f.disaggregate(val, &mut self.delv, &mut self.error, ip),
+                    None => continue,
+                }
             }
-        }
-        for (jal, j) in sequence.j_genes.iter().zip(features_j.iter_mut()) {
-            match j {
-                Some(f) => f.disaggregate(jal, &mut self.delj, &mut self.error, ip),
-                None => continue,
+            for (jal, j) in sequence.j_genes.iter().zip(features_j.iter_mut()) {
+                match j {
+                    Some(f) => f.disaggregate(jal, &mut self.delj, &mut self.error, ip),
+                    None => continue,
+                }
             }
-        }
 
-        for (d_idx, d) in features_d.iter_mut().enumerate() {
-            match d {
-                Some(f) => f.disaggregate(
-                    &sequence.get_specific_dgene(d_idx),
-                    &mut self.deld,
-                    &mut self.error,
-                    &mut result.best_event,
-                    ip,
-                ),
-                None => continue,
+            for (d_idx, d) in features_d.iter_mut().enumerate() {
+                match d {
+                    Some(f) => f.disaggregate(
+                        &sequence.get_specific_dgene(d_idx),
+                        &mut self.deld,
+                        &mut self.error,
+                        &mut result.best_event,
+                        ip,
+                    ),
+                    None => continue,
+                }
             }
         }
 
@@ -203,6 +208,7 @@ impl Features {
         sequence: &Sequence,
         ip: &InferenceParameters,
     ) -> Result<ResultInference> {
+        debug_assert!(!sequence.sequence.is_protein());
         let mut result = ResultInference::impossible();
 
         // Main loop
@@ -229,8 +235,8 @@ impl Features {
                                         continue;
                                     }
 
-                                    let mut ins_dj = sequence.get_subsequence(d_end, j_start);
-                                    ins_dj.reverse();
+                                    let ins_dj = sequence.get_subsequence(d_end, j_start);
+                                    //ins_dj.reverse();
                                     let ins_vd = sequence.get_subsequence(v_end, d_start);
 
                                     let last_v_nucleotide = val.get_last_nucleotide(delv);
@@ -244,10 +250,18 @@ impl Features {
                                         * self.delv.likelihood((delv, val.index))
                                         * self.delj.likelihood((delj, jal.index))
                                         * self.deld.likelihood((deld5, deld3, dal.index))
-                                        * self.insdj.likelihood(&ins_dj, first_j_nucleotide)
-                                        * self.insvd.likelihood(&ins_vd, last_v_nucleotide)
-                                        * self.error.likelihood(val.errors(delv))
-                                        * self.error.likelihood(jal.errors(delj))
+                                        * self
+                                            .insdj
+                                            .likelihood(&ins_dj, first_j_nucleotide)
+                                            .to_scalar()
+                                            .unwrap()
+                                        * self
+                                            .insvd
+                                            .likelihood(&ins_vd, last_v_nucleotide)
+                                            .to_scalar()
+                                            .unwrap()
+                                        * self.error.likelihood(val.errors(delv, 0))
+                                        * self.error.likelihood(jal.errors(0, delj))
                                         * self.error.likelihood(dal.errors(deld5, deld3));
 
                                     // println!(
@@ -263,6 +277,7 @@ impl Features {
 
                                     if ll > 0. {
                                         result.likelihood += ll;
+
                                         self.vdj
                                             .dirty_update((val.index, dal.index, jal.index), ll);
                                         self.delv.dirty_update((delv, val.index), ll);
@@ -366,7 +381,6 @@ impl Features {
             cmp::max(feature_j.start_j5, ins_dj.min_sj()),
             cmp::min(feature_j.end_j5, ins_dj.max_sj()),
         );
-
         for ev in min_ev..max_ev {
             let likelihood_v = feature_v.likelihood(ev);
             if (likelihood_v * likelihood_vdj).max() < cutoff {
@@ -378,8 +392,9 @@ impl Features {
                     sd,
                     feature_v
                         .alignment
-                        .get_last_nucleotide((feature_v.end_v3 - ev) as usize),
+                        .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
                 );
+
                 if (likelihood_ins_vd * likelihood_v * likelihood_vdj).max() < cutoff {
                     continue;
                 }
@@ -390,7 +405,6 @@ impl Features {
                     {
                         continue;
                     }
-
                     for sj in cmp::max(ed, min_sj)..max_sj {
                         let likelihood_ins_dj = ins_dj.likelihood(
                             ed,
@@ -399,18 +413,60 @@ impl Features {
                                 .alignment
                                 .get_first_nucleotide((sj - feature_j.start_j5) as usize),
                         );
+
                         let likelihood_j = feature_j.likelihood(sj);
                         let likelihood = likelihood_v
-                            * likelihood_d
-                            * likelihood_j
                             * likelihood_ins_vd
+                            * likelihood_d
                             * likelihood_ins_dj
+                            * likelihood_j
                             * likelihood_vdj;
 
-                        if likelihood.to_scalar() > cutoff {
-                            current_result.likelihood += likelihood.to_scalar();
+                        if likelihood_v.max() * likelihood_d.max() * likelihood_j.max() > 0. {
+                            //                        if ev == 4 && sd == 5 && ed == 5 && sj == 5 {
+                            if likelihood_d.to_matrix().is_err() {
+                                println!(
+                                    "{} {} {} {} {:?} {:+.2e}",
+                                    ev,
+                                    sd,
+                                    ed,
+                                    sj,
+                                    (
+                                        likelihood_v * likelihood_ins_vd
+                                        //    * likelihood_d
+                                        //    * likelihood_ins_dj
+                                        // * likelihood_j
+                                    ),
+                                    (likelihood_v * likelihood_ins_vd).max() / likelihood_v.max() //   likelihood_ins_dj.to_scalar().unwrap(),
+                                );
+                            } else {
+                                println!(
+                                    "{} {} {} {} {:?} {:+.2e}",
+                                    ev,
+                                    sd,
+                                    ed,
+                                    sj,
+                                    (
+                                        likelihood_v * likelihood_ins_vd
+                                        //    * likelihood_d
+                                        //    * likelihood_ins_dj
+                                        // * likelihood_j
+                                    ),
+                                    (likelihood_v * likelihood_ins_vd).max() / likelihood_v.max() //                                    likelihood_ins_dj.to_matrix().unwrap(),
+                                );
+                            }
+                            // println!(
+                            //     "{:?}",
+                            //     feature_v
+                            //         .alignment
+                            //         .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
+                            // );
+                        }
+
+                        if likelihood.to_scalar()? > cutoff {
+                            current_result.likelihood += likelihood.to_scalar()?;
                             if likelihood.max() > current_result.best_likelihood {
-                                current_result.best_likelihood = likelihood.to_scalar();
+                                current_result.best_likelihood = likelihood.to_scalar()?;
                                 cutoff = (ip.min_likelihood)
                                     .max(ip.min_ratio_likelihood * current_result.best_likelihood);
                                 if ip.store_best_event {
@@ -424,23 +480,23 @@ impl Features {
                                         end_d: ed,
                                         end_v: ev,
                                         start_j: sj,
-                                        likelihood: likelihood.to_scalar(),
+                                        likelihood: likelihood.to_scalar()?,
                                         ..Default::default()
                                     };
                                     current_result.set_best_event(event, ip);
                                 }
                             }
                             if ip.infer_features {
-                                feature_v.dirty_update(ev, likelihood.to_scalar());
-                                feature_j.dirty_update(sj, likelihood.to_scalar());
-                                feature_d.dirty_update(sd, ed, likelihood.to_scalar());
+                                feature_v.dirty_update(ev, likelihood.to_scalar()?);
+                                feature_j.dirty_update(sj, likelihood.to_scalar()?);
+                                feature_d.dirty_update(sd, ed, likelihood.to_scalar()?);
                                 ins_vd.dirty_update(
                                     ev,
                                     sd,
                                     feature_v
                                         .alignment
-                                        .get_last_nucleotide((feature_v.end_v3 - ev) as usize),
-                                    likelihood.to_scalar(),
+                                        .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
+                                    likelihood.to_scalar()?,
                                 );
                                 ins_dj.dirty_update(
                                     ed,
@@ -448,11 +504,11 @@ impl Features {
                                     feature_j
                                         .alignment
                                         .get_first_nucleotide((sj - feature_j.start_j5) as usize),
-                                    likelihood.to_scalar(),
+                                    likelihood.to_scalar()?,
                                 );
                                 self.vdj.dirty_update(
                                     (feature_v.index, feature_d.index, feature_j.index),
-                                    likelihood.to_scalar(),
+                                    likelihood.to_scalar()?,
                                 );
                             }
                         }

@@ -1,4 +1,4 @@
-use crate::shared::Dna;
+use crate::shared::sequence::Dna;
 use crate::shared::Model;
 use crate::vdj::StaticEvent as VDJStaticEvent;
 use crate::vj::StaticEvent as VJStaticEvent;

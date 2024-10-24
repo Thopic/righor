@@ -1,6 +1,7 @@
+use crate::shared::likelihood::Likelihood;
+use crate::shared::sequence::Dna;
 use crate::shared::utils::{Normalize, Normalize2, Normalize3};
 use crate::shared::DNAMarkovChain;
-use crate::shared::Dna;
 use crate::shared::ModelStructure;
 use crate::shared::{errors::FeatureError, DnaLike, InferenceParameters};
 use crate::vdj::Model as ModelVDJ;
@@ -421,12 +422,12 @@ impl InsertionFeature {
 
     /// - observation: sequence of interest
     /// - first_nucleotide: the nucleotide preceding the sequence of interest
-    pub fn likelihood(&self, observation: &DnaLike, first_nucleotide: usize) -> f64 {
+    pub fn likelihood(&self, observation: &DnaLike, first_nucleotide: usize) -> Likelihood {
         if observation.len() >= self.length_distribution.len() {
-            return 0.;
+            return Likelihood::zero(observation);
         }
         if observation.len() == 0 {
-            return self.length_distribution[0];
+            return Likelihood::identity(observation) * self.length_distribution[0];
         }
         let len = observation.len();
         self.transition.likelihood(observation, first_nucleotide) * self.length_distribution[len]
@@ -510,6 +511,7 @@ impl InsertionFeature {
         let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
         let mut average_length = first_feat.length_distribution_dirty;
         let mut average_mat = first_feat.transition_matrix_dirty;
+        let direction = first_feat.transition.reverse;
         for feat in iter {
             average_mat = average_mat + feat.transition_matrix_dirty;
             average_length = average_length + feat.length_distribution_dirty;
@@ -523,7 +525,10 @@ impl InsertionFeature {
         let sum = average_mat.clone().sum();
         average_mat.mapv_inplace(|a| if a < 0.0 { 1e-4 * sum } else { a });
 
-        let transition = Arc::new(DNAMarkovChain::new(&(average_mat / (len as f64)))?);
+        let transition = Arc::new(DNAMarkovChain::new(
+            &(average_mat / (len as f64)),
+            direction,
+        )?);
 
         let average_feat = InsertionFeature::new(&(average_length / (len as f64)), transition)?;
         Ok(average_feat)

@@ -1,12 +1,14 @@
+use crate::shared::gene::Gene;
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
+use crate::shared::sequence::Dna;
 use crate::shared::utils::{Normalize2, NormalizeLast};
-use crate::shared::{self, distributions::*, errors::MAX_NB_ERRORS, model::GenerationResult};
+use crate::shared::{self, distributions::*, model::GenerationResult};
 use crate::shared::{
     utils::sorted_and_complete, utils::sorted_and_complete_0start, utils::Normalize,
-    utils::Normalize3, AlignmentParameters, AminoAcid, DAlignment, Dna, Features, Gene, InfEvent,
+    utils::Normalize3, AlignmentParameters, AminoAcid, DAlignment, Features, InfEvent,
     InferenceParameters, ModelGen, ModelStructure, RecordModel, ResultInference, VJAlignment,
 };
 use crate::shared::{ErrorParameters, Modelable};
@@ -24,7 +26,7 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 
-use crate::shared::DnaLike;
+use crate::shared::sequence::DnaLike;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::BufReader;
@@ -546,36 +548,19 @@ impl Modelable for Model {
                 let end_seq = pal_v.len() - cdr3_pos;
                 let end_gene = start_gene + pal_v.len() - cdr3_pos;
 
-                let mut errors = vec![0; self.p_del_v_given_v.dim().0];
-                for (del_v, err_delv) in errors.iter_mut().enumerate() {
-                    if end_seq > del_v + cdr3_seq.len() {
-                        *err_delv = MAX_NB_ERRORS; // large number (ugly hack, but shouldn't create issues)
-                    } else if start_seq + del_v <= end_seq
-                        && start_gene + del_v <= end_gene
-                        && end_seq <= del_v + cdr3_seq.len()
-                        && end_gene <= del_v + pal_v.len()
-                    {
-                        *err_delv = cdr3_seq
-                            .extract_subsequence(start_seq, end_seq - del_v)
-                            .count_differences(
-                                &pal_v.extract_subsequence(start_gene, end_gene - del_v),
-                            );
-                    }
-                }
-
-                println!("ERRORS V: {:?}", errors);
-
-                Ok(VJAlignment {
+                let mut val = VJAlignment {
                     index,
                     start_seq,
                     end_seq,
                     start_gene,
                     end_gene,
-                    errors,
                     score: 0, // meaningless
-                    max_del_v: Some(self.p_del_v_given_v.shape()[0]),
+                    max_del: Some(self.p_del_v_given_v.shape()[0]),
                     gene_sequence: pal_v.clone(),
-                })
+                    ..Default::default()
+                };
+                val.precompute_errors_v(cdr3_seq);
+                Ok(val)
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -600,54 +585,37 @@ impl Modelable for Model {
                     ));
                 }
 
-                // begin_seq is the position of the start of the sequence
-                // with respect to the start of the gene. Can be <= 0 if the J gene fully
-                // cover the sequence (plausible)
-                let begin_seq = cdr3_seq.len() as i64 - cdr3_pos as i64 - 3 + self.range_del_j.0;
-                let start_seq = if begin_seq < 0 { 0 } else { begin_seq as usize };
-
-                // if the J gene fully cover, the alignment start is later in the sequence
-                let start_gene = if begin_seq < 0 {
-                    (3 + cdr3_pos as i64 - cdr3_seq.len() as i64 - self.range_del_j.0) as usize
-                } else {
-                    0
-                };
-
-                // assume the J gene is long enough (prob. fine)
                 let end_seq = cdr3_seq.len();
+                let end_gene = ((cdr3_pos as i64) - self.range_del_j.0 + 3) as usize;
+                let start_gene =
+                    if (cdr3_pos as i64) - self.range_del_j.0 <= cdr3_seq.len() as i64 - 3 {
+                        0
+                    } else {
+                        cdr3_pos as i64 - self.range_del_j.0 - cdr3_seq.len() as i64 + 3
+                    } as usize;
+
+                let start_seq =
+                    if (cdr3_pos as i64) - self.range_del_j.0 <= cdr3_seq.len() as i64 - 3 {
+                        cdr3_seq.len() as i64 - end_gene as i64
+                    } else {
+                        0
+                    } as usize;
 
                 debug_assert!(end_seq - start_seq > 0); // should be fine
-                let end_gene = start_gene + (end_seq - start_seq);
-                let mut errors = vec![0; self.p_del_j_given_j.dim().0];
-                for (del_j, err_delj) in errors.iter_mut().enumerate() {
-                    //
-                    if (del_j as i64 + start_seq as i64 - start_gene as i64) < 0 {
-                        *err_delj = MAX_NB_ERRORS;
-                    } else if del_j as i64 + start_seq as i64 - start_gene as i64 <= end_seq as i64
-                        && del_j <= end_gene
-                    {
-                        *err_delj = cdr3_seq
-                            .extract_padded_subsequence(
-                                del_j as i64 + start_seq as i64 - start_gene as i64,
-                                end_seq as i64,
-                            )
-                            .count_differences(&pal_j.extract_subsequence(del_j, end_gene));
-                    }
-                }
-                println!("ERRORS J: {:?}", errors);
-                //                unimplemented!();
 
-                Ok(VJAlignment {
+                let mut jal = VJAlignment {
                     index,
                     start_seq,
                     end_seq,
                     start_gene,
                     end_gene,
-                    errors,
                     score: 0, // meaningless
-                    max_del_v: None,
+                    max_del: Some(self.p_del_j_given_j.dim().0),
                     gene_sequence: pal_j.clone(),
-                })
+                    ..Default::default()
+                };
+                jal.precompute_errors_j(cdr3_seq);
+                Ok(jal)
             })
             .collect::<Result<Vec<_>>>()?;
 

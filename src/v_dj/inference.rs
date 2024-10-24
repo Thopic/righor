@@ -89,11 +89,11 @@ impl Features {
             deld: CategoricalFeature2g1::new(&model.p_del_d5_del_d3)?, // dim: (d5, d3, d)
             insvd: InsertionFeature::new(
                 &model.p_ins_vd,
-                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_vd)?),
+                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_vd, false)?),
             )?,
             insdj: InsertionFeature::new(
                 &model.p_ins_dj,
-                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_dj)?),
+                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_dj, true)?),
             )?,
             error: model.error.get_feature()?,
         })
@@ -253,7 +253,7 @@ impl Features {
                 );
                 let likelihood_dj = feature_dj.likelihood(sd);
                 let likelihood = (likelihood_v * likelihood_ins_vd * likelihood_dj * likelihood_vj)
-                    .to_scalar() as f64;
+                    .to_scalar()? as f64;
 
                 if likelihood > cutoff {
                     current_result.likelihood += likelihood;

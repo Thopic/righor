@@ -1,7 +1,7 @@
 //! Distributions to improve the speed of the generation process
+use crate::shared::sequence::Dna;
 use crate::shared::sequence::{nucleotides_inv, NUCLEOTIDES};
 use crate::shared::utils::normalize_transition_matrix;
-use crate::shared::Dna;
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Axis};
 use rand::Rng;

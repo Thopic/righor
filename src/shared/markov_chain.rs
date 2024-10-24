@@ -1,6 +1,8 @@
 // Deal with the subtleties of the Markov chain on Dna or Amino-Acid structure
 
 //use crate::shared::distributions::calc_steady_state_dist;
+use crate::shared::likelihood::Likelihood;
+use crate::shared::likelihood::Matrix16;
 use crate::shared::sequence::DnaLikeEnum;
 use crate::shared::sequence::{compatible_nucleotides, is_degenerate, NUCLEOTIDES};
 use crate::shared::{
@@ -17,16 +19,18 @@ pub struct DNAMarkovChain {
     // pre-computed data for dealing with the degenerate nucleotides
     pub degenerate_matrix: Vec<Matrix4<f64>>, // likelihood matrix for the degenerate dna
     pub end_degenerate_vector: Vec<Vector4<f64>>,
+    pub reverse: bool,
 }
 
 impl DNAMarkovChain {
-    pub fn new(transition_matrix: &Array2<f64>) -> Result<DNAMarkovChain> {
+    pub fn new(transition_matrix: &Array2<f64>, reverse: bool) -> Result<DNAMarkovChain> {
         let mut mc = DNAMarkovChain::default();
+        mc.reverse = reverse;
         mc.precompute(transition_matrix)?;
         Ok(mc)
     }
 
-    pub fn likelihood(&self, sequence: &DnaLike, first_nucleotide: usize) -> f64 {
+    pub fn likelihood(&self, sequence: &DnaLike, first_nucleotide: usize) -> Likelihood {
         match sequence.clone().into() {
             DnaLikeEnum::Known(s) => self.likelihood_dna(&s, first_nucleotide),
             DnaLikeEnum::Ambiguous(s) => self.likelihood_degenerate(&s, first_nucleotide),
@@ -58,17 +62,24 @@ impl DNAMarkovChain {
 
 // functions specific to non-degenerate dna sequences
 impl DNAMarkovChain {
-    pub fn likelihood_dna(&self, s: &Dna, first: usize) -> f64 {
+    pub fn likelihood_dna(&self, s: &Dna, first: usize) -> Likelihood {
         if s.len() == 0 {
-            return 1.;
+            return Likelihood::Scalar(1.);
         }
 
-        let mut proba = self.transition_matrix[[first, nucleotides_inv(s.seq[0])]];
-        for ii in 1..s.len() {
-            proba *= self.transition_matrix
-                [[nucleotides_inv(s.seq[ii - 1]), nucleotides_inv(s.seq[ii])]];
+        let mut new_s = s.clone();
+        if self.reverse {
+            new_s.reverse()
         }
-        proba
+
+        let mut proba = self.transition_matrix[[first, nucleotides_inv(new_s.seq[0])]];
+        for ii in 1..new_s.len() {
+            proba *= self.transition_matrix[[
+                nucleotides_inv(new_s.seq[ii - 1]),
+                nucleotides_inv(new_s.seq[ii]),
+            ]];
+        }
+        Likelihood::Scalar(proba)
     }
 
     pub fn update_dna(&self, s: &Dna, first: usize, likelihood: f64) -> Array2<f64> {
@@ -84,23 +95,31 @@ impl DNAMarkovChain {
 
 // functions specific to degenerate dna sequences
 impl DNAMarkovChain {
-    pub fn likelihood_degenerate(&self, s: &Dna, first: usize) -> f64 {
+    pub fn likelihood_degenerate(&self, s: &Dna, first: usize) -> Likelihood {
         if s.len() == 0 {
-            return 1.;
+            return Likelihood::Scalar(1.);
+        }
+
+        let mut new_s = s.clone();
+        if self.reverse {
+            new_s.reverse()
         }
 
         let mut vector_proba = Vector4::new(0., 0., 0., 0.);
         vector_proba[first] = 1.;
-        let mut vector_proba =
-            vector_proba.transpose() * self.get_degenerate_matrix(first, nucleotides_inv(s.seq[0]));
-        for ii in 1..s.len() {
+        let mut vector_proba = vector_proba.transpose()
+            * self.get_degenerate_matrix(first, nucleotides_inv(new_s.seq[0]));
+        for ii in 1..new_s.len() {
             vector_proba = vector_proba
                 * self.get_degenerate_matrix(
-                    nucleotides_inv(s.seq[ii - 1]),
-                    nucleotides_inv(s.seq[ii]),
+                    nucleotides_inv(new_s.seq[ii - 1]),
+                    nucleotides_inv(new_s.seq[ii]),
                 );
         }
-        (vector_proba * self.get_degenerate_end(nucleotides_inv(*s.seq.last().unwrap())))[(0, 0)]
+        Likelihood::Scalar(
+            (vector_proba * self.get_degenerate_end(nucleotides_inv(*s.seq.last().unwrap())))
+                [(0, 0)],
+        )
     }
 
     pub fn update_degenerate(&self, s: &Dna, first: usize, likelihood: f64) -> Array2<f64> {
@@ -166,28 +185,94 @@ impl DNAMarkovChain {
 }
 /// functions specific to "amino-acid" dna sequences
 impl DNAMarkovChain {
-    /// s is the sequence of interest + its first element.
-    pub fn likelihood_aminoacid(&self, s: &DegenerateCodonSequence, first: usize) -> f64 {
+    /// s is the sequence of interest and start_chain the 0th element.
+    pub fn likelihood_aminoacid(
+        &self,
+        s: &DegenerateCodonSequence,
+        start_chain: usize,
+    ) -> Likelihood {
         if s.len() == 0 {
-            return 1.;
+            return Likelihood::Matrix(Matrix16::identity());
         }
+        let mut m = Matrix16::zeros();
+        if !self.reverse {
+            // left to right
+            for two_left in 0..4 {
+                let mut seq = s.clone();
+                let idx_left = 4 * two_left + start_chain;
+                let start = Dna::from_matrix_idx(idx_left);
 
+                // seq.append_to_dna(&start);
+                // println!("START {} {:?}", s.to_dna(), seq);
+                // let idx_right_vec = seq
+                //     .extract_subsequence(seq.len() - 2, seq.len())
+                //     .to_matrix_idx();
+                // let seq_comp = seq.extract_subsequence(0, seq.len() - 2);
+
+                // for idx_right in idx_right_vec {
+                //     m[(idx_left, idx_right)] = self.likelihood_float_aa(
+                //         &seq_comp
+                //             .extended_with_dna(&Dna::from_matrix_idx(idx_right))
+                //             .extract_subsequence(2, seq.len()),
+                //         start_chain,
+                //     );
+
+                //     println!(
+                //         "{:?} {:?} {:.2e}",
+                //         seq_comp
+                //             .extended_with_dna(&Dna::from_matrix_idx(idx_right))
+                //             .extract_subsequence(2, seq.len()),
+                //         s.to_dna(),
+                //         m[(idx_left, idx_right)]
+                //     );
+                // }
+            }
+        } else {
+            for idx_left in 0..16 {
+                let mut seq = s.clone();
+                let start = Dna::from_matrix_idx(idx_left);
+                seq.append_to_dna(&start);
+                let idx_right_vec = seq
+                    .extract_subsequence(seq.len() - 2, seq.len())
+                    .to_matrix_idx();
+                let mut seq_comp = seq.extract_subsequence(0, seq.len() - 2);
+                seq_comp.reverse();
+                for idx_right in idx_right_vec {
+                    let rev_idx_right = 4 * (idx_right % 4) + idx_right / 4;
+                    seq_comp.append_to_dna(&Dna::from_matrix_idx(rev_idx_right));
+                    m[(idx_left, idx_right)] = self.likelihood_float_aa(
+                        &seq_comp.extract_subsequence(0, seq.len() - 2),
+                        start_chain,
+                    );
+                }
+            }
+        }
+        Likelihood::Matrix(m)
+    }
+
+    pub fn likelihood_float_aa(&self, s: &DegenerateCodonSequence, start_chain: usize) -> f64 {
         if s.codons.len() == 1 {
-            return self.lonely_codon_likelihood(&s.codons[0], s.codon_start, s.codon_end, first);
+            return self.lonely_codon_likelihood(
+                &s.codons[0],
+                s.codon_start,
+                s.codon_end,
+                start_chain,
+            );
+        } else {
+            // first codon
+            let mut vector = self
+                .start_codon_likelihood(&s.codons[0], s.codon_start, start_chain)
+                .transpose()
+                .clone();
+
+            for codon in &s.codons[1..s.codons.len() - 1] {
+                vector = vector * self.interior_codon_likelihood(codon);
+            }
+
+            // last codon, we know that there is at least one element in the sequence
+            return (vector * self.end_codon_likelihood(s.codons.last().unwrap(), s.codon_end))
+                [(0, 0)];
         }
-
-        // first codon
-        let mut vector = self
-            .start_codon_likelihood(&s.codons[0], s.codon_start, first)
-            .transpose()
-            .clone();
-
-        for codon in &s.codons[1..s.codons.len() - 1] {
-            vector = vector * self.interior_codon_likelihood(codon);
-        }
-
-        // last codon, we know that there is at least one element in the sequence
-        (vector * self.end_codon_likelihood(s.codons.last().unwrap(), s.codon_end))[(0, 0)]
     }
 
     pub fn update_aminoacid(
@@ -233,16 +318,17 @@ impl DNAMarkovChain {
             }
         } else if start == 1 {
             for cod in &codons.triplets {
-                if cod[0] == first {
-                    vector[cod[2]] += self.transition_matrix[[first, cod[1]]]
-                        * self.transition_matrix[[cod[1], cod[2]]];
-                }
+                //                if cod[0] == first {
+                vector[cod[2]] += self.transition_matrix[[cod[0], cod[1]]]
+                    * self.transition_matrix[[cod[1], cod[2]]];
+                //              }
             }
         } else if start == 2 {
             for cod in &codons.triplets {
-                if cod[1] == first {
-                    vector[cod[2]] += self.transition_matrix[[first, cod[2]]];
-                }
+                //                if cod[1] == first {
+
+                vector[cod[2]] += self.transition_matrix[[cod[1], cod[2]]];
+                //              }
             }
         }
         vector
@@ -282,7 +368,7 @@ impl DNAMarkovChain {
         codons: &DegenerateCodon,
         start: usize,
         end: usize,
-        first: usize, // the first nucleotide, 0/1/2/3
+        start_mc: usize,
     ) -> f64 {
         match (start, end) {
             (2, 1) => 1., // empty sequence
@@ -291,52 +377,52 @@ impl DNAMarkovChain {
                 .triplets
                 .iter()
                 .map(|x| {
-                    if x[0] == first {
-                        self.transition_matrix[[x[0], x[1]]]
-                    } else {
-                        0.
-                    }
+                    // if x[0] == start_mc {
+                    self.transition_matrix[[x[0], x[1]]]
+                    // } else {
+                    //     0.
+                    // }
                 })
                 .sum::<f64>(),
             (2, 0) => codons
                 .triplets
                 .iter()
                 .map(|x| {
-                    if x[1] == first {
-                        self.transition_matrix[[x[1], x[2]]]
-                    } else {
-                        0.
-                    }
+                    //                    if x[1] == start_mc {
+                    self.transition_matrix[[x[1], x[2]]]
+                    //                    } else {
+                    //                        0.
+                    //                    }
                 })
                 .sum::<f64>(),
             (0, 2) => codons
                 .triplets
                 .iter()
-                .map(|x| self.transition_matrix[[first, x[0]]])
+                .map(|x| self.transition_matrix[[start_mc, x[0]]])
                 .sum::<f64>(),
             (0, 1) => codons
                 .triplets
                 .iter()
                 .map(|x| {
-                    self.transition_matrix[[first, x[0]]] * self.transition_matrix[[x[0], x[1]]]
+                    self.transition_matrix[[start_mc, x[0]]] * self.transition_matrix[[x[0], x[1]]]
                 })
                 .sum::<f64>(),
             (1, 0) => codons
                 .triplets
                 .iter()
                 .map(|x| {
-                    if x[0] == first {
-                        self.transition_matrix[[x[0], x[1]]] * self.transition_matrix[[x[1], x[2]]]
-                    } else {
-                        0.
-                    }
+                    //                    if x[0] == start_mc {
+                    self.transition_matrix[[x[0], x[1]]] * self.transition_matrix[[x[1], x[2]]]
+                    //                    } else {
+                    //     0.
+                    // }
                 })
                 .sum::<f64>(),
             (0, 0) => codons
                 .triplets
                 .iter()
                 .map(|x| {
-                    self.transition_matrix[[first, x[0]]]
+                    self.transition_matrix[[start_mc, x[0]]]
                         * self.transition_matrix[[x[0], x[1]]]
                         * self.transition_matrix[[x[1], x[2]]]
                 })

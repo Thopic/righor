@@ -1,9 +1,11 @@
 use crate::shared::alignment::VJAlignment;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::shared::event::PyStaticEvent;
+use crate::shared::gene::Gene;
+use crate::shared::sequence::Dna;
+use crate::shared::ResultInference;
 use crate::shared::StaticEvent;
 use crate::shared::{AlignmentParameters, ErrorParameters, Features, InferenceParameters};
-use crate::shared::{Dna, Gene, ResultInference};
 use crate::vdj::model::EntrySequence;
 use crate::vdj::Sequence;
 use crate::vdj::{display_j_alignment, display_v_alignment};

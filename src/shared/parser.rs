@@ -1,8 +1,9 @@
 // Parser for the marginals and params files
 
 use crate::shared::errors::{ErrorConstantRate, ErrorUniformRate};
+use crate::shared::gene::Gene;
+use crate::shared::sequence::Dna;
 use crate::shared::ErrorParameters;
-use crate::shared::{Dna, Gene};
 use anyhow::{anyhow, Result};
 use csv::Reader;
 use ndarray::{ArrayD, IxDyn};

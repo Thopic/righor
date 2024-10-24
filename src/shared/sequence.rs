@@ -3,12 +3,12 @@ use crate::shared::utils::mod_euclid;
 use crate::shared::AlignmentParameters;
 use anyhow::{anyhow, Result};
 use bio::alignment::{pairwise, Alignment};
-use std::collections::HashSet;
-
+use itertools::iproduct;
 use phf::phf_map;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt;
 
 /////////////////////////////////////
@@ -124,10 +124,45 @@ impl From<AminoAcid> for DnaLike {
 }
 
 impl DnaLikeEnum {
+    // /// Given two DnaLike sequences (same length), fix the
+    // /// first sequence using the second. For example
+    // ///   ANNNCNA
+    // ///   NNNTAGA
+    // ///       x   <- incompatibilities
+    // ///-> ANNTAGA
+    // /// Also return the number of incompatibilities
+    // /// incompatibilities are always fixed to the benefit of
+    // /// the 2nd sequence
+    // pub fn fix(&self, s: &DnaLikeEnum) -> (DnaLikeEnum, usize) {
+    //     debug_assert!(self.len() == s.len());
+    //     match (self, s) {
+    //         (_, DnaLikeEnum::Known(dna)) => (s.clone(), self.hamming_distance(s)),
+    //         (DnaLikeEnum::Known(self_dna), DnaLikeEnum::Ambiguous(dna)) => {
+    //             unimplemented!("Probably not necessary.");
+    //         }
+    //         (DnaLikeEnum::Ambiguous(self_dna), DnaLikeEnum::Ambiguous(dna)) => {
+    //             self_dna.fix(dna).into()
+    //         }
+    //         (DnaLikeEnum::Protein(self_prot), DnaLikeEnum::Ambiguous(dna)) => {
+    //             self_prot.fix(dna).into()
+    //         }
+    //         (_, DnaLikeEnum::Protein(prot)) => {
+    //             unimplemented!("Probably not necessary.")
+    //         }
+    //     }
+    // }
+
     pub fn len(&self) -> usize {
         match self {
             DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.len(),
             DnaLikeEnum::Protein(s) => s.len(),
+        }
+    }
+
+    pub fn is_protein(&self) -> bool {
+        match self {
+            DnaLikeEnum::Known(_s) | DnaLikeEnum::Ambiguous(_s) => false,
+            DnaLikeEnum::Protein(_s) => true,
         }
     }
 
@@ -183,6 +218,12 @@ impl DnaLikeEnum {
 
     pub fn from_amino_acid(seq: AminoAcid) -> DnaLikeEnum {
         DnaLikeEnum::Protein(DegenerateCodonSequence::from_aminoacid(seq))
+    }
+
+    pub fn extended(&self, other: DnaLikeEnum) -> DnaLikeEnum {
+        let mut s = self.clone();
+        s.extend(&other);
+        s
     }
 
     // TODO: this can be coded better (but probably doesn't matter)
@@ -310,19 +351,41 @@ impl DnaLikeEnum {
         }
     }
 
-    // /// return all possible extremities for a given sequence
-    // /// the extremities are encoded in the index form for the 16x16 likelihood matrix
-    // /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
-    // pub fn extremities(&self) -> Vec<(usize, usize)> {
-    //     match self {
-    //         DnaLikeEnum::Known(s) => s.extremities(),
-    //         DnaLikeEnum::DegenerateDNA(s) => s.extremities(),
-    //         DnaLikeEnum::Protein(s) => s.extremities(),
-    //     }
-    // }
+    /// return all possible extremities for a given sequence
+    /// the extremities are encoded in the index form for the 16x16 likelihood matrix
+    /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
+    pub fn valid_extremities(&self) -> Vec<(usize, usize)> {
+        match self {
+            DnaLikeEnum::Known(s) => s.valid_extremities(),
+            DnaLikeEnum::Ambiguous(s) => s.valid_extremities(),
+            DnaLikeEnum::Protein(s) => s.valid_extremities(),
+        }
+    }
 }
 
 impl DegenerateCodon {
+    // /// Keep only the codon that are at minimal distance of s
+    // pub fn fix(&self, s: &[u8; 3]) -> (DegenerateCodon, usize) {
+    //     let mut errors = 0;
+    //     let mut new_codons = vec![];
+
+    //     let seq = Dna { seq: s };
+    //     let dist = self.hamming_distance(&seq, 0, 0);
+    //     // keep only the values that are x errors away, where x is the minimum error.
+    //     // (the hamming distance)
+    //     (
+    //         DegenerateCodon {
+    //             triplets: self
+    //                 .triplets
+    //                 .iter()
+    //                 .filter(|x| seq.hamming_distance_index_slice(x, 0, 0) == dist)
+    //                 .cloned()
+    //                 .collect(),
+    //         },
+    //         dist,
+    //     )
+    // }
+
     // Return a matrix A(τ, σ), where τ is the last nucleotide of the previous codon and
     // σ is the last nucleotide
     // pub fn likelihood_matrix(&self, transition_matrix_undefined: &Array2<f64>) -> Matrix4<f64> {
@@ -630,12 +693,15 @@ impl DegenerateCodon {
 
     pub fn from_u8(x: &[u8]) -> DegenerateCodon {
         debug_assert!(x.len() == 3);
+
         DegenerateCodon {
-            triplets: vec![[
-                nucleotides_inv(x[0]),
-                nucleotides_inv(x[1]),
-                nucleotides_inv(x[2]),
-            ]],
+            triplets: iproduct!(
+                degenerate_dna_to_vec(x[0]),
+                degenerate_dna_to_vec(x[1]),
+                degenerate_dna_to_vec(x[2])
+            )
+            .map(|(x, y, z)| [x, y, z])
+            .collect(),
         }
     }
 
@@ -726,6 +792,63 @@ impl DegenerateCodon {
 }
 
 impl DegenerateCodonSequence {
+    /// return all possible extremities for a given sequence
+    /// the extremities are encoded in the index form for the 16x16 likelihood matrix
+    /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
+    pub fn valid_extremities(&self) -> Vec<(usize, usize)> {
+        let mut v = vec![];
+        for idx_left in 0..16 {
+            let mut seq = self.clone();
+            seq.append_to_dna(&Dna::from_matrix_idx(idx_left));
+            let idx_right_vec = seq
+                .extract_subsequence(seq.len() - 2, seq.len())
+                .to_matrix_idx();
+            for idx_right in idx_right_vec {
+                v.push((idx_left, idx_right));
+            }
+        }
+        v
+    }
+
+    // /// Given a "degenerate dna" (codon vec) + a dna
+    // /// sequences (same length), fix the
+    // /// first sequence using the second. For example
+    // /// 1
+    // ///   ATC TCT ATG
+    // ///   AAT TTT CTG
+    // /// 2
+    // ///   NNT TNT GTG
+    // /// > AAT TYT GTG
+    // ///        x   <- incompatibilities
+    // /// Also return the number of incompatibilities
+    // /// incompatibilities are always fixed to the benefit of
+    // /// the 2nd sequence
+    // pub fn fix(&self, s: &Dna) -> (DegenerateCodonSequence, usize) {
+    //     let mut errors = 0;
+    //     let mut new_codons = vec![];
+
+    //     // first extend the dna sequence to match the full (with codons)
+    //     // prot sequence
+    //     let ext_s = s.extract_padded_subsequence(
+    //         -(self.codon_start as i64),
+    //         (s.len() + self.codon_end) as i64,
+    //     );
+
+    //     for (codon_list, chk) in self.codons.iter().zip(ext_s.seq.iter().chunks(3)) {
+    //         let (cod, err) = codon_list.fix(chk);
+    //         errors += err;
+    //         new_codons.push(cod);
+    //     }
+    //     (
+    //         DegenerateCodonSequence {
+    //             codons: new_codons,
+    //             codon_start: self.codon_start,
+    //             codon_end: self.codon_end,
+    //         },
+    //         errors,
+    //     )
+    // }
+
     pub fn pad_right(&mut self, n: usize) {
         // X for undefined amino-acid
         self.extend_dna(&Dna { seq: vec![b'N'; n] });
@@ -749,8 +872,10 @@ impl DegenerateCodonSequence {
         }
     }
 
-    /// Make a (non-degenerate) nucleotide sequence into an "UndefinedDna" sequence
-    /// For example ATCG, start = 1 would give [[NAT],[CGN]]
+    /// Make a (non-degenerate) nucleotide sequence into a
+    /// "DegenerateCodonSequence" sequence.
+    /// For example ATCG, start = 1 would give
+    /// [[AAT, CAT, GAT, TAT], [CGA, CGC, CGT, CGN]]
     pub fn from_dna(seq: &Dna, start: usize) -> DegenerateCodonSequence {
         let end = mod_euclid(3 - seq.len() as i64 - start as i64, 3) as usize;
         let mut padded_dna = Dna {
@@ -804,36 +929,6 @@ impl DegenerateCodonSequence {
         }
         return result;
     }
-
-    //    /// return all possible extremities for a given sequence
-    //    /// the extremities are encoded in the index form for the 16x16 likelihood matrix
-    //    /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
-    //    pub fn extremities(&self) -> Vec<usize> {}
-
-    // /// For a sequence of length >= 1 return a vector with
-    // /// all possible sequences given the first nucleotide (repr. as 0/1/2/3)
-    // pub fn fix_first(&self, n: usize) -> Vec<(u8, DegenerateCodonSequence)> {
-    //     debug_assert!(self.len() >= n);
-
-    //     let left_extr = vec![];
-
-    //     for nuc in 0..4 {
-    //         let first_codon = DegenerateCodon {
-    //             triplets: self.codons[0]
-    //                 .triplets
-    //                 .iter()
-    //                 .filter(|x| x[self.codon_start] == nuc),
-    //         };
-    //         let mut new_codons = self.codons.clone();
-    //         new_codons[0] = first_codon;
-
-    //         left_extr.push(DegenerateCodonSequence {
-    //             codons: new_codons,
-    //             codon_start: self.codon_start + 1,
-    //             codon_end: self.codon_end,
-    //         })
-    //     }
-    // }
 
     /// For a sequence of length larger than 2, return a vector
     /// with all possible left extremities + the sequence
@@ -1092,13 +1187,21 @@ impl DegenerateCodonSequence {
     }
 
     pub fn reverse(&mut self) {
-        self.codons = self.codons.iter_mut().map(|x| x.reverse()).collect();
-        std::mem::swap(&mut self.codon_start, &mut self.codon_end);
+        self.codons = self.codons.iter().rev().map(|x| x.reverse()).collect();
+        let old_end = self.codon_end;
+        self.codon_end = self.codon_start;
+        self.codon_start = old_end;
     }
 
     pub fn extend(&mut self, _dna: &DegenerateCodonSequence) {
         // this is very weird because frame shift, should happend
         unimplemented!("Appending two DegenerateCodonSequence shouldn't happen.")
+    }
+
+    pub fn extended_with_dna(&self, dna: &Dna) -> DegenerateCodonSequence {
+        let mut s = self.clone();
+        s.extend_dna(&dna);
+        s
     }
 
     /// Add a dna sequence at the end of an DegenerateCodonSequence sequence
@@ -1109,6 +1212,10 @@ impl DegenerateCodonSequence {
         // Note: this is complicated to implement as we need to deal
         // with all the painful edge cases (empty dna, very short dna)
         // need extensive testing
+
+        if self.len() == 0 {
+            *self = DegenerateCodonSequence::from_dna(dna, 0);
+        }
 
         // if len(dna) < self.codon_end we can't fully complete
         let len = self.codons.len();
@@ -1134,11 +1241,16 @@ impl DegenerateCodonSequence {
         self.codon_end = mod_euclid(self.codon_end as i64 - dna.len() as i64, 3) as usize;
     }
 
-    /// Add a dna sequence before an DegenerateCodonSequence sequence
+    /// Add a dna sequence before a DegenerateCodonSequence sequence
     pub fn append_to_dna(&mut self, dna: &Dna) {
         // need to complete the first codon
-        let len = self.codons.len();
-        self.codons[len - 1] = self.codons[len - 1].start_replace(
+
+        if self.len() == 0 {
+            *self = DegenerateCodonSequence::from_dna(dna, 0);
+            return;
+        }
+
+        self.codons[0] = self.codons[0].start_replace(
             self.codon_start,
             &dna.extract_padded_subsequence(
                 dna.len() as i64 - self.codon_start as i64,
@@ -1283,7 +1395,7 @@ pub fn codon_to_amino_acid(codon: [u8; 3]) -> u8 {
     }
 }
 
-pub fn compatible_nucleotides(x: u8, y: u8) -> bool {
+pub fn intersect_nucleotides(x: u8, y: u8) -> u8 {
     static MASK_TABLE: [u8; 256] = {
         let mut table = [0; 256];
         table[b'A' as usize] = 0b00000001;
@@ -1303,7 +1415,32 @@ pub fn compatible_nucleotides(x: u8, y: u8) -> bool {
         table[b'V' as usize] = 0b00000111; // A/C/G
         table
     };
-    (MASK_TABLE[x as usize] & MASK_TABLE[y as usize]) != 0
+    MASK_TABLE[x as usize] & MASK_TABLE[y as usize]
+}
+
+pub fn degenerate_dna_to_vec(x: u8) -> Vec<usize> {
+    match x {
+        b'A' => vec![0],
+        b'T' => vec![3],
+        b'G' => vec![2],
+        b'C' => vec![1],
+        b'N' => vec![0, 1, 2, 3],
+        b'R' => vec![0, 2],
+        b'Y' => vec![1, 3],
+        b'S' => vec![1, 2],
+        b'W' => vec![0, 3],
+        b'K' => vec![2, 3],
+        b'M' => vec![0, 1],
+        b'B' => vec![1, 2, 3],
+        b'D' => vec![0, 2, 3],
+        b'H' => vec![0, 1, 3],
+        b'V' => vec![0, 1, 2],
+        _ => panic!("Wrong character in dna sequence."),
+    }
+}
+
+pub fn compatible_nucleotides(x: u8, y: u8) -> bool {
+    intersect_nucleotides(x, y) != 0
 }
 
 pub static NUCLEOTIDES_INV: phf::Map<u8, usize> = phf_map! {
@@ -1505,19 +1642,34 @@ impl Dna {
         })
     }
 
-    // for a sequence of length 2, return the matrix idx
-    // i.e 4*nucleotide[0] + nucleotide[1]
+    /// for a sequence of length 2, return the matrix idx
+    /// i.e 4*nucleotide[0] + nucleotide[1]
     pub fn to_matrix_idx(&self) -> Vec<usize> {
-        vec![(4 * self.seq[0] + self.seq[1]).into()]
+        debug_assert!(self.len() == 2);
+        vec![4 * nucleotides_inv(self.seq[0]) + nucleotides_inv(self.seq[1])]
+    }
+
+    pub fn from_matrix_idx(idx: usize) -> Dna {
+        Dna {
+            seq: vec![NUCLEOTIDES[idx / 4], NUCLEOTIDES[idx % 4]],
+        }
     }
 
     /// return all possible extremities for a given sequence
     /// the extremities are encoded in the index form for the 16x16 likelihood matrix
-    /// hence (4*x[0] +  x[1], 4*x[x.len()] + x[x.len()+1])
-    pub fn extremities(&self) -> Vec<(usize, usize)> {
-        (0..16)
-            .map(|x| ((4 * self.seq[0] + self.seq[1]).into(), x))
-            .collect()
+    /// hence (4*x[-2] +  x[-1], 4*x[x.len()-2] + x[x.len()-1])
+    pub fn valid_extremities(&self) -> Vec<(usize, usize)> {
+        let mut v = vec![];
+        for idx_left in 0..16 {
+            let mut seq = Dna::from_matrix_idx(idx_left);
+            seq.extend(self);
+            let idx_right = seq
+                .extract_subsequence(seq.len() - 2, seq.len())
+                .to_matrix_idx();
+            debug_assert!(idx_right.len() == 0);
+            v.push((idx_left, idx_right[0]));
+        }
+        v
     }
 }
 
@@ -1557,6 +1709,12 @@ impl Dna {
         self.seq.is_empty()
     }
 
+    pub fn extended(&self, other: Dna) -> Dna {
+        let mut s = self.clone();
+        s.extend(&other);
+        s
+    }
+
     pub fn extend(&mut self, dna: &Dna) {
         self.seq.extend(dna.seq.iter());
     }
@@ -1567,6 +1725,30 @@ impl Dna {
 }
 
 impl Dna {
+    // /// Given two Dna sequences (same length), fix the
+    // /// first sequence using the second. For example
+    // ///   ANNNCNA
+    // ///   NNNTAGA
+    // ///       x   <- incompatibilities
+    // ///-> ANNTAGA
+    // /// Also return the number of incompatibilities
+    // /// incompatibilities are always fixed to the benefit of
+    // /// the 2nd sequence
+    // pub fn fix(&self, s: &Dna) -> (Dna, usize) {
+    //     let mut errors = 0;
+    //     let mut new_seq = vec![];
+    //     for (s1, s2) in self.seq.iter().zip(s.seq) {
+    //         let x = intersect_nucleotides(s1, s2);
+    //         if x != 0 {
+    //             new_seq.push(x);
+    //         } else {
+    //             errors += 1;
+    //             new_seq.push(s2)
+    //         }
+    //     }
+    //     (Dna { seq: new_seq }, x)
+    // }
+
     pub fn hamming_distance(&self, d: &Dna) -> usize {
         self.seq
             .iter()
@@ -1896,9 +2078,21 @@ impl DnaLike {
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
+
+    pub fn is_protein(&self) -> bool {
+        self.inner.is_protein()
+    }
+
+    pub fn valid_extremities(&self) -> Vec<(usize, usize)> {
+        self.inner.valid_extremities()
+    }
 }
 
 impl DnaLike {
+    pub fn to_matrix_idx(&self) -> Vec<usize> {
+        self.inner.to_matrix_idx()
+    }
+
     pub fn from_dna(seq: Dna) -> DnaLike {
         DnaLike {
             inner: DnaLikeEnum::from_dna(seq),
@@ -1926,7 +2120,13 @@ impl DnaLike {
     }
 
     pub fn extend(&mut self, other: DnaLike) {
-        self.inner.extend(&other.inner).into()
+        self.inner.extend(&other.inner)
+    }
+
+    pub fn extended(&self, other: DnaLike) -> DnaLike {
+        let mut s = self.inner.clone();
+        s.extend(&other.inner);
+        s.into()
     }
 
     pub fn extract_subsequence(&self, start: usize, end: usize) -> DnaLike {

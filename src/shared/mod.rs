@@ -35,5 +35,5 @@ pub use likelihood::{
 pub use markov_chain::DNAMarkovChain;
 pub use model::{GenerationResult, Generator, Model, ModelStructure, Modelable};
 pub use parameters::{AlignmentParameters, InferenceParameters};
-pub use sequence::{nucleotides_inv, AminoAcid, Dna, DnaLike};
+pub use sequence::{nucleotides_inv, AminoAcid, Dna, DnaLike, SequenceType};
 pub use utils::RecordModel;

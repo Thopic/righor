@@ -1,6 +1,6 @@
 use crate::shared::errors::MAX_NB_ERRORS;
 use crate::shared::nucleotides_inv;
-use crate::shared::Dna;
+use crate::shared::sequence::Dna;
 use crate::shared::DnaLike;
 use crate::vdj::model::Model as ModelVDJ;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -57,22 +57,17 @@ pub struct VJAlignment {
     pub start_gene: usize, // start of the alignment in the gene indexing
     pub end_gene: usize,   // end of the alignment in the gene indexing
     pub errors: Vec<usize>,
+    pub errors_extended: Option<Vec<[usize; 16]>>,
     pub score: i32,
-    pub max_del_v: Option<usize>,
-    pub gene_sequence: Dna, // v/j gene sequence
+    pub max_del: Option<usize>,
+    pub gene_sequence: Dna, // v/j gene sequence (with pal insertions)
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl VJAlignment {
-    // the first nucleotide of "gene" when the sequence start at j_start
-    // elements are removed at the start
+    /// the first nucleotide of "gene" when the sequence start at j_start
+    /// elements are removed at the start
     pub fn get_first_nucleotide(&self, del: usize) -> usize {
-        // println!(
-        //     "{} {} {}",
-        //     self.gene_sequence.to_string(),
-        //     self.start_gene,
-        //     del
-        // );
         nucleotides_inv(self.gene_sequence.seq[self.start_gene + del])
     }
 
@@ -91,28 +86,120 @@ impl VJAlignment {
         self.errors[del]
     }
 
-    pub fn length_with_deletion(&self, del: usize) -> usize {
-        // just return the aligned part length (that matches the seq)
-        if self.end_seq <= self.start_seq + del {
-            return 0;
-        }
-        self.end_seq - self.start_seq - del
+    pub fn valid_extended_j(&self, del: usize) -> Vec<usize> {
+        debug_assert!(del < self.errors_extended.as_ref().unwrap().len());
+        self.errors_extended.as_ref().unwrap()[del]
+            .iter()
+            .enumerate()
+            .filter(|&(_i, &value)| value == 0)
+            .map(|(i, _value)| i)
+            .collect()
     }
 
-    pub fn errors(&self, del: usize) -> ErrorAlignment {
+    pub fn precompute_errors_v(&mut self, seq: &DnaLike) {
+        self.errors = vec![0; self.max_del.unwrap()];
+        for del_v in 0..self.errors.len() {
+            if self.end_seq > del_v + seq.len() {
+                // large number (ugly hack, but shouldn't create issues)
+                self.errors[del_v] = MAX_NB_ERRORS;
+            } else if self.start_seq + del_v <= self.end_seq
+                && self.start_gene + del_v <= self.end_gene
+                && self.end_seq <= del_v + seq.len()
+                && self.end_gene <= del_v + self.gene_sequence.len()
+            {
+                self.errors[del_v] = seq
+                    .extract_subsequence(self.start_seq, self.end_seq - del_v)
+                    .count_differences(
+                        &self
+                            .gene_sequence
+                            .extract_subsequence(self.start_gene, self.end_gene - del_v),
+                    );
+            }
+        }
+        // no problems here
+        self.errors_extended = None;
+    }
+
+    pub fn precompute_errors_j(&mut self, seq: &DnaLike) {
+        self.errors = vec![0; self.max_del.unwrap()];
+        let mut errors_extended = vec![[0; 16]; self.max_del.unwrap()];
+
+        for del_j in 0..self.errors.len() {
+            // if palJ[delJ:] start before the beginning of the sequence
+            if (del_j as i64 - self.start_gene as i64 + self.start_seq as i64) < 0 {
+                self.errors[del_j] = MAX_NB_ERRORS;
+                if seq.is_protein() {
+                    errors_extended[del_j] = [MAX_NB_ERRORS; 16];
+                }
+            }
+            // if palJ[delJ:] does still overlap with the CDR3 sequence
+            else if del_j <= self.end_gene {
+                let cut_seq = seq.extract_padded_subsequence(
+                    del_j as i64 - self.start_gene as i64 + self.start_seq as i64,
+                    self.end_seq as i64,
+                );
+                let cut_gene = self.gene_sequence.extract_subsequence(del_j, self.end_gene);
+
+                self.errors[del_j] = cut_seq.count_differences(&cut_gene);
+                // TODO: Simplify this
+                if seq.is_protein() {
+                    let cut_seq_plus_idx = seq.extract_padded_subsequence(
+                        del_j as i64 - self.start_gene as i64 + self.start_seq as i64 - 2,
+                        self.end_seq as i64,
+                    );
+                    for idx in 0..16 {
+                        let mut gene_plus_idx = Dna::from_matrix_idx(idx);
+                        gene_plus_idx.extend(&cut_gene);
+                        errors_extended[del_j][idx] =
+                            cut_seq_plus_idx.count_differences(&gene_plus_idx);
+                    }
+                }
+            }
+            self.errors_extended = Some(errors_extended.clone());
+        }
+    }
+
+    pub fn length_with_deletion(&self, del_left: usize, del_right: usize) -> usize {
+        let del = if del_right > 0 {
+            // J case
+            if self.start_gene > self.start_seq {
+                if del_right > (self.start_gene - self.start_seq) {
+                    del_right - (self.start_gene - self.start_seq)
+                } else {
+                    0
+                }
+            } else {
+                del_right
+            }
+        } else {
+            // V case
+            // if the V gene is longer than the sequence aligned
+            if self.gene_sequence.len() > self.end_gene {
+                if del_left > (self.gene_sequence.len() - self.end_gene) {
+                    del_left - (self.gene_sequence.len() - self.end_gene)
+                } else {
+                    0
+                }
+            } else {
+                del_left
+            }
+        };
+
+        self.end_gene - self.start_gene - del
+    }
+
+    pub fn errors(&self, del_left: usize, del_right: usize) -> ErrorAlignment {
+        debug_assert!(del_left == 0 || del_right == 0);
         ErrorAlignment {
-            nb_errors: self.nb_errors(del),
-            sequence_length: self.length_with_deletion(del),
+            nb_errors: self.nb_errors(del_left + del_right),
+            sequence_length: self.length_with_deletion(del_left, del_right),
         }
     }
 
-    pub fn estimated_error_rate(&self, max_del: usize) -> f64 {
-        return (self.nb_errors(max_del) as f64) / (self.length_with_deletion(max_del) as f64);
+    pub fn estimated_error_rate(&self, max_del_left: usize, max_del_right: usize) -> f64 {
+        return (self.nb_errors(max_del_left + max_del_right) as f64)
+            / (self.length_with_deletion(max_del_left, max_del_right) as f64);
     }
-
-    // pub fn allowed_indices_end(delv: usize) {
-    //     nucleotides_inv(self.gene_sequence.seq[self.end_gene - 1])
-    // }
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
@@ -165,24 +252,30 @@ impl DAlignment {
         self.len() - deld5 - deld3
     }
 
-    pub fn gene_with_deletion(&self, deld5: usize, deld3: usize) -> DnaLike {
-        let dgene = self
+    pub fn valid_extremities(&self, deld5: usize, deld3: usize) -> Vec<(usize, usize)> {
+        debug_assert!(deld5 + deld3 <= self.len());
+        let cut_d = self
             .dseq
             .extract_subsequence(deld5, self.dseq.len() - deld3);
-        let start_d_seq = (self.pos + deld5 as i64) as usize;
-        let end_d_seq = (self.pos + self.len_d as i64 - deld3 as i64) as usize;
-
-        // complete dgene with the alignment to get the right codons
-        let mut extended_seq = self
-            .sequence
-            .extract_subsequence(start_d_seq - 2, start_d_seq);
-        extended_seq.extend(dgene.into());
-        extended_seq.extend(
-            self.sequence
-                .extract_subsequence(end_d_seq, end_d_seq + 2)
-                .into(),
+        let cut_seq = self.sequence.extract_padded_subsequence(
+            self.pos + deld5 as i64 - 2,
+            self.pos + self.len_d as i64 - deld3 as i64,
         );
-        extended_seq.extract_subsequence(2, extended_seq.len() - 2)
+
+        let mut vec = vec![];
+
+        for idx_left in 0..16 {
+            let mut seq = Dna::from_matrix_idx(idx_left);
+            seq.extend(&cut_d);
+            if cut_seq.count_differences(&seq) == 0 {
+                let idx_right = seq
+                    .extract_subsequence(seq.len() - 2, seq.len())
+                    .to_matrix_idx();
+                debug_assert!(idx_right.len() == 1);
+                vec.push((idx_left, idx_right[0]));
+            }
+        }
+        return vec;
     }
 
     pub fn errors(&self, deld5: usize, deld3: usize) -> ErrorAlignment {

@@ -1,4 +1,3 @@
-use crate::shared::errors::MAX_NB_ERRORS;
 use crate::shared::DnaLike;
 use crate::shared::{utils::difference_as_i64, AlignmentParameters, DAlignment, Dna, VJAlignment};
 use crate::vdj::{Event, Model};
@@ -121,30 +120,21 @@ pub fn align_all_vgenes(
             None => continue,
         };
 
-        let max_del_v = model.p_del_v_given_v.dim().0;
-
-        let mut errors = vec![0; max_del_v];
-        for (del_v, err_delv) in errors.iter_mut().enumerate() {
-            if del_v <= palv.len() && del_v <= alignment.yend - alignment.ystart {
-                *err_delv = seq
-                    .extract_subsequence(alignment.ystart, alignment.yend - del_v)
-                    .count_differences(
-                        &palv.extract_subsequence(alignment.xstart, alignment.xend - del_v),
-                    );
-            }
-        }
-
-        v_genes.push(VJAlignment {
+        let mut v_alignment = VJAlignment {
             index: indexv,
             start_gene: alignment.xstart,
             end_gene: alignment.xend,
             start_seq: alignment.ystart,
             end_seq: alignment.yend,
-            errors,
             score: alignment.score,
-            max_del_v: Some(model.p_del_v_given_v.shape()[0]),
+            max_del: Some(model.p_del_v_given_v.shape()[0]),
             gene_sequence: palv.clone(),
-        });
+            ..Default::default()
+        };
+
+        v_alignment.precompute_errors_v(&seq);
+
+        v_genes.push(v_alignment);
     }
     v_genes
 }
@@ -160,34 +150,19 @@ pub fn align_all_jgenes(
         let alignment =
             DnaLike::align_left_right(seq.clone(), DnaLike::from_dna(palj.clone()), align_params);
         if align_params.valid_j_alignment(&alignment) {
-            let max_del_j = model.p_del_j_given_j.dim().0;
-            let mut errors = vec![0; max_del_j];
-            for (del_j, err_delj) in errors.iter_mut().enumerate() {
-                if (del_j as i64 - alignment.ystart as i64 + alignment.xstart as i64) < 0 {
-                    // in theory this never happens (ach it does ?)
-                    *err_delj = MAX_NB_ERRORS; // very high
-                    panic!("The sequence should fully cover the J gene.")
-                }
-                if del_j <= palj.len() && del_j <= alignment.yend - alignment.ystart {
-                    *err_delj = seq
-                        .extract_subsequence(del_j + alignment.xstart, alignment.xend)
-                        .count_differences(
-                            &palj.extract_subsequence(del_j + alignment.ystart, alignment.yend),
-                        );
-                }
-            }
-
-            j_aligns.push(VJAlignment {
+            let mut j_al = VJAlignment {
                 index: indexj,
                 start_gene: alignment.ystart,
                 end_gene: alignment.yend,
                 start_seq: alignment.xstart,
                 end_seq: alignment.xend,
-                errors,
                 score: alignment.score,
-                max_del_v: None,
+                max_del: Some(model.p_del_j_given_j.dim().0),
                 gene_sequence: palj.clone(),
-            });
+                ..Default::default()
+            };
+            j_al.precompute_errors_j(&seq);
+            j_aligns.push(j_al);
         }
     }
     j_aligns

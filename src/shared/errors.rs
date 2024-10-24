@@ -3,7 +3,7 @@ use crate::shared::alignment::{ErrorDAlignment, ErrorJAlignment, ErrorVAlignment
 /// Contains all the error models defined and their features (for inference)
 use crate::shared::distributions::{HistogramDistribution, UniformError};
 use crate::shared::feature::Feature;
-use crate::shared::Dna;
+use crate::shared::sequence::Dna;
 use crate::shared::StaticEvent;
 use anyhow::{anyhow, Result};
 
@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-pub const MAX_NB_ERRORS: usize = 10000;
+pub const MAX_NB_ERRORS: usize = 10042;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ErrorParameters {
@@ -589,14 +589,14 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
 impl FeatureErrorConstant {
     pub fn dirty_update_v_fragment(&mut self, observation: ErrorVAlignment, likelihood: f64) {
         self.total_lengths_dirty +=
-            likelihood * (observation.val.length_with_deletion(observation.del) as f64);
+            likelihood * (observation.val.length_with_deletion(observation.del, 0) as f64);
         self.total_errors_dirty += likelihood * (observation.val.nb_errors(observation.del) as f64);
         self.total_probas_dirty += likelihood;
     }
 
     pub fn dirty_update_j_fragment(&mut self, observation: ErrorJAlignment, likelihood: f64) {
         self.total_lengths_dirty +=
-            likelihood * (observation.jal.length_with_deletion(observation.del) as f64);
+            likelihood * (observation.jal.length_with_deletion(0, observation.del) as f64);
         self.total_errors_dirty += likelihood * (observation.jal.nb_errors(observation.del) as f64);
         self.total_probas_dirty += likelihood;
     }
@@ -656,8 +656,8 @@ impl Feature<ErrorAlignment> for FeatureErrorUniform {
         }
 
         // println!(
-        //     "{:?} {:?}",
-        //     observation.sequence_length, observation.nb_errors
+        //     "{:?}",
+        //     observation
         // );
 
         ((observation.nb_errors as f64) * self.logrs3
@@ -690,7 +690,7 @@ impl FeatureErrorUniform {
     pub fn dirty_update_v_fragment(&mut self, observation: ErrorVAlignment, likelihood: f64) {
         self.error_dirty += observation
             .val
-            .estimated_error_rate(observation.val.max_del_v.unwrap())
+            .estimated_error_rate(observation.val.max_del.unwrap(), 0)
             * likelihood;
         self.total_likelihood_dirty += likelihood;
     }

@@ -1,4 +1,4 @@
-use crate::shared::Dna;
+use crate::shared::sequence::Dna;
 use crate::shared::{DAlignment, VJAlignment};
 use crate::vdj::Model;
 use anyhow::{anyhow, Result};

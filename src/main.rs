@@ -12,7 +12,7 @@ use ndarray::array;
 use ndarray::Axis;
 use righor::shared::ModelGen;
 use righor::EntrySequence;
-use righor::{AminoAcid, Dna, DnaLike};
+use righor::{AminoAcid, Dna, DnaLike, Gene};
 use std::fs::File;
 
 use righor::shared::model::ModelStructure;
@@ -37,8 +37,8 @@ fn main() -> Result<()> {
         None,
         Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
     )?;
-    igor_model.set_model_type(ModelStructure::VxDJ)?;
-    igor_model.set_error(ErrorParameters::UniformRate(ErrorUniformRate::default()))?;
+    igor_model.set_model_type(ModelStructure::VDJ)?;
+    igor_model.set_error(ErrorParameters::ConstantRate(ErrorConstantRate::new(0.)))?;
 
     // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
 
@@ -47,14 +47,22 @@ fn main() -> Result<()> {
     let mut inference_params = righor::InferenceParameters::default();
     inference_params.min_likelihood = 0.;
     inference_params.min_ratio_likelihood = 0.;
+    inference_params.infer_features = false;
 
-    let sequence = righor::AminoAcid::from_string("CASRGGF")?;
-    let result = if let righor::Model::VDJ(m) = igor_model {
+    let sequence = righor::AminoAcid::from_string("CDF")?;
+    inference_params.likelihood_type = righor::shared::SequenceType::Protein;
+    let result = if let righor::Model::VDJ(ref m) = igor_model {
         m.evaluate(
             EntrySequence::NucleotideCDR3((
                 DnaLike::from_amino_acid(sequence),
-                m.get_v_segments(),
-                m.get_j_segments(),
+                m.get_v_segments()
+                    .into_iter()
+                    .filter(|a| a.name == "TRBV9*01")
+                    .collect(),
+                m.get_j_segments()
+                    .into_iter()
+                    .filter(|a| a.name == "TRBJ2-7*01")
+                    .collect(),
             )),
             &align_params,
             &inference_params,
@@ -62,7 +70,31 @@ fn main() -> Result<()> {
     } else {
         panic!("")
     };
-    println!("{:?}", result);
+    println!("{:?}", result.unwrap().likelihood);
+    println!("\n");
+
+    inference_params.likelihood_type = righor::shared::SequenceType::Dna;
+    let sequence = righor::Dna::from_string("TGTGACTTC")?;
+    let result = if let righor::Model::VDJ(m) = igor_model {
+        m.evaluate(
+            EntrySequence::NucleotideCDR3((
+                DnaLike::from_dna(sequence),
+                m.get_v_segments()
+                    .into_iter()
+                    .filter(|a| a.name == "TRBV9*01")
+                    .collect(),
+                m.get_j_segments()
+                    .into_iter()
+                    .filter(|a| a.name == "TRBJ2-7*01")
+                    .collect(),
+            )),
+            &align_params,
+            &inference_params,
+        )
+    } else {
+        panic!("")
+    };
+    println!("{:?}", result.unwrap().likelihood);
 
     // let sequence = righor::Dna::from_string("TGTGCCAGCCGACGGACAGCTAACTATGGCTACACCTTC")?;
 

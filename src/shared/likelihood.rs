@@ -14,18 +14,22 @@ use nalgebra::SMatrix;
 use nalgebra::SVector;
 pub type Vector16 = SVector<f64, 16>;
 pub type Matrix16 = SMatrix<f64, 16, 16>;
+use crate::shared::alignment::DAlignment;
+use crate::shared::alignment::VJAlignment;
+use crate::shared::sequence::DnaLike;
 use crate::shared::sequence::SequenceType;
+use anyhow::{anyhow, Result};
 use core::ops;
 use itertools::Either;
 use nohash_hasher::NoHashHasher;
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Clone, Debug, Copy, Default)]
+#[derive(Clone, Debug, Copy, Default, PartialEq)]
 pub enum LikelihoodType {
     #[default]
     Scalar,
@@ -104,6 +108,71 @@ impl ops::Mul<Likelihood> for f64 {
 }
 
 impl Likelihood {
+    /// Return a matrix set to 1. for positions that match
+    /// the two nucleotides before / the two last nucleotides of the D gene.
+    /// Also deal with the situation where d is too short.
+    pub fn from_insertions(insvd: &DnaLike) -> Likelihood {
+        let mut m = Matrix16::zeros();
+        for (i1, i2) in insvd.valid_extremities() {
+            m[(i1, i2)] = 1.;
+        }
+        Likelihood::Matrix(m)
+    }
+
+    pub fn zero(dna: &DnaLike) -> Likelihood {
+        if dna.is_protein() {
+            Likelihood::Matrix(Matrix16::zeros())
+        } else {
+            Likelihood::Scalar(0.)
+        }
+    }
+
+    pub fn identity(dna: &DnaLike) -> Likelihood {
+        if dna.is_protein() {
+            Likelihood::Matrix(Matrix16::identity())
+        } else {
+            Likelihood::Scalar(1.)
+        }
+    }
+
+    /// Return a matrix set to 1. for positions that match
+    /// the two nucleotides before / the two last nucleotides of the D gene.
+    /// Also deal with the situation where d is too short.
+    pub fn from_d_sides(d: &DAlignment, deld5: usize, deld3: usize) -> Likelihood {
+        let mut m = Matrix16::zeros();
+        for (idx1, idx2) in d.valid_extremities(deld5, deld3) {
+            println!("{} {} {}", d.len() - deld5 - deld3, idx1, idx2);
+            m[(idx1, idx2)] = 1.
+        }
+        Likelihood::Matrix(m)
+    }
+
+    /// Return a vector set to 1. for positions that match
+    /// the two nucleotides before the J gene
+    pub fn from_j_side(j: &VJAlignment, del: usize) -> Likelihood {
+        let mut vec = Vector16::zeros();
+        for idx in j.valid_extended_j(del) {
+            vec[idx] = 1.;
+        }
+        Likelihood::Vector(vec)
+    }
+
+    /// Return a vector set to 1 for position that match
+    /// the last two nucleotides of the V gene.
+    /// Only one coefficient of the vector is non-zero
+    pub fn from_v_side(v: &VJAlignment, del: usize) -> Likelihood {
+        let mut vec = Vector16::zeros();
+        let end_v = v.gene_sequence.len() as i64 - del as i64;
+        for idx in v
+            .gene_sequence
+            .extract_padded_subsequence(end_v - 2, end_v)
+            .to_matrix_idx()
+        {
+            vec[idx] = 1.;
+        }
+        Likelihood::Vector(vec)
+    }
+
     pub fn max(&self) -> f64 {
         match self {
             Likelihood::Scalar(x) => *x,
@@ -121,14 +190,20 @@ impl Likelihood {
         }
     }
 
-    pub fn to_scalar(&self) -> f64 {
+    pub fn to_scalar(&self) -> Result<f64> {
         match self {
-            Likelihood::Scalar(x) => *x,
-            _ => panic!("This is not a scalar likelihood"),
+            Likelihood::Scalar(x) => Ok(*x),
+            _ => Err(anyhow!("This likelihood is not a scalar")),
+        }
+    }
+    pub fn to_matrix(&self) -> Result<Matrix16> {
+        match self {
+            Likelihood::Matrix(x) => Ok(*x),
+            _ => Err(anyhow!("This likelihood is not a matrix")),
         }
     }
 
-    pub fn zero(lt: LikelihoodType) -> Likelihood {
+    pub fn zero_from_type(lt: LikelihoodType) -> Likelihood {
         match lt {
             LikelihoodType::Scalar => Likelihood::Scalar(0.),
             LikelihoodType::Vector => Likelihood::Vector(Vector16::zeros()),
@@ -166,7 +241,14 @@ impl Likelihood1DContainer {
     pub fn get(&self, pos: i64) -> Likelihood {
         match &self {
             Likelihood1DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos)),
-            Likelihood1DContainer::Matrix(x) => Likelihood::Vector(*x.get(&pos).unwrap()),
+            Likelihood1DContainer::Matrix(x) => {
+                //debug_assert!(pos >= self.min() && pos <= self.max());
+                if !x.contains_key(&pos) {
+                    Likelihood::Vector(Vector16::zeros())
+                } else {
+                    Likelihood::Vector(*x.get(&pos).unwrap())
+                }
+            }
         }
     }
     /// Add `likelihood` to the value at `pos`
@@ -206,7 +288,7 @@ impl Likelihood1DContainer {
     pub fn max(&self) -> i64 {
         match self {
             Likelihood1DContainer::Scalar(x) => x.max,
-            Likelihood1DContainer::Matrix(x) => x.keys().cloned().max().unwrap(),
+            Likelihood1DContainer::Matrix(x) => x.keys().cloned().max().unwrap() + 1,
         }
     }
 
@@ -249,7 +331,19 @@ impl Likelihood2DContainer {
     pub fn get(&self, pos: (i64, i64)) -> Likelihood {
         match &self {
             Likelihood2DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos)),
-            Likelihood2DContainer::Matrix(x) => Likelihood::Matrix(*x.get(&pos).unwrap()),
+            Likelihood2DContainer::Matrix(x) => {
+                // debug_assert!(
+                //     pos.0 >= self.min().0
+                //         && pos.1 >= self.min().1
+                //         && pos.0 < self.max().0
+                //         && pos.1 <= self.max().1
+                // );
+                if !x.contains_key(&pos) {
+                    Likelihood::Matrix(Matrix16::zeros())
+                } else {
+                    Likelihood::Matrix(*x.get(&pos).unwrap())
+                }
+            }
         }
     }
 
@@ -288,8 +382,8 @@ impl Likelihood2DContainer {
         match self {
             Likelihood2DContainer::Scalar(x) => x.max,
             Likelihood2DContainer::Matrix(x) => (
-                x.keys().cloned().map(|u| u.0).max().unwrap(),
-                x.keys().cloned().map(|u| u.1).max().unwrap(),
+                x.keys().cloned().map(|u| u.0).max().unwrap() + 1,
+                x.keys().cloned().map(|u| u.1).max().unwrap() + 1,
             ),
         }
     }

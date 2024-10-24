@@ -1,5 +1,5 @@
 //! Deal with V/J gene names and gene representations
-use crate::shared::Dna;
+use crate::shared::sequence::Dna;
 use anyhow::{anyhow, Result};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;

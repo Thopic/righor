@@ -47,7 +47,7 @@ impl AggregatedFeatureStartDAndJ {
             ip.likelihood_type,
         );
 
-        let mut total_likelihood = Likelihood::zero(match ip.likelihood_type {
+        let mut total_likelihood = Likelihood::zero_from_type(match ip.likelihood_type {
             SequenceType::Dna => LikelihoodType::Scalar,
             SequenceType::Protein => LikelihoodType::Vector,
         });
@@ -139,14 +139,14 @@ impl AggregatedFeatureStartDAndJ {
                 if dirty_proba == 0. && ip.infer_features {
                     continue;
                 }
-                let ratio_old_new = dirty_proba / self.likelihood(d_start).to_scalar();
+                let ratio_old_new = dirty_proba / self.likelihood(d_start).to_scalar().unwrap();
                 for j_start in min_sj..max_sj {
-                    let ll_j = self.feature_j.likelihood(j_start).to_scalar();
+                    let ll_j = self.feature_j.likelihood(j_start).to_scalar().unwrap();
                     if ll_dj * ll_j < ip.min_likelihood {
                         continue;
                     }
                     for d_end in cmp::max(d_start - 1, min_ed)..cmp::min(max_ed, j_start + 1) {
-                        let ll_deld = agg_deld.likelihood(d_start, d_end).to_scalar();
+                        let ll_deld = agg_deld.likelihood(d_start, d_end).to_scalar().unwrap();
 
                         let ll_insdj = feat_insdj
                             .likelihood(
@@ -156,7 +156,8 @@ impl AggregatedFeatureStartDAndJ {
                                     (j_start - self.feature_j.start_j5) as usize,
                                 ),
                             )
-                            .to_scalar();
+                            .to_scalar()
+                            .unwrap();
 
                         let ll = ll_dj * ll_insdj * ll_j * ll_deld;
 
@@ -202,7 +203,7 @@ impl AggregatedFeatureStartDAndJ {
 
         if ip.store_best_event {
             if let Some(ev) = event {
-                ev.likelihood *= best_likelihood / self.likelihood(ev.start_d).to_scalar();
+                ev.likelihood *= best_likelihood / self.likelihood(ev.start_d).to_scalar().unwrap();
             }
         }
 
