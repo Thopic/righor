@@ -1,6 +1,6 @@
 //! The structs used for specifying the parameters of the model
 
-use crate::shared::sequence::SequenceType;
+//use crate::shared::sequence::SequenceType;
 
 use bio::alignment::{pairwise, Alignment};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -33,14 +33,6 @@ pub struct InferenceParameters {
     /// If true and "store_best_event" is true, compute the pgen of the sequence
     /// (pgen is computed by default if the model error rate is 0)
     pub compute_pgen: bool,
-
-    /// If true (default) infer the insertion distribution
-    pub infer_insertions: bool,
-    /// If true (default) infer the deletion distribution & gene usage
-    pub infer_genes: bool,
-
-    /// Type of sequence
-    pub likelihood_type: SequenceType,
 }
 
 impl Default for AlignmentParameters {
@@ -176,9 +168,6 @@ impl Default for InferenceParameters {
             infer_features: true,
             store_best_event: true,
             compute_pgen: true,
-            infer_insertions: true,
-            infer_genes: true,
-            likelihood_type: SequenceType::default(),
         }
     }
 }

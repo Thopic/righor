@@ -794,12 +794,10 @@ impl ResultInference {
 
             event.full_sequence = Some(full_seq.into());
 
-            // println!("{:?}", self);
-            // println!("{:?}", sequence.sequence.get_string());
-
             let mut reconstructed_seq =
                 gene_v.extract_subsequence(0, (event.end_v + event.v_start_gene as i64) as usize);
             reconstructed_seq.extend(&event.ins_vd.clone().unwrap().to_dna());
+
             reconstructed_seq.extend(&gene_d.extract_subsequence(
                 (-event.pos_d + event.start_d) as usize,
                 (-event.pos_d + event.end_d) as usize,

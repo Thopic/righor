@@ -1,6 +1,7 @@
 use crate::shared::errors::MAX_NB_ERRORS;
 use crate::shared::nucleotides_inv;
 use crate::shared::sequence::Dna;
+use crate::shared::sequence::SequenceType;
 use crate::shared::DnaLike;
 use crate::vdj::model::Model as ModelVDJ;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -61,6 +62,7 @@ pub struct VJAlignment {
     pub score: i32,
     pub max_del: Option<usize>,
     pub gene_sequence: Dna, // v/j gene sequence (with pal insertions)
+    pub sequence_type: SequenceType,
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
@@ -184,8 +186,11 @@ impl VJAlignment {
                 del_left
             }
         };
-
-        self.end_gene - self.start_gene - del
+        if del > self.end_gene - self.start_gene {
+            0
+        } else {
+            self.end_gene - self.start_gene - del
+        }
     }
 
     pub fn errors(&self, del_left: usize, del_right: usize) -> ErrorAlignment {
@@ -224,6 +229,7 @@ pub struct DAlignment {
 
     pub dseq: Arc<Dna>,         // the sequence of the D gene
     pub sequence: Arc<DnaLike>, // the complete sequence aligned
+    pub sequence_type: SequenceType,
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]

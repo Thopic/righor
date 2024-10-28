@@ -79,7 +79,7 @@ impl AggregatedFeatureEndV {
         let mut likelihoods = Likelihood1DContainer::zeros(
             difference_as_i64(v.end_seq, feat_delv.dim().0) + 1,
             v.end_seq as i64 + 1,
-            ip.likelihood_type,
+            v.sequence_type,
         );
 
         let mut total_likelihood = 0.;
@@ -89,7 +89,7 @@ impl AggregatedFeatureEndV {
             let ll_v_err = feat_error.likelihood(v.errors(delv, 0));
             let ll = ll_delv * ll_v_err;
             if ll > ip.min_likelihood {
-                let likelihood = match ip.likelihood_type {
+                let likelihood = match v.sequence_type {
                     SequenceType::Dna => Likelihood::Scalar(ll),
                     SequenceType::Protein => Likelihood::from_v_side(v, delv) * ll,
                 };
@@ -133,8 +133,6 @@ impl AggregatedFeatureEndV {
         feat_error: &mut FeatureError,
         ip: &InferenceParameters,
     ) {
-        debug_assert!(ip.infer_features);
-
         for delv in 0..feat_delv.dim().0 {
             let v_end = difference_as_i64(v.end_seq, delv);
             let ll =
@@ -166,7 +164,7 @@ impl AggregatedFeatureStartJ {
         let mut likelihoods = Likelihood1DContainer::zeros(
             j.start_seq as i64 - j.start_gene as i64,
             j.start_seq as i64 - j.start_gene as i64 + feat_delj.dim().0 as i64,
-            ip.likelihood_type,
+            j.sequence_type,
         );
 
         let mut total_likelihood = 0.;
@@ -177,7 +175,7 @@ impl AggregatedFeatureStartJ {
             let ll_errj = feat_error.likelihood(j.errors(0, delj));
             let ll = ll_delj * ll_errj;
             if ll > ip.min_likelihood {
-                let likelihood = match ip.likelihood_type {
+                let likelihood = match j.sequence_type {
                     SequenceType::Dna => Likelihood::Scalar(ll),
                     SequenceType::Protein => Likelihood::from_j_side(j, delj) * ll,
                 };
@@ -264,7 +262,7 @@ impl AggregatedFeatureSpanD {
         let mut likelihoods = Likelihood2DContainer::zeros(
             (min_start, min_end),
             (max_start, max_end),
-            ip.likelihood_type,
+            ds.first().unwrap().sequence_type,
         );
 
         let dindex = ds.first().unwrap().index;
@@ -283,7 +281,7 @@ impl AggregatedFeatureSpanD {
 
                 let ll = ll_deld * ll_errord;
                 if ll > ip.min_likelihood {
-                    let likelihood = match ip.likelihood_type {
+                    let likelihood = match ds.first().unwrap().sequence_type {
                         SequenceType::Protein => Likelihood::from_d_sides(d, deld5, deld3) * ll,
                         SequenceType::Dna => Likelihood::Scalar(ll),
                     };
@@ -346,7 +344,7 @@ impl AggregatedFeatureSpanD {
         // disaggregate should only work with the scalar version
 
         let mut best_likelihood = 0.;
-        // Now with startD and end D
+        // Now with startD and endD
         for d in ds.iter() {
             for (deld5, deld3) in iproduct!(0..feat_deld.dim().0, 0..feat_deld.dim().1) {
                 let d_start = d.pos + deld5 as i64;
@@ -354,13 +352,13 @@ impl AggregatedFeatureSpanD {
                 if d_start > d_end {
                     continue;
                 }
+
                 let likelihood = feat_deld.likelihood((deld5, deld3, d.index))
                     * feat_error.likelihood(d.errors(deld5, deld3));
-
                 if likelihood > ip.min_likelihood {
                     let dirty_proba = self.dirty_likelihood.get((d_start, d_end));
-                    let corrected_proba = dirty_proba * likelihood
-                        / self.likelihood(d_start, d_end).to_scalar().unwrap();
+                    let corrected_proba =
+                        dirty_proba * likelihood / self.likelihood(d_start, d_end).max();
                     if dirty_proba <= 0. && ip.infer_features {
                         continue;
                     }
@@ -376,7 +374,6 @@ impl AggregatedFeatureSpanD {
                             corrected_proba,
                         );
                     }
-
                     if ip.store_best_event {
                         //if likelihood / self.likelihood(d_start, d_end) > best_proba {
 
@@ -388,7 +385,6 @@ impl AggregatedFeatureSpanD {
                                     && (ev.end_d == d_end)
                                 {
                                     ev.pos_d = d.pos as i64;
-                                    //best_proba = likelihood / self.likelihood(d_start, d_end);
                                     best_likelihood = likelihood;
                                 }
                             }
@@ -428,7 +424,7 @@ impl FeatureVD {
         let mut likelihoods = LikelihoodInsContainer::zeros(
             (min_end_v, min_start_d),
             (max_end_v + 1, max_start_d + 1),
-            ip.likelihood_type,
+            sequence.sequence_type,
         );
 
         for ev in min_end_v..=max_end_v {
@@ -462,7 +458,7 @@ impl FeatureVD {
             dirty_likelihood: LikelihoodInsContainer::zeros(
                 likelihoods.dim().0,
                 likelihoods.dim().1,
-                ip.likelihood_type,
+                sequence.sequence_type,
             ),
             likelihood: likelihoods,
         })
@@ -575,7 +571,7 @@ impl FeatureDJ {
         let mut likelihoods = LikelihoodInsContainer::zeros(
             (min_end_d, min_start_j),
             (max_end_d + 1, max_start_j + 1),
-            ip.likelihood_type,
+            sequence.sequence_type,
         );
 
         for ed in min_end_d..=max_end_d {
@@ -586,12 +582,6 @@ impl FeatureDJ {
                     && ((sj - ed) as usize) < feat_insdj.max_nb_insertions()
                 {
                     let ins_dj = sequence.get_subsequence(ed, sj);
-                    //let mut ins_dj_rev = ins_dj.clone();
-                    //                    ins_dj_rev.reverse();
-
-                    if ed == 0 && sj == 2 {
-                        println!("{:?} {:?}", ins_dj, ins_dj);
-                    }
 
                     for first_nucleotide in 0..4 {
                         let likelihood = feat_insdj.likelihood(&ins_dj, first_nucleotide);
@@ -614,7 +604,7 @@ impl FeatureDJ {
             dirty_likelihood: LikelihoodInsContainer::zeros(
                 likelihoods.dim().0,
                 likelihoods.dim().1,
-                ip.likelihood_type,
+                sequence.sequence_type,
             ),
             likelihood: likelihoods,
         })
@@ -632,7 +622,7 @@ impl FeatureDJ {
     //         LikelihoodType::Matrix | LikelihoodType::Vector => {
     //             unimplemented!("Not yet!");
     //             // let matrix = Matrix16::zeros();
-    //             // for (left, right, seq) in sequence.fix_extremities() {
+    //             // for (left, right, seq) in sequence._extremities() {
     //             //     matrix[[left, right]] = insfeat.likelihood(seq, first_nucleotide);
     //             // }
     //             // Likelihood::Matrix(matrix)

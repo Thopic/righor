@@ -194,57 +194,17 @@ impl DNAMarkovChain {
         if s.len() == 0 {
             return Likelihood::Matrix(Matrix16::identity());
         }
+
         let mut m = Matrix16::zeros();
         if !self.reverse {
-            // left to right
-            for two_left in 0..4 {
-                let mut seq = s.clone();
-                let idx_left = 4 * two_left + start_chain;
-                let start = Dna::from_matrix_idx(idx_left);
-
-                // seq.append_to_dna(&start);
-                // println!("START {} {:?}", s.to_dna(), seq);
-                // let idx_right_vec = seq
-                //     .extract_subsequence(seq.len() - 2, seq.len())
-                //     .to_matrix_idx();
-                // let seq_comp = seq.extract_subsequence(0, seq.len() - 2);
-
-                // for idx_right in idx_right_vec {
-                //     m[(idx_left, idx_right)] = self.likelihood_float_aa(
-                //         &seq_comp
-                //             .extended_with_dna(&Dna::from_matrix_idx(idx_right))
-                //             .extract_subsequence(2, seq.len()),
-                //         start_chain,
-                //     );
-
-                //     println!(
-                //         "{:?} {:?} {:.2e}",
-                //         seq_comp
-                //             .extended_with_dna(&Dna::from_matrix_idx(idx_right))
-                //             .extract_subsequence(2, seq.len()),
-                //         s.to_dna(),
-                //         m[(idx_left, idx_right)]
-                //     );
-                // }
+            for (idx_left, idx_right, seq) in s.fix_extremities() {
+                m[(idx_left, idx_right)] = self.likelihood_float_aa(&seq, start_chain);
             }
         } else {
-            for idx_left in 0..16 {
-                let mut seq = s.clone();
-                let start = Dna::from_matrix_idx(idx_left);
-                seq.append_to_dna(&start);
-                let idx_right_vec = seq
-                    .extract_subsequence(seq.len() - 2, seq.len())
-                    .to_matrix_idx();
-                let mut seq_comp = seq.extract_subsequence(0, seq.len() - 2);
-                seq_comp.reverse();
-                for idx_right in idx_right_vec {
-                    let rev_idx_right = 4 * (idx_right % 4) + idx_right / 4;
-                    seq_comp.append_to_dna(&Dna::from_matrix_idx(rev_idx_right));
-                    m[(idx_left, idx_right)] = self.likelihood_float_aa(
-                        &seq_comp.extract_subsequence(0, seq.len() - 2),
-                        start_chain,
-                    );
-                }
+            for (idx_left, idx_right, seq) in s.fix_extremities() {
+                let mut new_seq = seq.clone();
+                new_seq.reverse();
+                m[(idx_left, idx_right)] = self.likelihood_float_aa(&new_seq, start_chain);
             }
         }
         Likelihood::Matrix(m)
@@ -268,6 +228,12 @@ impl DNAMarkovChain {
             for codon in &s.codons[1..s.codons.len() - 1] {
                 vector = vector * self.interior_codon_likelihood(codon);
             }
+
+            // println!(
+            //     "{} {:?}",
+            //     s.to_dna(),
+            //     (vector * self.end_codon_likelihood(s.codons.last().unwrap(), s.codon_end))[(0, 0)]
+            // );
 
             // last codon, we know that there is at least one element in the sequence
             return (vector * self.end_codon_likelihood(s.codons.last().unwrap(), s.codon_end))
@@ -318,17 +284,16 @@ impl DNAMarkovChain {
             }
         } else if start == 1 {
             for cod in &codons.triplets {
-                //                if cod[0] == first {
-                vector[cod[2]] += self.transition_matrix[[cod[0], cod[1]]]
+                // if cod[0] == first {
+                vector[cod[2]] += self.transition_matrix[[first, cod[1]]]
                     * self.transition_matrix[[cod[1], cod[2]]];
-                //              }
+                //                }
             }
         } else if start == 2 {
             for cod in &codons.triplets {
-                //                if cod[1] == first {
-
-                vector[cod[2]] += self.transition_matrix[[cod[1], cod[2]]];
-                //              }
+                //    if cod[1] == first {
+                vector[cod[2]] += self.transition_matrix[[first, cod[2]]];
+                //  }
             }
         }
         vector
@@ -377,22 +342,22 @@ impl DNAMarkovChain {
                 .triplets
                 .iter()
                 .map(|x| {
-                    // if x[0] == start_mc {
-                    self.transition_matrix[[x[0], x[1]]]
-                    // } else {
-                    //     0.
-                    // }
+                    //                    if x[0] == start_mc {
+                    self.transition_matrix[[start_mc, x[1]]]
+                    //                    } else {
+                    //                        0.
+                    //                  }
                 })
                 .sum::<f64>(),
             (2, 0) => codons
                 .triplets
                 .iter()
                 .map(|x| {
-                    //                    if x[1] == start_mc {
-                    self.transition_matrix[[x[1], x[2]]]
-                    //                    } else {
-                    //                        0.
-                    //                    }
+                    // if x[1] == start_mc {
+                    self.transition_matrix[[start_mc, x[2]]]
+                    // } else {
+                    //     0.
+                    // }
                 })
                 .sum::<f64>(),
             (0, 2) => codons
@@ -411,9 +376,9 @@ impl DNAMarkovChain {
                 .triplets
                 .iter()
                 .map(|x| {
-                    //                    if x[0] == start_mc {
-                    self.transition_matrix[[x[0], x[1]]] * self.transition_matrix[[x[1], x[2]]]
-                    //                    } else {
+                    // if x[0] == start_mc {
+                    self.transition_matrix[[start_mc, x[1]]] * self.transition_matrix[[x[1], x[2]]]
+                    // } else {
                     //     0.
                     // }
                 })

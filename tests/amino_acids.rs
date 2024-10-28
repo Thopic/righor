@@ -1,5 +1,5 @@
 use anyhow::Result;
-use righor::shared::sequence::ExtendedDna;
+use righor::shared::sequence::DegenerateCodonSequence;
 use righor::{shared::DnaLike, AminoAcid};
 
 #[test]
@@ -17,7 +17,7 @@ fn amino_acids_test() -> Result<()> {
     assert!(seq.extract_subsequence(3, 9).translate()? == AminoAcid::from_string("AF")?);
     assert!(seq.extract_subsequence(3, 18).translate()? == AminoAcid::from_string("AFREW")?);
 
-    let mut ext_dna = ExtendedDna::from_aminoacid(amino_acid.clone());
+    let mut ext_dna = DegenerateCodonSequence::from_aminoacid(amino_acid.clone());
     ext_dna.pad_right(2);
     assert!(ext_dna.len() == 20);
 

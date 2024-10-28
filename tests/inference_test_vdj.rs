@@ -36,7 +36,7 @@ fn infer_vs_brute_force() -> Result<()> {
     let mut model = common::simple_model_vdj();
     model.model_type = ModelStructure::VDJ;
     model.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(0.1));
-    let mut uniform_model = model.uniform()?.clone();
+    let uniform_model = model.uniform()?.clone();
     let mut generator = righor::vdj::Generator::new(model.clone(), Some(42), None, None)?;
     let ifp = InferenceParameters::default();
 

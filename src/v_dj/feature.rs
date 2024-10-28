@@ -44,10 +44,10 @@ impl AggregatedFeatureStartDAndJ {
         let mut likelihoods = Likelihood1DContainer::zeros(
             feature_ds.iter().map(|x| x.start_d5).min().unwrap(),
             feature_ds.iter().map(|x| x.end_d5).max().unwrap(),
-            ip.likelihood_type,
+            j_alignment.sequence_type,
         );
 
-        let mut total_likelihood = Likelihood::zero_from_type(match ip.likelihood_type {
+        let mut total_likelihood = Likelihood::zero_from_type(match j_alignment.sequence_type {
             SequenceType::Dna => LikelihoodType::Scalar,
             SequenceType::Protein => LikelihoodType::Vector,
         });
@@ -66,11 +66,10 @@ impl AggregatedFeatureStartDAndJ {
                             == j_alignment
                                 .get_first_nucleotide((j_start - feature_j.start_j5) as usize))
                     {
-                        let ll_ins_jd = feature_j.likelihood(j_start) * ll_ins_dj;
-
+                        let ll_d_and_j = ll_ins_dj * feature_j.likelihood(j_start);
                         // iter_fixed_dend iter only on valid values of d_start
                         agg_d.iter_fixed_dend(d_end).for_each(|(d_start, ll_deld)| {
-                            let ll = ll_ins_jd.clone() * ll_deld.clone() * ll_dj;
+                            let ll = ll_deld * ll_d_and_j.clone() * ll_dj;
                             if ll.max() > ip.min_likelihood {
                                 likelihoods.add_to(d_start, ll.clone());
                                 total_likelihood += ll;
@@ -89,7 +88,7 @@ impl AggregatedFeatureStartDAndJ {
             end_d5: likelihoods.max(),
             dirty_likelihood: RangeArray1::zeros(likelihoods.dim()),
             likelihood: likelihoods,
-            feature_j: feature_j,
+            feature_j,
         })
     }
 
@@ -135,34 +134,34 @@ impl AggregatedFeatureStartDAndJ {
             let ll_dj = feat.d.likelihood((agg_deld.index, self.feature_j.index));
 
             for d_start in agg_deld.start_d5..agg_deld.end_d5 {
-                let dirty_proba = self.dirty_likelihood.get(d_start);
+                let dirty_proba = if ip.infer_features {
+                    self.dirty_likelihood.get(d_start)
+                } else {
+                    0.
+                };
                 if dirty_proba == 0. && ip.infer_features {
                     continue;
                 }
-                let ratio_old_new = dirty_proba / self.likelihood(d_start).to_scalar().unwrap();
+                let ratio_old_new = dirty_proba / self.likelihood(d_start).max();
                 for j_start in min_sj..max_sj {
-                    let ll_j = self.feature_j.likelihood(j_start).to_scalar().unwrap();
-                    if ll_dj * ll_j < ip.min_likelihood {
+                    let ll_j = self.feature_j.likelihood(j_start);
+                    if (ll_dj * ll_j).max() < ip.min_likelihood {
                         continue;
                     }
                     for d_end in cmp::max(d_start - 1, min_ed)..cmp::min(max_ed, j_start + 1) {
-                        let ll_deld = agg_deld.likelihood(d_start, d_end).to_scalar().unwrap();
+                        let ll_deld = agg_deld.likelihood(d_start, d_end);
 
-                        let ll_insdj = feat_insdj
-                            .likelihood(
-                                d_end,
-                                j_start,
-                                j_alignment.get_first_nucleotide(
-                                    (j_start - self.feature_j.start_j5) as usize,
-                                ),
-                            )
-                            .to_scalar()
-                            .unwrap();
+                        let ll_insdj = feat_insdj.likelihood(
+                            d_end,
+                            j_start,
+                            j_alignment
+                                .get_first_nucleotide((j_start - self.feature_j.start_j5) as usize),
+                        );
 
-                        let ll = ll_dj * ll_insdj * ll_j * ll_deld;
+                        let ll = ll_dj * ll_deld * ll_insdj * ll_j;
 
-                        if ll > ip.min_likelihood {
-                            let corrected_proba = ratio_old_new * ll;
+                        if ll.max() > ip.min_likelihood {
+                            let corrected_proba = ratio_old_new * ll.max();
                             if ip.infer_features {
                                 feat.d.dirty_update(
                                     (agg_deld.index, self.feature_j.index),
@@ -183,14 +182,14 @@ impl AggregatedFeatureStartDAndJ {
                             }
 
                             if ip.store_best_event {
-                                if ll > best_likelihood {
+                                if ll.max() > best_likelihood {
                                     if let Some(ev) = event {
                                         if ev.start_d == d_start && ev.j_index == j_alignment.index
                                         {
                                             ev.d_index = agg_deld.index;
                                             ev.end_d = d_end;
                                             ev.start_j = j_start;
-                                            best_likelihood = ll;
+                                            best_likelihood = ll.max();
                                         }
                                     }
                                 }
@@ -203,7 +202,7 @@ impl AggregatedFeatureStartDAndJ {
 
         if ip.store_best_event {
             if let Some(ev) = event {
-                ev.likelihood *= best_likelihood / self.likelihood(ev.start_d).to_scalar().unwrap();
+                ev.likelihood *= best_likelihood / self.likelihood(ev.start_d).max();
             }
         }
 

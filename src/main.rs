@@ -10,6 +10,7 @@ use anyhow::{anyhow, Result};
 use kdam::tqdm;
 use ndarray::array;
 use ndarray::Axis;
+use righor::shared::sequence::DegenerateCodonSequence;
 use righor::shared::ModelGen;
 use righor::EntrySequence;
 use righor::{AminoAcid, Dna, DnaLike, Gene};
@@ -37,8 +38,37 @@ fn main() -> Result<()> {
         None,
         Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
     )?;
-    igor_model.set_model_type(ModelStructure::VDJ)?;
+    igor_model.set_model_type(ModelStructure::VxDJ)?;
     igor_model.set_error(ErrorParameters::ConstantRate(ErrorConstantRate::new(0.)))?;
+
+    let dna = Dna::from_string("TGCGCCAGGAACTATGAACAGTATTTT")?;
+    let es = EntrySequence::NucleotideCDR3((
+        dna.clone().into(),
+        vec![igor_model.clone().get_v_segments()[49].clone()],
+        vec![igor_model.clone().get_j_segments()[9].clone()],
+    ));
+    let mut ip = righor::InferenceParameters::default();
+    ip.infer_features = true;
+
+    igor_model.set_model_type(righor::shared::ModelStructure::VDJ);
+    let result = igor_model.evaluate(es.clone(), &righor::AlignmentParameters::default(), &ip);
+    println!("VDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
+
+    let igor_model_vdj = match igor_model {
+        righor::Model::VDJ(ref x) => x,
+        righor::Model::VJ(_) => panic!("NOPE"),
+    };
+
+    let result = igor_model_vdj.evaluate_brute_force(
+        es.clone(),
+        &righor::AlignmentParameters::default(),
+        &ip,
+    );
+    println!("VDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
+
+    igor_model.set_model_type(righor::shared::ModelStructure::VxDJ);
+    let result = igor_model.evaluate(es.clone(), &righor::AlignmentParameters::default(), &ip);
+    println!("VxDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
 
     // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
 
@@ -50,7 +80,7 @@ fn main() -> Result<()> {
     inference_params.infer_features = false;
 
     let sequence = righor::AminoAcid::from_string("CDF")?;
-    inference_params.likelihood_type = righor::shared::SequenceType::Protein;
+
     let result = if let righor::Model::VDJ(ref m) = igor_model {
         m.evaluate(
             EntrySequence::NucleotideCDR3((
@@ -73,7 +103,6 @@ fn main() -> Result<()> {
     println!("{:?}", result.unwrap().likelihood);
     println!("\n");
 
-    inference_params.likelihood_type = righor::shared::SequenceType::Dna;
     let sequence = righor::Dna::from_string("TGTGACTTC")?;
     let result = if let righor::Model::VDJ(m) = igor_model {
         m.evaluate(

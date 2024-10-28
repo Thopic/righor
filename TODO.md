@@ -17,6 +17,8 @@
 - allow to fix number of cores used (```rayon::ThreadPoolBuilder::new().num_threads(4).build_global().unwrap();``` -> make a function set_nb_threads(nb))
 - I should probably change the way I'm doing the inference (the feature object should contains ref to other features ?)
 
+- if the CDR3 is given with only one V/J -> reconstruct the full sequence before running the inference (avoid some of the ambiguity).
+
 
 - righor-py, better "load_model" function
 - problem in the CDR3 generation
@@ -24,6 +26,9 @@
 Before version change checklist:
 - is righor-py using the cargo package or the local version ?
 - did you change the version number everywhere ?
+
+
+
 
 
 ## Structure

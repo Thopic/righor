@@ -1,3 +1,4 @@
+use anyhow::Result;
 use ndarray::array;
 use righor::shared::errors::ErrorConstantRate;
 use righor::shared::ErrorParameters;
@@ -50,7 +51,18 @@ pub fn simple_model_vdj() -> vdj::Model {
         p_vdj: array![[[0.6], [0.4]]],
         p_ins_vd: array![0.401, 0.2, 0.1, 0.1, 0.1, 0.05, 0.05],
         p_ins_dj: array![0.402, 0.2, 0.1, 0.1, 0.1, 0.05, 0.05],
-        p_del_v_given_v: array![[0.1005], [0.2], [0.4], [0.1], [0.05], [0.1], [0.05], [0.01], [0.01], [0.01]],
+        p_del_v_given_v: array![
+            [0.1005],
+            [0.2],
+            [0.4],
+            [0.1],
+            [0.05],
+            [0.1],
+            [0.05],
+            [0.01],
+            [0.01],
+            [0.01]
+        ],
         p_del_j_given_j: array![[0.1], [0.2], [0.4], [0.1], [0.05], [0.1], [0.05],],
         p_del_d5_del_d3: array![
             [
@@ -76,26 +88,22 @@ pub fn simple_model_vdj() -> vdj::Model {
             ],
         ],
         markov_coefficients_vd: array![
-	    [0.25, 0.25, 0.25, 0.25],
             [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25]
-
-            // [0.259, 0.25, 0.25, 0.254],
-            // [0.25, 0.25, 0.251, 0.25],
-            // [0.25, 0.252, 0.25, 0.25],
-            // [0.25, 0.25, 0.25, 0.25]
+            [0.25, 0.1, 0.25, 0.4],
+            [0.4, 0.25, 0.1, 0.25],
+            [0.25, 0.25, 0.25, 0.25] // [0.259, 0.25, 0.25, 0.254],
+                                     // [0.25, 0.25, 0.251, 0.25],
+                                     // [0.25, 0.252, 0.25, 0.25],
+                                     // [0.25, 0.25, 0.25, 0.25]
         ],
         markov_coefficients_dj: array![
-	    [0.25, 0.25, 0.25, 0.25],
             [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25]
-
-            // [0.2501, 0.25, 0.25, 0.25],
-            // [0.25, 0.25, 0.25, 0.25],
-            // [0.25, 0.2592, 0.25, 0.25],
-            // [0.25, 0.25, 0.2533, 0.2512]
+            [0.2, 0.3, 0.25, 0.25],
+            [0.3, 0.2, 0.25, 0.25],
+            [0.25, 0.25, 0.25, 0.25] // [0.2501, 0.25, 0.25, 0.25],
+                                     // [0.25, 0.25, 0.25, 0.25],
+                                     // [0.25, 0.2592, 0.25, 0.25],
+                                     // [0.25, 0.25, 0.2533, 0.2512]
         ],
         range_del_v: (-2, 7),
         range_del_j: (-2, 4),
@@ -107,4 +115,31 @@ pub fn simple_model_vdj() -> vdj::Model {
 
     model.initialize().unwrap();
     model
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+/// Same model, but shorter V ends, to make it easier for the amino-acid test
+/// (shorter CDR3 -> less nt seqs available).
+pub fn simple_aa_model_vdj() -> Result<vdj::Model> {
+    let mut model = simple_model_vdj();
+    let gv1 = righor::Gene {
+        name: "V1".to_string(),
+        seq: righor::Dna::from_string("ATCTACTACTACTGCTCATGCA").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        is_functional: true,
+        cdr3_pos: Some(18),
+    };
+    let gj1 = righor::Gene {
+        name: "J1".to_string(),
+        seq: righor::Dna::from_string("CAGTCTTCGGAGAAACAAAGACTTAT").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        is_functional: true,
+        cdr3_pos: Some(5),
+    };
+    model.set_v_segments(vec![gv1])?;
+    model.set_j_segments(vec![gj1])?;
+    Ok(model)
 }

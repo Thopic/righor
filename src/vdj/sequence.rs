@@ -1,3 +1,4 @@
+use crate::shared::sequence::SequenceType;
 use crate::shared::DnaLike;
 use crate::shared::{utils::difference_as_i64, AlignmentParameters, DAlignment, Dna, VJAlignment};
 use crate::vdj::{Event, Model};
@@ -14,6 +15,7 @@ pub struct Sequence {
     pub j_genes: Vec<VJAlignment>,
     pub d_genes: Vec<DAlignment>,
     pub valid_alignment: bool,
+    pub sequence_type: SequenceType,
 }
 
 impl Sequence {
@@ -129,6 +131,7 @@ pub fn align_all_vgenes(
             score: alignment.score,
             max_del: Some(model.p_del_v_given_v.shape()[0]),
             gene_sequence: palv.clone(),
+            sequence_type: seq.sequence_type(),
             ..Default::default()
         };
 
@@ -159,6 +162,7 @@ pub fn align_all_jgenes(
                 score: alignment.score,
                 max_del: Some(model.p_del_j_given_j.dim().0),
                 gene_sequence: palj.clone(),
+                sequence_type: seq.sequence_type(),
                 ..Default::default()
             };
             j_al.precompute_errors_j(&seq);
@@ -205,6 +209,7 @@ pub fn align_all_dgenes(
                 len_d: dpal.len(),
                 dseq: dpal_ref.clone(),
                 sequence: seq_ref.clone(),
+                sequence_type: seq.sequence_type(),
             });
         }
     }

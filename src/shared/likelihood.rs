@@ -141,7 +141,6 @@ impl Likelihood {
     pub fn from_d_sides(d: &DAlignment, deld5: usize, deld3: usize) -> Likelihood {
         let mut m = Matrix16::zeros();
         for (idx1, idx2) in d.valid_extremities(deld5, deld3) {
-            println!("{} {} {}", d.len() - deld5 - deld3, idx1, idx2);
             m[(idx1, idx2)] = 1.
         }
         Likelihood::Matrix(m)
@@ -181,13 +180,7 @@ impl Likelihood {
         }
     }
     pub fn is_zero(&self) -> bool {
-        match self {
-            Likelihood::Scalar(x) => *x == 0.0,
-            // this assumes that all values are positive,
-            // which should always be true
-            Likelihood::Vector(x) => x.sum() == 0.0,
-            Likelihood::Matrix(x) => x.sum() == 0.0,
-        }
+        self.max() == 0.
     }
 
     pub fn to_scalar(&self) -> Result<f64> {
@@ -199,6 +192,13 @@ impl Likelihood {
     pub fn to_matrix(&self) -> Result<Matrix16> {
         match self {
             Likelihood::Matrix(x) => Ok(*x),
+            _ => Err(anyhow!("This likelihood is not a matrix")),
+        }
+    }
+
+    pub fn to_vector(&self) -> Result<Vector16> {
+        match self {
+            Likelihood::Vector(x) => Ok(*x),
             _ => Err(anyhow!("This likelihood is not a matrix")),
         }
     }

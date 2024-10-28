@@ -189,9 +189,9 @@ impl Features {
                 None => continue,
             }
         }
-        for (d_idx, d) in features_d.iter_mut().enumerate() {
+        for d in features_d.iter_mut() {
             d.disaggregate(
-                &sequence.get_specific_dgene(d_idx),
+                &sequence.get_specific_dgene(d.index),
                 &mut self.deld,
                 &mut self.error,
                 &mut result.best_event,
@@ -249,7 +249,7 @@ impl Features {
                     sd,
                     feature_v
                         .alignment
-                        .get_last_nucleotide((feature_v.end_v3 - ev) as usize),
+                        .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
                 );
                 let likelihood_dj = feature_dj.likelihood(sd);
                 let likelihood = (likelihood_v * likelihood_ins_vd * likelihood_dj * likelihood_vj)
@@ -284,7 +284,7 @@ impl Features {
                             sd,
                             feature_v
                                 .alignment
-                                .get_last_nucleotide((feature_v.end_v3 - ev) as usize),
+                                .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
                             likelihood,
                         );
                         self.vj

@@ -57,6 +57,22 @@ impl EntrySequence {
             EntrySequence::NucleotideCDR3((seq, v, j)) => model.align_from_cdr3(&seq, &v, &j),
         }
     }
+
+    pub fn compatible_with_inference(&self) -> bool {
+        match self {
+            EntrySequence::Aligned(s) => !s.sequence.is_ambiguous(),
+            EntrySequence::NucleotideSequence(s) => !s.is_ambiguous(),
+            EntrySequence::NucleotideCDR3((s, _, _)) => !s.is_ambiguous(),
+        }
+    }
+
+    pub fn is_protein(&self) -> bool {
+        match self {
+            EntrySequence::Aligned(s) => s.sequence.is_protein(),
+            EntrySequence::NucleotideSequence(s) => s.is_protein(),
+            EntrySequence::NucleotideCDR3((s, _, _)) => s.is_protein(),
+        }
+    }
 }
 
 impl Generator {
@@ -369,7 +385,16 @@ impl Modelable for Model {
         alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
     ) -> Result<Vec<Features>> {
+        if !sequences.iter().all(|x| x.compatible_with_inference()) {
+            return Err(anyhow!(
+                "Cannot do inference when sequences have ambiguity.\
+				Ambiguous nucleotides (N) or protein sequence\
+				are out."
+            ));
+        }
+
         let mut ip = inference_params.clone();
+
         // no need to compute pgen or store best event if we're infering
         ip.compute_pgen = false;
         ip.store_best_event = false;
@@ -409,14 +434,18 @@ impl Modelable for Model {
         alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
     ) -> Result<ResultInference> {
+        let mut ip = inference_params.clone();
+        if sequence.is_protein() {
+            ip.infer_features = false;
+        }
+
         let mut features = match self.model_type {
             ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
             ModelStructure::VxDJ => Features::VxDJ(v_dj::Features::new(self)?),
         };
 
         let aligned_sequence = sequence.align(self, alignment_params)?;
-        let mut result = features.infer(&aligned_sequence, inference_params)?;
-
+        let mut result = features.infer(&aligned_sequence, &ip)?;
         result.fill_event(self, &aligned_sequence)?;
 
         // no error: likelihood = pgen
@@ -432,7 +461,7 @@ impl Modelable for Model {
         }
 
         // Otherwise, we need to compute the pgen of the reconstructed sequence
-        if inference_params.compute_pgen && inference_params.store_best_event {
+        if ip.compute_pgen && ip.store_best_event {
             let event = result
                 .get_best_event()
                 .ok_or(anyhow!("Error with event extraction during pgen inference"))?;
@@ -452,9 +481,7 @@ impl Modelable for Model {
             };
             features_pgen.error_mut().remove_error()?; // remove the error
 
-            result.pgen = features_pgen
-                .infer(&aligned_seq, inference_params)?
-                .likelihood;
+            result.pgen = features_pgen.infer(&aligned_seq, &ip)?.likelihood;
         }
         Ok(result)
     }
@@ -524,7 +551,7 @@ impl Modelable for Model {
         vgenes: &Vec<Gene>,
         jgenes: &Vec<Gene>,
     ) -> Result<Sequence> {
-        let v_alignments = vgenes
+        let mut v_alignments = vgenes
             .iter()
             .map(|vg| {
                 let index = self
@@ -557,6 +584,7 @@ impl Modelable for Model {
                     score: 0, // meaningless
                     max_del: Some(self.p_del_v_given_v.shape()[0]),
                     gene_sequence: pal_v.clone(),
+                    sequence_type: cdr3_seq.sequence_type(),
                     ..Default::default()
                 };
                 val.precompute_errors_v(cdr3_seq);
@@ -564,7 +592,7 @@ impl Modelable for Model {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let j_alignments = jgenes
+        let mut j_alignments = jgenes
             .iter()
             .map(|jg| {
                 let index = self
@@ -612,6 +640,7 @@ impl Modelable for Model {
                     score: 0, // meaningless
                     max_del: Some(self.p_del_j_given_j.dim().0),
                     gene_sequence: pal_j.clone(),
+                    sequence_type: cdr3_seq.sequence_type(),
                     ..Default::default()
                 };
                 jal.precompute_errors_j(cdr3_seq);
@@ -619,12 +648,56 @@ impl Modelable for Model {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        let mut sequence = cdr3_seq.clone();
+        if v_alignments.len() == 1 {
+            // if only one V, we extend the seq
+            let mut only_val = v_alignments[0].clone();
+            if only_val.start_seq != 0 {
+                // weird edge case, the sequence starts before the V gene
+                // shouldn't happend, but there's a debug_assert just in case
+                debug_assert!(only_val.start_seq == 0);
+            } else {
+                let vg: DnaLike = only_val
+                    .gene_sequence
+                    .extract_subsequence(0, only_val.start_gene)
+                    .into();
+                only_val.start_seq = 0;
+                only_val.end_seq += only_val.start_gene;
+                sequence = vg.extended(sequence);
+                for jal in &mut j_alignments {
+                    jal.start_seq += only_val.start_gene;
+                    jal.end_seq += only_val.start_gene;
+                }
+                // need to do this last
+                only_val.start_gene = 0;
+                v_alignments = vec![only_val];
+            }
+        }
+        if j_alignments.len() == 1 {
+            // same if only one J
+            let mut only_jal = j_alignments[0].clone();
+            // maybe a bit more common, if the J gene end before the CDR3
+            // we don't do anything
+            if only_jal.start_seq == 0 {
+                let jg: DnaLike = only_jal
+                    .gene_sequence
+                    .extract_subsequence(only_jal.end_gene, only_jal.gene_sequence.len())
+                    .into();
+                sequence = sequence.extended(jg);
+                only_jal.end_seq += only_jal.gene_sequence.len() - only_jal.end_gene;
+                // need to do this last
+                only_jal.end_gene = only_jal.gene_sequence.len();
+                j_alignments = vec![only_jal];
+            }
+        }
+
         let mut seq = Sequence {
-            sequence: cdr3_seq.clone(),
+            sequence,
             v_genes: v_alignments,
             j_genes: j_alignments,
             d_genes: Vec::new(),
             valid_alignment: true,
+            sequence_type: cdr3_seq.sequence_type(),
         };
 
         let align_params = AlignmentParameters::default();
@@ -645,6 +718,7 @@ impl Modelable for Model {
             j_genes: align_all_jgenes(dna_seq.clone(), self, align_params),
             d_genes: Vec::new(),
             valid_alignment: true,
+            sequence_type: dna_seq.sequence_type(),
         };
 
         // if we don't have v genes or j genes, don't try inferring the d gene
@@ -717,6 +791,10 @@ impl Model {
         alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
     ) -> Result<Vec<Features>> {
+        if sequences.iter().any(|x| x.is_protein()) {
+            return Err(anyhow!("The brute-force model doesn't work with proteins"));
+        }
+
         let features = match features_opt {
             None => {
                 // Create new features object
