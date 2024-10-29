@@ -12,6 +12,7 @@ use ndarray::array;
 use ndarray::Axis;
 use righor::shared::sequence::DegenerateCodonSequence;
 use righor::shared::ModelGen;
+use righor::AlignmentParameters;
 use righor::EntrySequence;
 use righor::{AminoAcid, Dna, DnaLike, Gene};
 use std::fs::File;
@@ -41,89 +42,115 @@ fn main() -> Result<()> {
     igor_model.set_model_type(ModelStructure::VxDJ)?;
     igor_model.set_error(ErrorParameters::ConstantRate(ErrorConstantRate::new(0.)))?;
 
-    let dna = Dna::from_string("TGCGCCAGGAACTATGAACAGTATTTT")?;
-    let es = EntrySequence::NucleotideCDR3((
-        dna.clone().into(),
-        vec![igor_model.clone().get_v_segments()[49].clone()],
-        vec![igor_model.clone().get_j_segments()[9].clone()],
-    ));
-    let mut ip = righor::InferenceParameters::default();
-    ip.infer_features = true;
+    let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
 
-    igor_model.set_model_type(righor::shared::ModelStructure::VDJ);
-    let result = igor_model.evaluate(es.clone(), &righor::AlignmentParameters::default(), &ip);
-    println!("VDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
-
-    let igor_model_vdj = match igor_model {
-        righor::Model::VDJ(ref x) => x,
-        righor::Model::VJ(_) => panic!("NOPE"),
-    };
-
-    let result = igor_model_vdj.evaluate_brute_force(
-        es.clone(),
-        &righor::AlignmentParameters::default(),
-        &ip,
-    );
-    println!("VDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
-
-    igor_model.set_model_type(righor::shared::ModelStructure::VxDJ);
-    let result = igor_model.evaluate(es.clone(), &righor::AlignmentParameters::default(), &ip);
-    println!("VxDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
-
-    // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
-
-    let mut align_params = righor::AlignmentParameters::default();
-    align_params.left_v_cutoff = 500;
-    let mut inference_params = righor::InferenceParameters::default();
-    inference_params.min_likelihood = 0.;
-    inference_params.min_ratio_likelihood = 0.;
-    inference_params.infer_features = false;
-
-    let sequence = righor::AminoAcid::from_string("CDF")?;
-
-    let result = if let righor::Model::VDJ(ref m) = igor_model {
-        m.evaluate(
+    for _ in 0..100 {
+        let sequence = generator.generate_without_errors(true);
+        let cdr3_aa = sequence.cdr3_aa.unwrap();
+        let vname = sequence.v_gene;
+        let jname = sequence.j_gene;
+        igor_model.evaluate(
             EntrySequence::NucleotideCDR3((
-                DnaLike::from_amino_acid(sequence),
-                m.get_v_segments()
+                DnaLike::from_amino_acid(AminoAcid::from_string(&cdr3_aa).unwrap()),
+                igor_model
+                    .get_v_segments()
                     .into_iter()
-                    .filter(|a| a.name == "TRBV9*01")
+                    .filter(|a| a.name == vname)
                     .collect(),
-                m.get_j_segments()
+                igor_model
+                    .get_j_segments()
                     .into_iter()
-                    .filter(|a| a.name == "TRBJ2-7*01")
+                    .filter(|a| a.name == jname)
                     .collect(),
             )),
-            &align_params,
-            &inference_params,
-        )
-    } else {
-        panic!("")
-    };
-    println!("{:?}", result.unwrap().likelihood);
-    println!("\n");
+            &righor::AlignmentParameters::default(),
+            &righor::InferenceParameters::default(),
+        );
+    }
 
-    let sequence = righor::Dna::from_string("TGTGACTTC")?;
-    let result = if let righor::Model::VDJ(m) = igor_model {
-        m.evaluate(
-            EntrySequence::NucleotideCDR3((
-                DnaLike::from_dna(sequence),
-                m.get_v_segments()
-                    .into_iter()
-                    .filter(|a| a.name == "TRBV9*01")
-                    .collect(),
-                m.get_j_segments()
-                    .into_iter()
-                    .filter(|a| a.name == "TRBJ2-7*01")
-                    .collect(),
-            )),
-            &align_params,
-            &inference_params,
-        )
-    } else {
-        panic!("")
-    };
-    println!("{:?}", result.unwrap().likelihood);
+    // let dna = Dna::from_string("TGCGCCAGGAACTATGAACAGTATTTT")?;
+    // let es = EntrySequence::NucleotideCDR3((
+    //     dna.clone().into(),
+    //     vec![igor_model.clone().get_v_segments()[49].clone()],
+    //     vec![igor_model.clone().get_j_segments()[9].clone()],
+    // ));
+    // let mut ip = righor::InferenceParameters::default();
+    // ip.infer_features = true;
+
+    // igor_model.set_model_type(righor::shared::ModelStructure::VDJ);
+    // let result = igor_model.evaluate(es.clone(), &righor::AlignmentParameters::default(), &ip);
+    // println!("VDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
+
+    // let igor_model_vdj = match igor_model {
+    //     righor::Model::VDJ(ref x) => x,
+    //     righor::Model::VJ(_) => panic!("NOPE"),
+    // };
+
+    // let result = igor_model_vdj.evaluate_brute_force(
+    //     es.clone(),
+    //     &righor::AlignmentParameters::default(),
+    //     &ip,
+    // );
+    // println!("VDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
+
+    // igor_model.set_model_type(righor::shared::ModelStructure::VxDJ);
+    // let result = igor_model.evaluate(es.clone(), &righor::AlignmentParameters::default(), &ip);
+    // println!("VxDJ pgen(TGCGCCAGGAACTATGAACAGTATTTT) {:?}\n", result);
+
+    // // let sequence = righor::Dna::from_string("GACGCGGAATTCACCCCAAGTCCCACACACCTGATCAAAAAGAGAGCCCAGCAGCTGACTCTGAGATGCTCTCCTAAATCTGAGCATGACAGTGTGTCCTGGTGCCAACAAGCCCTGTGTCAGGGGCCCCAGTTTAACTTTCAGTATTATGAGGAGGAAGAGATTCATAGAGGCAACTACCCTGAACATTTCTCAGGTCCCCAGTTCCTGAACTATAGCTCTGGGCTGAATGTGAACGACCTGTTGCGGTGGGATTCGGCCCTCTATCACTGTGCGAGCAGCAATGACTAGCGAGACCAGTACTTCGGGCCAAGCACGCGACTCCTGGTGCTCG")?;
+
+    // let mut align_params = righor::AlignmentParameters::default();
+    // align_params.left_v_cutoff = 500;
+    // let mut inference_params = righor::InferenceParameters::default();
+    // inference_params.min_likelihood = 0.;
+    // inference_params.min_ratio_likelihood = 0.;
+    // inference_params.infer_features = false;
+
+    // let sequence = righor::AminoAcid::from_string("CDF")?;
+
+    // let result = if let righor::Model::VDJ(ref m) = igor_model {
+    //     m.evaluate(
+    //         EntrySequence::NucleotideCDR3((
+    //             DnaLike::from_amino_acid(sequence),
+    //             m.get_v_segments()
+    //                 .into_iter()
+    //                 .filter(|a| a.name == "TRBV9*01")
+    //                 .collect(),
+    //             m.get_j_segments()
+    //                 .into_iter()
+    //                 .filter(|a| a.name == "TRBJ2-7*01")
+    //                 .collect(),
+    //         )),
+    //         &align_params,
+    //         &inference_params,
+    //     )
+    // } else {
+    //     panic!("")
+    // };
+    // println!("{:?}", result.unwrap().likelihood);
+    // println!("\n");
+
+    // let sequence = righor::Dna::from_string("TGTGACTTC")?;
+    // let result = if let righor::Model::VDJ(m) = igor_model {
+    //     m.evaluate(
+    //         EntrySequence::NucleotideCDR3((
+    //             DnaLike::from_dna(sequence),
+    //             m.get_v_segments()
+    //                 .into_iter()
+    //                 .filter(|a| a.name == "TRBV9*01")
+    //                 .collect(),
+    //             m.get_j_segments()
+    //                 .into_iter()
+    //                 .filter(|a| a.name == "TRBJ2-7*01")
+    //                 .collect(),
+    //         )),
+    //         &align_params,
+    //         &inference_params,
+    //     )
+    // } else {
+    //     panic!("")
+    // };
+    // println!("{:?}", result.unwrap().likelihood);
 
     // let sequence = righor::Dna::from_string("TGTGCCAGCCGACGGACAGCTAACTATGGCTACACCTTC")?;
 

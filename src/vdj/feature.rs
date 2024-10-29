@@ -436,6 +436,7 @@ impl FeatureVD {
                     && ((sd - ev) as usize) < feat_insvd.max_nb_insertions()
                 {
                     let ins_vd = sequence.get_subsequence(ev, sd);
+
                     for first_nucleotide in 0..4 {
                         let likelihood = feat_insvd.likelihood(&ins_vd, first_nucleotide);
                         // let likelihood = match ip.likelihood_type {
@@ -447,6 +448,17 @@ impl FeatureVD {
                         // }
 
                         if likelihood.max() > ip.min_likelihood {
+                            // if ev == 23 && sd == 24 {
+                            //     if likelihood.to_matrix().is_ok() {
+                            //         println!(
+                            //             "{:?} {:.2e} {}\n----------------------",
+                            //             ins_vd.clone().to_dnas(),
+                            //             likelihood.to_matrix().unwrap(),
+                            //             sequence.get_subsequence(ev - 2, sd).to_dna()
+                            //         );
+                            //     }
+                            // }
+
                             likelihoods.add_to((ev, sd), first_nucleotide, likelihood);
                         }
                     }
@@ -585,13 +597,6 @@ impl FeatureDJ {
 
                     for first_nucleotide in 0..4 {
                         let likelihood = feat_insdj.likelihood(&ins_dj, first_nucleotide);
-                        // let likelihood = match ip.likelihood_type {
-                        //     SequenceType::Protein => Likelihood::from_insertions(&ins_dj) * ll,
-                        //     SequenceType::Dna => Likelihood::Scalar(ll),
-                        // };
-                        // //                        if ins_dj.len() > 0 {
-                        // // println!("{} {} {:?} {:?}", ed, sj, ins_dj.to_dna(), likelihood);
-                        // //                        }
                         if likelihood.max() > ip.min_likelihood {
                             likelihoods.add_to((ed, sj), first_nucleotide, likelihood);
                         }

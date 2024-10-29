@@ -5,12 +5,14 @@ use crate::shared::AlignmentParameters;
 use anyhow::{anyhow, Result};
 use bio::alignment::{pairwise, Alignment};
 use itertools::iproduct;
+use itertools::Itertools;
 use phf::phf_map;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 /////////////////////////////////////
 // Constants
@@ -99,6 +101,12 @@ pub struct DegenerateCodon {
 /////////////////////////////////////
 // Implementations
 /////////////////////////////////////
+
+impl Hash for Dna {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.to_string().hash(state);
+    }
+}
 
 impl From<DnaLike> for DnaLikeEnum {
     fn from(dnalike: DnaLike) -> Self {
@@ -220,6 +228,14 @@ impl DnaLikeEnum {
         let mut s = self.clone();
         s.extend(&other);
         s
+    }
+
+    pub fn to_dnas(self) -> Vec<Dna> {
+        match self {
+            Self::Known(s) => vec![s],
+            Self::Ambiguous(s) => s.to_dnas(),
+            Self::Protein(s) => s.to_dnas(),
+        }
     }
 
     // TODO: this can be coded better (but probably doesn't matter)
@@ -361,6 +377,67 @@ impl DnaLikeEnum {
 }
 
 impl DegenerateCodon {
+    pub fn extract_subsequence(&self, start: usize, end: usize) -> DegenerateCodon {
+        debug_assert!(end <= 3);
+        let mirror_end = (3 - end) as usize;
+        match (start, mirror_end) {
+            (0, 0) => DegenerateCodon {
+                triplets: self.triplets.iter().cloned().unique().collect(),
+            },
+            (0, 1) => DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .map(|x| [x[0], x[1], BLANK])
+                    .unique()
+                    .collect(),
+            },
+            (0, 2) => DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .map(|x| [x[0], BLANK, BLANK])
+                    .unique()
+                    .collect(),
+            },
+            (1, 0) => DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .map(|x| [BLANK, x[1], x[2]])
+                    .unique()
+                    .collect(),
+            },
+            (1, 1) => DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .map(|x| [BLANK, x[1], BLANK])
+                    .unique()
+                    .collect(),
+            },
+            (2, 0) => DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .map(|x| [BLANK, BLANK, x[2]])
+                    .unique()
+                    .collect(),
+            },
+            (2, 1) | (1, 2) | (3, 0) | (0, 3) => DegenerateCodon {
+                triplets: vec![[BLANK, BLANK, BLANK]],
+            },
+            _ => {
+                panic!("Degenerate Codon extract_subsequence received invalid start/end");
+            }
+        }
+    }
+
     pub fn translate(&self) -> u8 {
         let mut b = None;
         for v in self.triplets.iter() {
@@ -571,65 +648,79 @@ impl DegenerateCodon {
     /// For ex [[0,1,2], [1,1,2], [2,2,2]]
     /// Will return vec![(4*1 + 2, [[0,1,2], [1,1,2]]), (4*2+2, [[2,2,2]])]
     pub fn fix_end_two(&self) -> Vec<(usize, DegenerateCodon)> {
-        let mut result = vec![vec![]; 16];
-        for cod in self.triplets.iter() {
-            result[4 * cod[1] + cod[2]].push(cod.clone())
+        let unique_ends = self.triplets.iter().map(|x| 4 * x[1] + x[2]).unique();
+        let mut results = vec![];
+        for end in unique_ends {
+            let cod = DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .filter(|x| 4 * x[1] + x[2] == end)
+                    .collect(),
+            };
+            results.push((end, cod));
         }
-        result
-            .iter()
-            .enumerate()
-            .filter(|(_i, x)| x.len() > 0)
-            .map(|(i, x)| {
-                (
-                    i,
-                    DegenerateCodon {
-                        triplets: x.clone(),
-                    },
-                )
-            })
-            .collect()
+        results
     }
 
     /// For every possible end to the degenerate codon (one nucl.)
-    /// give a sub degeneratecodon that matches them.
+    /// give the sub degeneratecodon that matches them.
     /// For ex [[0,1,2], [1,1,2], [2,2,1]]
     /// Will return vec![(2, [[0,1,2], [1,1,2]]), (1, [[2,2,1]])]
     pub fn fix_end_one(&self) -> Vec<(usize, DegenerateCodon)> {
-        let mut result = vec![vec![]; 4];
-        for cod in self.triplets.iter() {
-            result[cod[2]].push(cod.clone())
+        let unique_ends = self.triplets.iter().map(|x| x[2]).unique();
+        let mut results = vec![];
+        for end in unique_ends {
+            let cod = DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .filter(|x| x[2] == end)
+                    .collect(),
+            };
+            results.push((end, cod));
         }
-        result
-            .iter()
-            .enumerate()
-            .filter(|(_i, x)| x.len() > 0)
-            .map(|(i, x)| {
-                (
-                    i,
-                    DegenerateCodon {
-                        triplets: x.clone(),
-                    },
-                )
-            })
-            .collect()
+        results
     }
 
-    pub fn fix_start_two(&self) -> Vec<usize> {
-        let mut v = self
-            .triplets
-            .iter()
-            .map(|x| 4 * x[0] + x[1])
-            .collect::<Vec<_>>();
-        v.sort();
-        v.dedup();
-        v
+    /// For every possible two-nuc starts of the degenerate codon
+    /// give the sub codons that matches them
+    /// For ex [[0, 1, 2], [1,1,2], [1,1,1]]
+    /// Will return vec![(4*0 + 1, [0, 1, 2]), (4*1+1, [[1,1,2], [1,1,2]])]
+    pub fn fix_start_two(&self) -> Vec<(usize, DegenerateCodon)> {
+        let unique_starts = self.triplets.iter().map(|x| 4 * x[0] + x[1]).unique();
+        let mut results = vec![];
+        for start in unique_starts {
+            let cod = DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .filter(|x| 4 * x[0] + x[1] == start)
+                    .collect(),
+            };
+            results.push((start, cod));
+        }
+        results
     }
 
-    pub fn fix_start_one(&self) -> Vec<usize> {
-        let mut v: Vec<_> = self.triplets.iter().map(|x| x[0]).collect();
-        v.sort();
-        v.dedup();
-        v
+    pub fn fix_start_one(&self) -> Vec<(usize, DegenerateCodon)> {
+        let unique_starts = self.triplets.iter().map(|x| x[0]).unique();
+        let mut results = vec![];
+        for start in unique_starts {
+            let cod = DegenerateCodon {
+                triplets: self
+                    .triplets
+                    .iter()
+                    .cloned()
+                    .filter(|x| x[0] == start)
+                    .collect(),
+            };
+            results.push((start, cod));
+        }
+        results
     }
 
     /// Return a new codon, with the end nucleotides at the end of
@@ -693,16 +784,6 @@ impl DegenerateCodon {
     /// of length 3 - start - end. start + end <= 2
     pub fn hamming_distance(&self, seq: &Dna, start: usize, end: usize) -> usize {
         debug_assert!(seq.len() == 3 - start - end);
-
-        let a = self
-            .triplets
-            .iter()
-            .map(|x| seq.hamming_distance_index_slice(x, start, end))
-            .min()
-            .unwrap();
-        if a > seq.len() {
-            println!("TRUC: {:?} {:?} {:?}", a, 3 - start - end, seq.len(),);
-        }
 
         self.triplets
             .iter()
@@ -869,7 +950,74 @@ impl DegenerateCodonSequence {
         sequence.extract_subsequence(self.codon_start, self.len() + self.codon_start)
     }
 
-    /// Extract a subsequence from the dna. No particular checks.
+    /// return all dna sequences possible (can be huge)
+    pub fn to_dnas(&self) -> Vec<Dna> {
+        let mut all_nts = vec![Dna::new()];
+        for (cod_nb, codons) in self.codons.iter().enumerate() {
+            let mut new_combinations = Vec::new();
+            let mut new_codons = codons.clone();
+            if cod_nb == 0 && cod_nb == self.codons.len() - 1 {
+                new_codons = new_codons.extract_subsequence(self.codon_start, 3 - self.codon_end)
+            } else if cod_nb == self.codons.len() - 1 {
+                new_codons = new_codons.extract_subsequence(0, 3 - self.codon_end)
+            } else if cod_nb == 0 {
+                new_codons = new_codons.extract_subsequence(self.codon_start, 3)
+            }
+            for cod in new_codons.triplets.iter() {
+                for nt in &all_nts {
+                    let mut new_seq = nt.seq.clone();
+                    new_seq.extend(cod.iter().filter(|&x| *x != BLANK).map(|&x| NUCLEOTIDES[x]));
+                    new_combinations.push(Dna { seq: new_seq });
+                }
+            }
+
+            all_nts = new_combinations;
+        }
+        all_nts
+    }
+
+    /// Extract a subsequence from the dna.
+    /// [AATNAT][4:6] ->  [.AT] (with start_codon = 1)
+    pub fn strict_extract_subsequence(&self, start: usize, end: usize) -> DegenerateCodonSequence {
+        // where to start in the amino-acid sequence
+
+        // example:
+        // start = 10, end = 20
+        // codon_start = 2, codon_end = 1
+        //   <---------------------------------->  : true sequence
+        // ....................................... : full stored data
+        //  x  x  x  x  x  x  x  x  x  x  x  x  x  : amino-acids
+        //             <-------->                  : extracted sequence
+        //             ..........                  : stored data for extracted sequence
+        //
+        // We also clean up / simplify the first and last codon.
+        // For example [NAT][1:3] is going to give [.AT] rather than [AAT,CAT,GAT,TAT]
+        debug_assert!(end <= self.len());
+
+        let shift_start = start + self.codon_start;
+        let shift_end = end + self.codon_start;
+
+        let aa_start = shift_start / 3;
+        // we check where is the last element, divide by 3 then add 1.
+        let aa_end = (shift_end + 3 - 1) / 3;
+
+        let mut new_codons = self.codons[aa_start..aa_end].to_vec();
+        if let Some(first) = new_codons.first_mut() {
+            *first = self.codons[aa_start].extract_subsequence(shift_start % 3, 3);
+        }
+
+        if let Some(last) = new_codons.last_mut() {
+            *last = self.codons[aa_end - 1].extract_subsequence(0, 3 - (3 * (aa_end) - shift_end));
+        }
+        DegenerateCodonSequence {
+            codons: new_codons,
+            codon_start: shift_start % 3,
+            codon_end: 3 * (aa_end) - shift_end,
+        }
+    }
+
+    /// Extract a subsequence from the dna. Keep the codons
+    /// [AATNAT][4:6] ->  [AAT,CAT,GAT,TAT] (with start_codon = 1)
     pub fn extract_subsequence(&self, start: usize, end: usize) -> DegenerateCodonSequence {
         // where to start in the amino-acid sequence
 
@@ -882,6 +1030,8 @@ impl DegenerateCodonSequence {
         //             <-------->                  : extracted sequence
         //             ..........                  : stored data for extracted sequence
         //
+        // We also clean up / simplify the first and last codon.
+        // For example [NAT][1:3] is going to give [.AT] rather than [AAT,CAT,GAT,TAT]
         debug_assert!(end <= self.len());
 
         let shift_start = start + self.codon_start;
@@ -890,8 +1040,10 @@ impl DegenerateCodonSequence {
         let aa_start = shift_start / 3;
         // we check where is the last element, divide by 3 then add 1.
         let aa_end = (shift_end + 3 - 1) / 3;
+
+        let new_codons = self.codons[aa_start..aa_end].to_vec();
         DegenerateCodonSequence {
-            codons: self.codons[aa_start..aa_end].to_vec(),
+            codons: new_codons,
             codon_start: shift_start % 3,
             codon_end: 3 * (aa_end) - shift_end,
         }
@@ -960,7 +1112,9 @@ impl DegenerateCodonSequence {
                     .right_extremities()
                     .into_iter()
                     .map(move |(xright, seq)| {
-                        (xleft, xright, seq.extract_subsequence(2, seq.len()))
+                        // here strict_extract_subsequence, we want the count
+                        // to be right
+                        (xleft, xright, seq.strict_extract_subsequence(2, seq.len()))
                     })
             })
             .collect()
@@ -976,7 +1130,11 @@ impl DegenerateCodonSequence {
             // no codons
             for idx_left in 0..16 {
                 let mut s = self.clone();
-                s.append_to_dna(&Dna::from_matrix_idx(idx_left));
+                let new_start_codon = DegenerateCodon {
+                    triplets: vec![[BLANK, idx_left / 4, idx_left % 4]],
+                };
+                s.codons.insert(0, new_start_codon);
+                s.codon_start = 1;
                 results.push((idx_left, s));
             }
             return results;
@@ -985,19 +1143,17 @@ impl DegenerateCodonSequence {
         let first_codon = self.codons[0].clone();
 
         if self.codon_start == 2 {
-            for idx_left in first_codon.fix_start_two() {
+            for (idx_left, cod) in first_codon.fix_start_two() {
                 let mut s = self.clone();
-                s.append_to_dna(&Dna::from_matrix_idx(idx_left));
                 s.codon_start = 0;
+                s.codons[0] = cod;
                 results.push((idx_left, s))
             }
         } else if self.codon_start == 1 {
-            for nuc2 in first_codon.fix_start_one() {
-                for nuc1 in 0..4 {
+            for nuc1 in 0..4 {
+                for (nuc2, cod) in first_codon.fix_start_one() {
                     let mut s = self.clone();
-                    s.append_to_dna(&Dna {
-                        seq: vec![NUCLEOTIDES[nuc2]],
-                    });
+                    s.codons[0] = cod;
                     let new_start_codon = DegenerateCodon {
                         triplets: vec![[BLANK, BLANK, nuc1]],
                     };
@@ -1052,7 +1208,7 @@ impl DegenerateCodonSequence {
             return last_codon
                 .fix_start_two()
                 .into_iter()
-                .map(|x| {
+                .map(|(x, _)| {
                     let mut new_codons = codons_minus_last.clone();
                     new_codons.push(DegenerateCodon {
                         triplets: vec![[x / 4, x % 4, BLANK]],
@@ -1073,7 +1229,7 @@ impl DegenerateCodonSequence {
             // len >= 2 so it's  fine.
             let lastlast_codon = codons_minus_two.pop().unwrap();
 
-            for last_nuc in last_codon.fix_start_one() {
+            for (last_nuc, _) in last_codon.fix_start_one() {
                 for (lastlast_nuc, cod) in lastlast_codon.fix_end_one() {
                     let end_idx = 4 * lastlast_nuc + last_nuc;
                     let mut new_codons = codons_minus_two.clone();
@@ -1630,6 +1786,24 @@ impl Dna {
     pub fn reverse(&mut self) {
         self.seq.reverse();
     }
+
+    /// Return all possible variant of a dna sequence
+    /// ANT -> [AAT, ACT, AGT, ATT], can be huge
+    pub fn to_dnas(&self) -> Vec<Dna> {
+        let mut all_seqs = vec![Dna::new()];
+        for a in self.seq.iter() {
+            let mut new_seqs = vec![];
+            for b in degenerate_dna_to_vec(*a) {
+                for seq in all_seqs.iter() {
+                    let mut new_seq = seq.clone();
+                    new_seq.seq.push(NUCLEOTIDES[b]);
+                    new_seqs.push(new_seq);
+                }
+            }
+            all_seqs = new_seqs;
+        }
+        all_seqs
+    }
 }
 
 impl Dna {
@@ -2032,6 +2206,10 @@ impl DnaLike {
 }
 
 impl DnaLike {
+    pub fn to_dnas(&self) -> Vec<Dna> {
+        self.inner.clone().to_dnas()
+    }
+
     pub fn from_amino_acid(seq: AminoAcid) -> DnaLike {
         DnaLike {
             inner: DnaLikeEnum::from_amino_acid(seq),

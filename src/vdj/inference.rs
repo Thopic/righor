@@ -421,7 +421,7 @@ impl Features {
                             * likelihood_vdj;
 
                         if likelihood.to_scalar()? > cutoff {
-                            println!("{} {} {} {} {:?}", ev, sd, ed, sj, likelihood.to_scalar());
+                            //                         println!("{} {} {} {} {:?}", ev, sd, ed, sj, likelihood.to_scalar());
                             current_result.likelihood += likelihood.to_scalar()?;
                             if likelihood.max() > current_result.best_likelihood {
                                 current_result.best_likelihood = likelihood.to_scalar()?;

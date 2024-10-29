@@ -84,10 +84,16 @@ impl DNAMarkovChain {
 
     pub fn update_dna(&self, s: &Dna, first: usize, likelihood: f64) -> Array2<f64> {
         let mut transition_mat = Array2::zeros((4, 4));
-        transition_mat[[first, nucleotides_inv(s.seq[0])]] += likelihood;
-        for ii in 1..s.len() {
-            transition_mat[[nucleotides_inv(s.seq[ii - 1]), nucleotides_inv(s.seq[ii])]] +=
-                likelihood
+        let mut new_s = s.clone();
+        if self.reverse {
+            new_s.reverse()
+        }
+        transition_mat[[first, nucleotides_inv(new_s.seq[0])]] += likelihood;
+        for ii in 1..new_s.len() {
+            transition_mat[[
+                nucleotides_inv(new_s.seq[ii - 1]),
+                nucleotides_inv(new_s.seq[ii]),
+            ]] += likelihood
         }
         transition_mat
     }
@@ -117,7 +123,7 @@ impl DNAMarkovChain {
                 );
         }
         Likelihood::Scalar(
-            (vector_proba * self.get_degenerate_end(nucleotides_inv(*s.seq.last().unwrap())))
+            (vector_proba * self.get_degenerate_end(nucleotides_inv(*new_s.seq.last().unwrap())))
                 [(0, 0)],
         )
     }
@@ -198,12 +204,15 @@ impl DNAMarkovChain {
         let mut m = Matrix16::zeros();
         if !self.reverse {
             for (idx_left, idx_right, seq) in s.fix_extremities() {
+                //                println!("{} {} {:?}", idx_left, idx_right, seq.to_dna());
                 m[(idx_left, idx_right)] = self.likelihood_float_aa(&seq, start_chain);
             }
         } else {
             for (idx_left, idx_right, seq) in s.fix_extremities() {
                 let mut new_seq = seq.clone();
                 new_seq.reverse();
+                // println!("{:?}", seq.to_dnas());
+                // println!("{:?}", new_seq.to_dnas());
                 m[(idx_left, idx_right)] = self.likelihood_float_aa(&new_seq, start_chain);
             }
         }
@@ -250,8 +259,8 @@ impl DNAMarkovChain {
         unimplemented!("Cannot update from an amino-acid sequence."); // for now (but maybe an error in the future)
     }
 
-    /// Return a matrix A(τ, σ), where τ is the last nucleotide of the previous codon and
-    /// σ is the last nucleotide
+    /// Return a matrix A(τ, σ), where τ is the last nucleotide
+    /// of the previous codon and σ is the last nucleotide
     pub fn interior_codon_likelihood(&self, codons: &DegenerateCodon) -> Matrix4<f64> {
         // easiest and most frequent case, internal codon
         let mut matrix = Matrix4::new(
@@ -284,16 +293,16 @@ impl DNAMarkovChain {
             }
         } else if start == 1 {
             for cod in &codons.triplets {
-                // if cod[0] == first {
+                //                if cod[0] == first {
                 vector[cod[2]] += self.transition_matrix[[first, cod[1]]]
                     * self.transition_matrix[[cod[1], cod[2]]];
-                //                }
+                //              }
             }
         } else if start == 2 {
             for cod in &codons.triplets {
-                //    if cod[1] == first {
+                //                if cod[1] == first {
                 vector[cod[2]] += self.transition_matrix[[first, cod[2]]];
-                //  }
+                //              }
             }
         }
         vector
@@ -344,16 +353,16 @@ impl DNAMarkovChain {
                 .map(|x| {
                     //                    if x[0] == start_mc {
                     self.transition_matrix[[start_mc, x[1]]]
-                    //                    } else {
-                    //                        0.
-                    //                  }
+                    // } else {
+                    //     0.
+                    // }
                 })
                 .sum::<f64>(),
             (2, 0) => codons
                 .triplets
                 .iter()
                 .map(|x| {
-                    // if x[1] == start_mc {
+                    //                    if x[1] == start_mc {
                     self.transition_matrix[[start_mc, x[2]]]
                     // } else {
                     //     0.
@@ -376,7 +385,7 @@ impl DNAMarkovChain {
                 .triplets
                 .iter()
                 .map(|x| {
-                    // if x[0] == start_mc {
+                    //if x[0] == start_mc {
                     self.transition_matrix[[start_mc, x[1]]] * self.transition_matrix[[x[1], x[2]]]
                     // } else {
                     //     0.

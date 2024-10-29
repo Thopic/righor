@@ -20,6 +20,18 @@ pub enum ErrorParameters {
     UniformRate(ErrorUniformRate),
 }
 
+impl From<ErrorConstantRate> for ErrorParameters {
+    fn from(err: ErrorConstantRate) -> Self {
+        ErrorParameters::ConstantRate(err)
+    }
+}
+
+impl From<ErrorUniformRate> for ErrorParameters {
+    fn from(err: ErrorUniformRate) -> Self {
+        ErrorParameters::UniformRate(err)
+    }
+}
+
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pyclass(name = "ErrorParameters")]
 #[derive(Clone, Debug, Default)]

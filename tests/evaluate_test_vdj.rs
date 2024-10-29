@@ -8,6 +8,7 @@ use kdam::tqdm;
 use righor::shared::errors::ErrorConstantRate;
 use righor::shared::likelihood::Likelihood;
 
+use itertools::Itertools;
 use ndarray::array;
 use righor::shared::DNAMarkovChain;
 use righor::shared::ErrorParameters;
@@ -15,6 +16,7 @@ use righor::shared::ModelStructure;
 use righor::EntrySequence;
 use righor::Modelable;
 use righor::{AminoAcid, Dna};
+use std::path::Path;
 
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -95,11 +97,11 @@ fn evaluate_cdr3() -> Result<()> {
 }
 
 #[test]
-fn evaluate_degenerate_seq() -> Result<()> {
+fn evaluate_degenerate_seq_simple() -> Result<()> {
     let ip = InferenceParameters::default();
     let model = common::simple_model_vdj();
     let es = EntrySequence::NucleotideSequence(
-        Dna::from_string("ATCTACTACTACTGCTCATGCAANNNTTTCGCTTTTGGGGCAGTCTTCGGAGAAACAAAGACTTAT")?
+        Dna::from_string("ATCTACTACTACTGCTCATGCAANNNTTCGCTTTNNGGGCAGTCTTCGGAGAAACAAAGACTTAT")?
             .into(),
     );
     let result = model.evaluate(es, &AlignmentParameters::default(), &ip)?;
@@ -109,18 +111,70 @@ fn evaluate_degenerate_seq() -> Result<()> {
     for a1 in ['A', 'C', 'G', 'T'] {
         for a2 in ['A', 'C', 'G', 'T'] {
             for a3 in ['A', 'C', 'G', 'T'] {
-                let seq = format!(
-                    "ATCTACTACTACTGCTCATGCAA{}{}{}TTTCGCTTTTGGGGCAGTCTTCGGAGAAACAAAGACTTAT",
-                    a1, a2, a3
+                for a4 in ['A', 'C', 'G', 'T'] {
+                    for a5 in ['A', 'C', 'G', 'T'] {
+                        let seq = format!(
+			    "ATCTACTACTACTGCTCATGCAA{}{}{}TTCGCTTT{}{}GGGCAGTCTTCGGAGAAACAAAGACTTAT",
+                    a1, a2, a3, a4, a5
                 );
-                let result2 = model.evaluate(
-                    EntrySequence::NucleotideSequence(Dna::from_string(&seq)?.into()),
-                    &AlignmentParameters::default(),
-                    &ip,
-                )?;
-                total_likelihood += result2.likelihood;
+                        let result2 = model.evaluate(
+                            EntrySequence::NucleotideSequence(Dna::from_string(&seq)?.into()),
+                            &AlignmentParameters::default(),
+                            &ip,
+                        )?;
+                        total_likelihood += result2.likelihood;
+                    }
+                }
             }
         }
+    }
+    if ((total_likelihood - result.likelihood) / (result.likelihood + total_likelihood)).abs()
+        > 0.001
+    {
+        println!("{:?}", result);
+        println!("{:.3e}", total_likelihood);
+        println!("{:.3e}", result.likelihood);
+    }
+    assert!(
+        ((total_likelihood - result.likelihood) / (total_likelihood + result.likelihood)).abs()
+            < 0.001
+    );
+    Ok(())
+}
+
+#[test]
+fn evaluate_degenerate_seq_real_model() -> Result<()> {
+    let ip = InferenceParameters::default();
+
+    //TODO: modify before release
+    let mut model = righor::Model::load_from_name(
+        "human",
+        "trb",
+        None,
+        Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
+    )?;
+    model.set_error(righor::shared::errors::ErrorConstantRate::new(0.).into())?;
+    model.set_model_type(righor::shared::ModelStructure::VxDJ)?;
+
+    let es = EntrySequence::NucleotideSequence(
+        Dna::from_string("GAAGCCCAAGTGACCCAGAACCCAAGATACCTCATCACAGTGACTGGAAAGAAGTTAACAGTGACTTGTTCTCAGAATATGAACCATGAGTATATGTCCTGGTATCGACAAGACCCAGGGCTGGGCTTAAGGCAGATCTACTATTCAATGAATGTTGAGGTGACTGATAAGGGAGATGTTCCTGAAGGGTACAAAGTCTCTCGAAAAGAGAAGAGGAATTTCCCCCTGATCCTGGAGTCGCCCAGCCCCAACCAGACCTCTCTGTACTTCTGTGCCAGCCGACNGACAGCTAACTATGGCTACACCTTCGGTTCGGGGACCAGGTTAACCGTTGTAG")?
+            .into(),
+    );
+    let result = model.evaluate(es, &AlignmentParameters::default(), &ip)?;
+    println!("{:?}", result);
+
+    let mut total_likelihood = 0.;
+    for a1 in ['A', 'C', 'G', 'T'] {
+        let seq = format!(
+            "GAAGCCCAAGTGACCCAGAACCCAAGATACCTCATCACAGTGACTGGAAAGAAGTTAACAGTGACTTGTTCTCAGAATATGAACCATGAGTATATGTCCTGGTATCGACAAGACCCAGGGCTGGGCTTAAGGCAGATCTACTATTCAATGAATGTTGAGGTGACTGATAAGGGAGATGTTCCTGAAGGGTACAAAGTCTCTCGAAAAGAGAAGAGGAATTTCCCCCTGATCCTGGAGTCGCCCAGCCCCAACCAGACCTCTCTGTACTTCTGTGCCAGCCGAC{}GACAGCTAACTATGGCTACACCTTCGGTTCGGGGACCAGGTTAACCGTTGTAG",
+            a1
+        );
+        let result2 = model.evaluate(
+            EntrySequence::NucleotideSequence(Dna::from_string(&seq)?.into()),
+            &AlignmentParameters::default(),
+            &ip,
+        )?;
+        total_likelihood += result2.likelihood;
     }
     println!("{:.3e}", total_likelihood);
     println!("{:.3e}", result.likelihood);
@@ -219,7 +273,7 @@ fn evaluate_many_cdr3_aa() -> Result<()> {
 
 #[test]
 fn evaluate_many_cdr3_vs_aa() -> Result<()> {
-    let mut rng = StdRng::seed_from_u64(40);
+    let mut rng = StdRng::seed_from_u64(5);
     let mut model = common::simple_aa_model_vdj()?;
     let ip = InferenceParameters::default();
 
@@ -227,14 +281,13 @@ fn evaluate_many_cdr3_vs_aa() -> Result<()> {
         let mut res = model.generate_no_error(true, &mut rng);
         let mut event = res.clone().3;
         let mut aa = res.clone().2.unwrap();
-        while aa.to_string().len() > 5 {
+        while aa.to_string().len() > 7 {
             res = model.generate_no_error(true, &mut rng);
             event = res.clone().3;
             aa = res.clone().2.unwrap();
         }
 
         model.model_type = righor::shared::ModelStructure::VDJ;
-        println!("\n");
         let mut total_likelihood = 0.;
 
         for dna in aa.clone().to_dnas().iter() {
@@ -244,8 +297,10 @@ fn evaluate_many_cdr3_vs_aa() -> Result<()> {
                 vec![model.clone().seg_js[event.j_index].clone()],
             ));
             let result = model.evaluate(es.clone(), &AlignmentParameters::default(), &ip)?;
-            println!("{:?}", result);
             total_likelihood += result.likelihood;
+            if result.likelihood > 0. {
+                println!("{} {:?}", dna, result.likelihood);
+            }
         }
 
         let es = EntrySequence::NucleotideCDR3((
@@ -332,14 +387,32 @@ fn evaluate_markov_amino_acid() -> Result<()> {
     let aa = AminoAcid::from_string("WML")?;
     let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
     seq = seq.extract_subsequence(1, 9);
+    let raa = mkc.likelihood_aminoacid(&seq, 2);
+    let mut rnt = Likelihood::Scalar(0.);
+    for seqnt in seq.to_dnas().iter().unique() {
+        rnt += mkc.likelihood_dna(&seqnt, 2);
+    }
+    assert!((raa.to_matrix()?.row(3).sum() - rnt.max()).abs() < epsilon);
+
+    let aa = AminoAcid::from_string("RRR")?;
+    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
+    seq = seq.extract_subsequence(2, 9);
     let raa = mkc.likelihood_aminoacid(&seq, 1);
     let mut rnt = Likelihood::Scalar(0.);
-    for seqnt in aa.to_dnas() {
-        if seqnt.seq[0] == b'C' {
-            rnt += mkc.likelihood_dna(&seqnt.extract_subsequence(1, 9), 1);
-        }
+    for seqnt in aa.to_dnas().iter().unique() {
+        rnt += mkc.likelihood_dna(&seqnt.extract_subsequence(2, 9), 1);
     }
-    assert!(((raa.to_matrix()? * Vector16::repeat(1.)).max() - rnt.max()).abs() < epsilon);
+    assert!((raa.to_matrix()?.sum() - rnt.max()).abs() < epsilon);
+
+    let aa = AminoAcid::from_string("RRR")?;
+    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
+    seq = seq.extract_subsequence(1, 9);
+    let raa = mkc.likelihood_aminoacid(&seq, 1);
+    let mut rnt = Likelihood::Scalar(0.);
+    for seqnt in aa.to_dnas().iter().unique() {
+        rnt += mkc.likelihood_dna(&seqnt.extract_subsequence(1, 9), 1);
+    }
+    assert!((raa.to_matrix()?.sum() / 4. - rnt.max()).abs() < epsilon);
 
     let aa = AminoAcid::from_string("L")?;
     let seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
@@ -349,6 +422,17 @@ fn evaluate_markov_amino_acid() -> Result<()> {
         rnt += mkc.likelihood_dna(&seqnt, 0);
     }
     assert!(((raa.to_matrix()? * Vector16::repeat(1.)).max() - rnt.max()).abs() < epsilon);
+
+    let aa = AminoAcid::from_string("R")?;
+    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
+    seq = seq.extract_subsequence(1, 2);
+    let raa = mkc.likelihood_aminoacid(&seq, 1);
+    let mut rnt = Likelihood::Scalar(0.);
+    for seqnt in aa.to_dnas().iter().unique() {
+        rnt += mkc.likelihood_dna(&seqnt.extract_subsequence(1, 2), 1);
+    }
+    println!("{:?} {:?}", raa.to_matrix()?.sum(), rnt.max());
+    assert!((raa.to_matrix()?.sum() / 8. - rnt.max() / 6.).abs() < epsilon);
 
     Ok(())
 }

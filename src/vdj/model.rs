@@ -388,7 +388,7 @@ impl Modelable for Model {
         if !sequences.iter().all(|x| x.compatible_with_inference()) {
             return Err(anyhow!(
                 "Cannot do inference when sequences have ambiguity.\
-				Ambiguous nucleotides (N) or protein sequence\
+				Ambiguous nucleotides (N) or protein sequence \
 				are out."
             ));
         }
