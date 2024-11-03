@@ -21,12 +21,10 @@ pub struct DNAMarkovChain {
     pub degenerate_matrix: Vec<Matrix4>, // likelihood matrix for the degenerate dna
     aa_lone_rev: HashMap<(u8, usize, usize, usize), Matrix16>,
     aa_lone: HashMap<(u8, usize, usize, usize), Matrix16>,
-    aa_start_rev: HashMap<(u8, usize, usize), Matrix16>,
+    aa_start_rev: HashMap<(u8, usize, usize), Matrix16x4>,
     aa_start: HashMap<(u8, usize, usize), Matrix16x4>,
-    aa_2_rev: HashMap<u8, Matrix16x4>,
     aa_middle_rev: HashMap<u8, Matrix4>,
     aa_middle: HashMap<u8, Matrix4>,
-    aa_2_end_rev: HashMap<(u8, usize), Matrix16>,
     aa_end_rev: HashMap<(u8, usize), Matrix4x16>,
     aa_end: HashMap<(u8, usize), Matrix4x16>,
     pub end_degenerate_vector: Vec<Vector4>,
@@ -249,23 +247,16 @@ impl DNAMarkovChain {
             // weird case #1, only one codon
             else if s.seq.len() == 1 {
                 if self.reverse {
-                    self.aa_lone_rev[&(s.seq[0], s.start, s.end, start_chain)].transpose()
+                    self.aa_lone_rev[&(s.seq[0], s.start, s.end, start_chain)]
                 } else {
                     self.aa_lone[&(s.seq[0], s.start, s.end, start_chain)]
                 }
-            }
-            // weird case #2, two codon & self.reverse.
-            else if s.seq.len() == 2 && self.reverse {
-                (self.aa_start_rev[&(s.seq[1], s.end, start_chain)]
-                    * self.aa_2_end_rev[&(s.seq[0], s.start)])
-                    .transpose()
             } else {
                 // standard case
                 if self.reverse {
-                    let m1 = self.aa_start_rev[&(s.seq[s.seq.len() - 1], s.end, start_chain)];
-                    let mut m = m1 * self.aa_2_rev[&s.seq[s.seq.len() - 2]];
-                    for ii in (2..s.seq.len() - 1).rev() {
-                        m = m * self.aa_middle_rev[&s.seq[ii]];
+                    let mut m = self.aa_start_rev[&(s.seq[s.seq.len() - 1], s.end, start_chain)];
+                    for ii in (1..s.seq.len() - 1).rev() {
+                        m *= self.aa_middle_rev[&s.seq[ii]];
                     }
                     let mf = m * self.aa_end_rev[&(s.seq[0], s.start)];
                     mf.transpose()
@@ -380,10 +371,8 @@ impl DNAMarkovChain {
         self.aa_lone = HashMap::new();
         self.aa_start_rev = HashMap::new();
         self.aa_start = HashMap::new();
-        self.aa_2_rev = HashMap::new();
         self.aa_middle_rev = HashMap::new();
         self.aa_middle = HashMap::new();
-        self.aa_2_end_rev = HashMap::new();
         self.aa_end_rev = HashMap::new();
         self.aa_end = HashMap::new();
 
@@ -421,17 +410,7 @@ impl DNAMarkovChain {
                         (codon, end_pos),
                         DegenerateCodon::from_amino(codon).reversed_end_codon_matrix(self, end_pos),
                     );
-                    self.aa_2_end_rev.insert(
-                        (codon, end_pos),
-                        DegenerateCodon::from_amino(codon)
-                            .reversed_second_end_codon_matrix(self, end_pos),
-                    );
                 }
-
-                self.aa_2_rev.insert(
-                    codon,
-                    DegenerateCodon::from_amino(codon).reversed_second_codon_matrix(self),
-                );
                 self.aa_middle_rev.insert(
                     codon,
                     DegenerateCodon::from_amino(codon).reversed_middle_codon_matrix(self),

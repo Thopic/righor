@@ -50,7 +50,7 @@ static AMINO_TO_DNA_LOSSY: phf::Map<u8, [u8; 3]> = phf_map! {
     b'Q' => [b'C', b'A', b'R'],
     b'R' => [b'M', b'G', b'N'],
     b'S' => [b'W', b'S', b'N'],
-    b'T' => [b'C', b'A', b'N'],
+    b'T' => [b'A', b'C', b'N'],
     b'V' => [b'G', b'T', b'N'],
     b'W' => [b'T', b'G', b'G'],
     b'Y' => [b'T', b'A', b'Y'],
@@ -162,7 +162,7 @@ impl DnaLikeEnum {
     pub fn len(&self) -> usize {
         match self {
             DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.len(),
-            DnaLikeEnum::Protein(s) => 3 * s.seq.len(),
+            DnaLikeEnum::Protein(s) => 3 * s.seq.len() - s.start - s.end,
         }
     }
 
@@ -585,7 +585,13 @@ impl fmt::Display for AminoAcid {
 
 impl fmt::Debug for AminoAcid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Amino-Acid [{}]", String::from_utf8_lossy(&self.seq))
+        write!(
+            f,
+            "Amino-Acid [{} start:{}  end:{}]",
+            String::from_utf8_lossy(&self.seq),
+            self.start,
+            self.end
+        )
     }
 }
 

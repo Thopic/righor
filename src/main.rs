@@ -10,6 +10,7 @@ use anyhow::{anyhow, Result};
 use kdam::tqdm;
 use ndarray::array;
 use ndarray::Axis;
+use righor::shared::DNAMarkovChain;
 use righor::shared::ModelGen;
 use righor::AlignmentParameters;
 use righor::EntrySequence;
@@ -31,6 +32,25 @@ fn main() -> Result<()> {
     println!("{}", b.get_string());
     println!("{}", a.count_differences(&b));
 
+    // let d = DNAMarkovChain::new(
+    //     &array![
+    //         [0.1, 0.4, 0.25, 0.25],
+    //         [0.25, 0.1, 0.4, 0.1],
+    //         [0.25, 0.25, 0.1, 0.4],
+    //         [0.25, 0.1, 0.25, 0.25]
+    //     ],
+    //     true,
+    // )?;
+    // let mut aa = AminoAcid::from_string("CAMAHDACCCA")?;
+    // aa = aa.extract_subsequence(2, 28);
+    // println!("{:?} {} {}", aa, aa.start, aa.end);
+
+    // println!(
+    //     "LIKELIHOOD: {:.2e}",
+    //     d.likelihood_aminoacid(&aa, 1).to_matrix()?
+    // );
+    // return Ok(());
+
     //TODO: modify before release
     let mut igor_model = righor::Model::load_from_name(
         "human",
@@ -41,13 +61,23 @@ fn main() -> Result<()> {
     igor_model.set_model_type(ModelStructure::VxDJ)?;
     igor_model.set_error(ErrorParameters::ConstantRate(ErrorConstantRate::new(0.)))?;
 
+    // println!("{}", igor_model.get_markov_coefficients_vd()?);
+    // println!("{}", igor_model.get_markov_coefficients_dj()?);
+    // return Ok(());
     let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
 
     for _ in 0..100 {
         let sequence = generator.generate_without_errors(true);
+        println!("{:?}", sequence.clone());
         let cdr3_aa = sequence.cdr3_aa.unwrap();
         let vname = sequence.v_gene;
         let jname = sequence.j_gene;
+        // let cdr3_aa = "CASRKRRVTGVSPLHF";
+        // let vname = igor_model.get_v_segments()[11].name.clone();
+        // let jname = igor_model.get_j_segments()[6].name.clone();
+        // println!("{:?}", sequence.cdr3_nt);
+        // println!("{:?}", cdr3_aa);
+
         let a = igor_model.evaluate(
             EntrySequence::NucleotideCDR3((
                 DnaLike::from_amino_acid(AminoAcid::from_string(&cdr3_aa).unwrap()),
@@ -65,6 +95,7 @@ fn main() -> Result<()> {
             &righor::AlignmentParameters::default(),
             &righor::InferenceParameters::default(),
         )?;
+
         println!("{:?}", a);
     }
 

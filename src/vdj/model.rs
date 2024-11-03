@@ -656,7 +656,6 @@ impl Modelable for Model {
                     ..Default::default()
                 };
                 jal.precompute_errors_j(cdr3_seq);
-
                 Ok(jal)
             })
             .collect::<Result<Vec<_>>>()?;

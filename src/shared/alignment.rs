@@ -149,6 +149,7 @@ impl VJAlignment {
                         del_j as i64 - self.start_gene as i64 + self.start_seq as i64 - 2,
                         self.end_seq as i64,
                     );
+
                     for idx in 0..16 {
                         let mut gene_plus_idx = Dna::from_matrix_idx(idx);
                         gene_plus_idx.extend(&cut_gene);

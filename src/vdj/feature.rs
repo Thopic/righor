@@ -459,7 +459,6 @@ impl FeatureVD {
                             //         );
                             //     }
                             // }
-
                             likelihoods.add_to((ev, sd), first_nucleotide, likelihood);
                         }
                     }
@@ -600,6 +599,14 @@ impl FeatureDJ {
                         let likelihood = feat_insdj.likelihood(&ins_dj, first_nucleotide);
                         if likelihood.max() > ip.min_likelihood {
                             likelihoods.add_to((ed, sj), first_nucleotide, likelihood);
+                            // println!("{:?}", ins_dj);
+
+                            // println!(
+                            //     "INSDJ {} {} {}",
+                            //     ed,
+                            //     sj,
+                            //     likelihood.to_matrix().unwrap().sum()
+                            // );
                         }
                     }
                 }
