@@ -33,6 +33,14 @@ pub const AMINOACIDS: [u8; 21] = [
     b'T', b'V', b'W', b'Y', b'*',
 ];
 
+pub const ALL_POSSIBLE_CODONS_AA: [u8; 85] = [
+    b'A', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'L', b'K', b'M', b'N', b'P', b'Q', b'R', b'S',
+    b'T', b'V', b'W', b'Y', b'*', 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
+    141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
+    160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178,
+    179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191,
+];
+
 static AMINO_TO_DNA_LOSSY: phf::Map<u8, [u8; 3]> = phf_map! {
     b'A' => [b'G', b'C', b'N'],
     b'C' => [b'T', b'G', b'Y'],
@@ -56,6 +64,18 @@ static AMINO_TO_DNA_LOSSY: phf::Map<u8, [u8; 3]> = phf_map! {
     b'Y' => [b'T', b'A', b'Y'],
     b'*' => [b'T', b'R', b'R'],
 };
+
+// Add the situations where the codon is fully known
+fn amino_to_dna_lossy(x: u8) -> [u8; 3] {
+    if x < b'Z' {
+        return AMINO_TO_DNA_LOSSY[&x];
+    } else {
+        let c1 = ((x - 128) % 4) as usize;
+        let c2 = (((x - 128) / 4) % 4) as usize;
+        let c3 = ((x - 128) / 16) as usize;
+        return [NUCLEOTIDES[c1], NUCLEOTIDES[c2], NUCLEOTIDES[c3]];
+    }
+}
 
 /////////////////////////////////////
 
@@ -380,7 +400,7 @@ impl DnaLikeEnum {
     pub fn translate(&self) -> Result<AminoAcid> {
         match self {
             DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.translate(),
-            DnaLikeEnum::Protein(s) => Ok(s.clone()),
+            DnaLikeEnum::Protein(s) => s.translate(),
         }
     }
 
@@ -588,7 +608,7 @@ impl fmt::Debug for AminoAcid {
         write!(
             f,
             "Amino-Acid [{} start:{}  end:{}]",
-            String::from_utf8_lossy(&self.seq),
+            String::from_utf8_lossy(&self.translate().unwrap().seq),
             self.start,
             self.end
         )
@@ -664,6 +684,27 @@ impl Dna {
             .filter_map(|codon| {
                 let codon_str = std::str::from_utf8(codon).ok()?;
                 DNA_TO_AMINO.get(codon_str).copied()
+            })
+            .collect();
+        Ok(AminoAcid {
+            seq: amino_sequence,
+            start: 0,
+            end: 0,
+        })
+    }
+
+    pub fn to_codons(&self) -> Result<AminoAcid> {
+        if self.seq.len() % 3 != 0 {
+            return Err(anyhow!("Translation not possible, invalid length."))?;
+        }
+
+        let amino_sequence: Vec<u8> = self
+            .seq
+            .chunks(3)
+            .map(|codon| {
+                128 + (16 * nucleotides_inv(codon[0])
+                    + 4 * nucleotides_inv(codon[1])
+                    + nucleotides_inv(codon[2])) as u8
             })
             .collect();
         Ok(AminoAcid {
@@ -905,6 +946,31 @@ impl Dna {
 }
 
 impl AminoAcid {
+    pub fn translate(&self) -> Result<AminoAcid> {
+        Ok(AminoAcid {
+            seq: self
+                .seq
+                .clone()
+                .into_iter()
+                .map(|x| {
+                    if x <= b'Z' {
+                        x
+                    } else {
+                        let y = x - 128;
+                        DNA_TO_AMINO[std::str::from_utf8(&[
+                            NUCLEOTIDES[(y / 16) as usize],
+                            NUCLEOTIDES[((y / 4) % 4) as usize],
+                            NUCLEOTIDES[(y % 4) as usize],
+                        ])
+                        .expect("Problem with the value stored in the amino-acid")]
+                    }
+                })
+                .collect(),
+            start: self.start,
+            end: self.end,
+        })
+    }
+
     pub fn count_differences(&self, template: &Dna) -> usize {
         self.to_degen_cod_seq().count_differences(template)
     }
@@ -915,7 +981,7 @@ impl AminoAcid {
         debug_assert!(self.start == 0 && self.end == 0);
         let mut pre = seq
             .extract_subsequence(seq.len() % 3, seq.len())
-            .translate()
+            .to_codons()
             .unwrap()
             .seq;
         if seq.len() % 3 != 0 {
@@ -934,7 +1000,7 @@ impl AminoAcid {
         debug_assert!(self.start == 0 && self.end == 0);
         let mut post = seq
             .extract_subsequence(0, seq.len() - seq.len() % 3)
-            .translate()
+            .to_codons()
             .unwrap()
             .seq;
 
@@ -1027,7 +1093,7 @@ impl AminoAcid {
         let seq: Vec<_> = self
             .seq
             .iter()
-            .flat_map(|x| AMINO_TO_DNA_LOSSY[x])
+            .flat_map(|x| amino_to_dna_lossy(*x))
             .collect();
         Dna {
             seq: seq[self.start..seq.len() - self.end].to_vec(),

@@ -3,7 +3,9 @@
 //use crate::shared::distributions::calc_steady_state_dist;
 use crate::shared::likelihood::Likelihood;
 use crate::shared::likelihood::{Matrix16, Matrix16x4, Matrix4, Matrix4x16, Vector4};
-use crate::shared::sequence::{compatible_nucleotides, is_degenerate, AMINOACIDS, NUCLEOTIDES};
+use crate::shared::sequence::{
+    compatible_nucleotides, is_degenerate, ALL_POSSIBLE_CODONS_AA, NUCLEOTIDES,
+};
 use crate::shared::sequence::{AminoAcid, Dna, DnaLike, DnaLikeEnum};
 use crate::shared::{
     amino_acids::DegenerateCodon, amino_acids::DegenerateCodonSequence, nucleotides_inv,
@@ -377,7 +379,7 @@ impl DNAMarkovChain {
         self.aa_end = HashMap::new();
 
         if self.reverse {
-            for codon in AMINOACIDS {
+            for codon in ALL_POSSIBLE_CODONS_AA {
                 for start_pos in 0..3 {
                     for previous_nucleotide in 0..4 {
                         self.aa_start_rev.insert(
@@ -417,7 +419,7 @@ impl DNAMarkovChain {
                 );
             }
         } else {
-            for codon in AMINOACIDS {
+            for codon in ALL_POSSIBLE_CODONS_AA {
                 for start_pos in 0..3 {
                     for previous_nucleotide in 0..4 {
                         self.aa_start.insert(

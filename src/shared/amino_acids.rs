@@ -577,7 +577,12 @@ impl DegenerateCodon {
                     [3, 3, 2],
                     [3, 3, 3],
                 ], // NNN
-                _ => panic!("Wrong amino-acid sequence"),
+                a if (a >= 128 && a < 192) => vec![[
+                    ((a - 128) % 4) as usize,
+                    (((a - 128) / 4) % 4) as usize,
+                    ((a - 128) / 16) as usize,
+                ]],
+                _ => panic!("Wrong amino-acid sequence {:?}", x),
             },
         }
     }

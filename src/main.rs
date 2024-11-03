@@ -66,7 +66,7 @@ fn main() -> Result<()> {
     // return Ok(());
     let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
 
-    for _ in 0..100 {
+    for _ in 0..1000 {
         let sequence = generator.generate_without_errors(true);
         println!("{:?}", sequence.clone());
         let cdr3_aa = sequence.cdr3_aa.unwrap();
