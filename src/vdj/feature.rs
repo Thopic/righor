@@ -439,6 +439,7 @@ impl FeatureVD {
 
                     for first_nucleotide in 0..4 {
                         let likelihood = feat_insvd.likelihood(&ins_vd, first_nucleotide);
+
                         // let likelihood = match ip.likelihood_type {
                         //     SequenceType::Protein => Likelihood::from_insertions(&ins_vd) * ll,
                         //     SequenceType::Dna => Likelihood::Scalar(ll),

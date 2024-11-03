@@ -7,11 +7,12 @@ use crate::shared::{
     model::GenerationResult, AlignmentParameters, Dna, Gene, InfEvent, InferenceParameters,
     ModelGen, RecordModel, ResultInference,
 };
-use crate::shared::{ErrorParameters, Features, Modelable};
+use crate::shared::{DNAMarkovChain, ErrorParameters, Features, Modelable};
 use crate::vdj::{model::EntrySequence, Model as ModelVDJ, Sequence};
 use anyhow::{anyhow, Result};
 use ndarray::s;
 use ndarray::{array, Array1, Array2, Array3, Axis};
+use std::sync::Arc;
 
 use crate::shared::DnaLike;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -712,9 +713,12 @@ impl Model {
             p_del_v_given_v: self.p_del_v_given_v.clone(),
             p_del_j_given_j: self.p_del_j_given_j.clone(),
             p_del_d5_del_d3: array![[[1.]]], // one option, no deletion, empty D gene.
-            markov_coefficients_vd: self.markov_coefficients_vj.clone(),
+            markov_chain_vd: Arc::new(DNAMarkovChain::new(
+                &self.markov_coefficients_vj.clone(),
+                false,
+            )?),
             // just need to give it some value
-            markov_coefficients_dj: self.markov_coefficients_vj.clone(),
+            markov_chain_dj: Arc::new(DNAMarkovChain::default()),
             range_del_v: self.range_del_v,
             range_del_j: self.range_del_j,
             range_del_d3: (0, 0),
@@ -751,7 +755,7 @@ impl Model {
         self.p_v = self.inner.p_v.clone();
         self.p_j_given_v = self.inner.p_j_given_v.clone();
         self.p_ins_vj = self.inner.p_ins_vd.clone();
-        self.markov_coefficients_vj = self.inner.markov_coefficients_vd.clone();
+        self.markov_coefficients_vj = self.inner.markov_chain_vd.transition_matrix.clone();
         self.range_del_j = self.inner.range_del_j;
         self.range_del_v = self.inner.range_del_v;
         self.error = self.inner.error.clone();

@@ -10,10 +10,14 @@
 //! fully known), but I treat everything with the same formalism.
 
 use crate::shared::data_structures::{RangeArray1, RangeArray2};
-use nalgebra::SMatrix;
-use nalgebra::SVector;
-pub type Vector16 = SVector<f64, 16>;
-pub type Matrix16 = SMatrix<f64, 16, 16>;
+use nalgebra;
+pub type Vector16 = nalgebra::SVector<f64, 16>;
+pub type Vector4 = nalgebra::SVector<f64, 4>;
+pub type Matrix16 = nalgebra::SMatrix<f64, 16, 16>;
+pub type Matrix4x16 = nalgebra::SMatrix<f64, 4, 16>;
+pub type Matrix16x4 = nalgebra::SMatrix<f64, 16, 4>;
+pub type Matrix4 = nalgebra::SMatrix<f64, 4, 4>;
+
 use crate::shared::alignment::DAlignment;
 use crate::shared::alignment::VJAlignment;
 use crate::shared::sequence::DnaLike;
@@ -108,16 +112,16 @@ impl ops::Mul<Likelihood> for f64 {
 }
 
 impl Likelihood {
-    /// Return a matrix set to 1. for positions that match
-    /// the two nucleotides before / the two last nucleotides of the D gene.
-    /// Also deal with the situation where d is too short.
-    pub fn from_insertions(insvd: &DnaLike) -> Likelihood {
-        let mut m = Matrix16::zeros();
-        for (i1, i2) in insvd.valid_extremities() {
-            m[(i1, i2)] = 1.;
-        }
-        Likelihood::Matrix(m)
-    }
+    // /// Return a matrix set to 1. for positions that match
+    // /// the two nucleotides before / the two last nucleotides of the D gene.
+    // /// Also deal with the situation where d is too short.
+    // pub fn from_insertions(insvd: &DnaLike) -> Likelihood {
+    //     let mut m = Matrix16::zeros();
+    //     for (i1, i2) in insvd.valid_extremities() {
+    //         m[(i1, i2)] = 1.;
+    //     }
+    //     Likelihood::Matrix(m)
+    // }
 
     pub fn zero(dna: &DnaLike) -> Likelihood {
         if dna.is_protein() {

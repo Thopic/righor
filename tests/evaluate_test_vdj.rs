@@ -1,7 +1,5 @@
 use anyhow::Result;
 use righor::shared::likelihood::Vector16;
-use righor::shared::sequence::DegenerateCodonSequence;
-use righor::shared::sequence::DnaLikeEnum;
 use righor::shared::{AlignmentParameters, DnaLike, InferenceParameters};
 mod common;
 use kdam::tqdm;
@@ -349,8 +347,7 @@ fn evaluate_markov_amino_acid() -> Result<()> {
     let mkc = DNAMarkovChain::new(&array, false)?;
 
     let aa = AminoAcid::from_string("WMM")?;
-    let seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    let raa = mkc.likelihood_aminoacid(&seq, 0);
+    let raa = mkc.likelihood_aminoacid(&aa, 0);
     let mut rnt = Likelihood::Scalar(0.);
     for seqnt in aa.to_dnas() {
         rnt += mkc.likelihood_dna(&seqnt, 0);
@@ -358,8 +355,7 @@ fn evaluate_markov_amino_acid() -> Result<()> {
     assert!(((raa.to_matrix()? * Vector16::repeat(1.)).max() - rnt.max()).abs() < epsilon);
 
     let aa = AminoAcid::from_string("CFW")?;
-    let seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    let raa = mkc.likelihood_aminoacid(&seq, 0);
+    let raa = mkc.likelihood_aminoacid(&aa, 0);
     let mut rnt = Likelihood::Scalar(0.);
     for seqnt in aa.to_dnas() {
         rnt += mkc.likelihood_dna(&seqnt, 0);
@@ -367,8 +363,7 @@ fn evaluate_markov_amino_acid() -> Result<()> {
     assert!(((raa.to_matrix()? * Vector16::repeat(1.)).max() - rnt.max()).abs() < epsilon);
 
     let aa = AminoAcid::from_string("WML")?;
-    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    let raa = mkc.likelihood_aminoacid(&seq, 0);
+    let raa = mkc.likelihood_aminoacid(&aa, 0);
     let mut rnt = Likelihood::Scalar(0.);
     for seqnt in aa.to_dnas() {
         rnt += mkc.likelihood_dna(&seqnt, 0);
@@ -376,38 +371,34 @@ fn evaluate_markov_amino_acid() -> Result<()> {
     assert!(((raa.to_matrix()? * Vector16::repeat(1.)).max() - rnt.max()).abs() < epsilon);
 
     let aa = AminoAcid::from_string("LML")?;
-    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    let raa = mkc.likelihood_aminoacid(&seq, 0);
+    let raa = mkc.likelihood_aminoacid(&aa, 0);
     let mut rnt = Likelihood::Scalar(0.);
     for seqnt in aa.to_dnas() {
         rnt += mkc.likelihood_dna(&seqnt, 0);
     }
     assert!(((raa.to_matrix()? * Vector16::repeat(1.)).max() - rnt.max()).abs() < epsilon);
 
-    let aa = AminoAcid::from_string("WML")?;
-    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    seq = seq.extract_subsequence(1, 9);
-    let raa = mkc.likelihood_aminoacid(&seq, 2);
+    let mut aa = AminoAcid::from_string("WML")?;
+    aa = aa.extract_subsequence(1, 9);
+    let raa = mkc.likelihood_aminoacid(&aa, 2);
     let mut rnt = Likelihood::Scalar(0.);
-    for seqnt in seq.to_dnas().iter().unique() {
+    for seqnt in aa.to_dnas().iter().unique() {
         rnt += mkc.likelihood_dna(&seqnt, 2);
     }
     assert!((raa.to_matrix()?.row(3).sum() - rnt.max()).abs() < epsilon);
 
-    let aa = AminoAcid::from_string("RRR")?;
-    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    seq = seq.extract_subsequence(2, 9);
-    let raa = mkc.likelihood_aminoacid(&seq, 1);
+    let mut aa = AminoAcid::from_string("RRR")?;
+    aa = aa.extract_subsequence(2, 9);
+    let raa = mkc.likelihood_aminoacid(&aa, 1);
     let mut rnt = Likelihood::Scalar(0.);
     for seqnt in aa.to_dnas().iter().unique() {
         rnt += mkc.likelihood_dna(&seqnt.extract_subsequence(2, 9), 1);
     }
     assert!((raa.to_matrix()?.sum() - rnt.max()).abs() < epsilon);
 
-    let aa = AminoAcid::from_string("RRR")?;
-    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    seq = seq.extract_subsequence(1, 9);
-    let raa = mkc.likelihood_aminoacid(&seq, 1);
+    let mut aa = AminoAcid::from_string("RRR")?;
+    aa = aa.extract_subsequence(1, 9);
+    let raa = mkc.likelihood_aminoacid(&aa, 1);
     let mut rnt = Likelihood::Scalar(0.);
     for seqnt in aa.to_dnas().iter().unique() {
         rnt += mkc.likelihood_dna(&seqnt.extract_subsequence(1, 9), 1);
@@ -415,18 +406,16 @@ fn evaluate_markov_amino_acid() -> Result<()> {
     assert!((raa.to_matrix()?.sum() / 4. - rnt.max()).abs() < epsilon);
 
     let aa = AminoAcid::from_string("L")?;
-    let seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    let raa = mkc.likelihood_aminoacid(&seq, 0);
+    let raa = mkc.likelihood_aminoacid(&aa, 0);
     let mut rnt = Likelihood::Scalar(0.);
     for seqnt in aa.to_dnas() {
         rnt += mkc.likelihood_dna(&seqnt, 0);
     }
     assert!(((raa.to_matrix()? * Vector16::repeat(1.)).max() - rnt.max()).abs() < epsilon);
 
-    let aa = AminoAcid::from_string("R")?;
-    let mut seq = DegenerateCodonSequence::from_aminoacid(aa.clone());
-    seq = seq.extract_subsequence(1, 2);
-    let raa = mkc.likelihood_aminoacid(&seq, 1);
+    let mut aa = AminoAcid::from_string("R")?;
+    aa = aa.extract_subsequence(1, 2);
+    let raa = mkc.likelihood_aminoacid(&aa, 1);
     let mut rnt = Likelihood::Scalar(0.);
     for seqnt in aa.to_dnas().iter().unique() {
         rnt += mkc.likelihood_dna(&seqnt.extract_subsequence(1, 2), 1);

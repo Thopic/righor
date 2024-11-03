@@ -4,14 +4,14 @@ use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
 use crate::shared::sequence::Dna;
-use crate::shared::utils::{Normalize2, NormalizeLast};
+use crate::shared::utils::Normalize2;
 use crate::shared::{self, distributions::*, model::GenerationResult};
 use crate::shared::{
     utils::sorted_and_complete, utils::sorted_and_complete_0start, utils::Normalize,
     utils::Normalize3, AlignmentParameters, AminoAcid, DAlignment, Features, InfEvent,
     InferenceParameters, ModelGen, ModelStructure, RecordModel, ResultInference, VJAlignment,
 };
-use crate::shared::{ErrorParameters, Modelable};
+use crate::shared::{DNAMarkovChain, ErrorParameters, Modelable};
 use crate::vdj::Features as FeaturesVDJ;
 
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
@@ -31,6 +31,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::BufReader;
 use std::path::Path;
+use std::sync::Arc;
 use std::{cmp, fs::read_to_string, fs::File, io::Write};
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
@@ -152,8 +153,10 @@ pub struct Model {
     pub p_del_d5_del_d3: Array3<f64>, // P(del_d5, del_d3 | D)
     #[serde(skip)]
     pub gen: Generative,
-    pub markov_coefficients_vd: Array2<f64>,
-    pub markov_coefficients_dj: Array2<f64>,
+    //    pub markov_coefficients_vd: Array2<f64>,
+    pub markov_chain_vd: Arc<DNAMarkovChain>,
+    pub markov_chain_dj: Arc<DNAMarkovChain>,
+    //   pub markov_coefficients_dj: Array2<f64>,
     pub range_del_v: (i64, i64), // range of "real deletions", e.g -5, 12 (neg. del. => pal. ins.)
     pub range_del_j: (i64, i64),
     pub range_del_d3: (i64, i64),
@@ -349,8 +352,17 @@ impl Modelable for Model {
             p_del_v_given_v: Array2::<f64>::ones(self.p_del_v_given_v.dim()),
             p_del_j_given_j: Array2::<f64>::ones(self.p_del_j_given_j.dim()),
             p_del_d5_del_d3: Array3::<f64>::ones(self.p_del_d5_del_d3.dim()),
-            markov_coefficients_vd: Array2::<f64>::ones(self.markov_coefficients_vd.dim()),
-            markov_coefficients_dj: Array2::<f64>::ones(self.markov_coefficients_dj.dim()),
+            markov_chain_vd: Arc::new(DNAMarkovChain::new(
+                &Array2::<f64>::ones(self.markov_chain_vd.transition_matrix.dim()),
+                false,
+            )?),
+            markov_chain_dj: Arc::new(DNAMarkovChain::new(
+                &Array2::<f64>::ones(self.markov_chain_dj.transition_matrix.dim()),
+                true, // reversed
+            )?),
+
+            //            markov_coefficients_vd: Array2::<f64>::ones(self.markov_coefficients_vd.dim()),
+            // markov_coefficients_dj: Array2::<f64>::ones(self.markov_coefficients_dj.dim()),
             error: ErrorParameters::uniform(&self.error)?,
             model_type: self.model_type.clone(),
             ..Default::default()
@@ -370,8 +382,8 @@ impl Modelable for Model {
         self.p_del_v_given_v = self.p_del_v_given_v.normalize_distribution()?;
         self.p_del_j_given_j = self.p_del_j_given_j.normalize_distribution()?;
         self.p_del_d5_del_d3 = self.p_del_d5_del_d3.normalize_distribution_double()?;
-        self.markov_coefficients_vd = self.markov_coefficients_vd.normalize_last()?;
-        self.markov_coefficients_dj = self.markov_coefficients_vd.normalize_last()?;
+        // self.markov_coefficients_vd = self.markov_coefficients_vd.normalize_last()?;
+        // self.markov_coefficients_dj = self.markov_coefficients_vd.normalize_last()?;
 
         self.initialize_generative_model()?;
         Ok(())
@@ -644,6 +656,7 @@ impl Modelable for Model {
                     ..Default::default()
                 };
                 jal.precompute_errors_j(cdr3_seq);
+
                 Ok(jal)
             })
             .collect::<Result<Vec<_>>>()?;
@@ -663,7 +676,7 @@ impl Modelable for Model {
                     .into();
                 only_val.start_seq = 0;
                 only_val.end_seq += only_val.start_gene;
-                sequence = vg.extended(sequence);
+                sequence = vg.extended_in_frame(&sequence);
                 for jal in &mut j_alignments {
                     jal.start_seq += only_val.start_gene;
                     jal.end_seq += only_val.start_gene;
@@ -683,7 +696,7 @@ impl Modelable for Model {
                     .gene_sequence
                     .extract_subsequence(only_jal.end_gene, only_jal.gene_sequence.len())
                     .into();
-                sequence = sequence.extended(jg);
+                sequence = sequence.extended_in_frame(&jg);
                 only_jal.end_seq += only_jal.gene_sequence.len() - only_jal.end_gene;
                 // need to do this last
                 only_jal.end_gene = only_jal.gene_sequence.len();
@@ -766,12 +779,16 @@ impl Modelable for Model {
             && self
                 .p_del_d5_del_d3
                 .relative_eq(&m.p_del_d5_del_d3, 1e-4, 1e-4)
-            && self
-                .markov_coefficients_vd
-                .relative_eq(&m.markov_coefficients_vd, 1e-4, 1e-4)
-            && self
-                .markov_coefficients_dj
-                .relative_eq(&m.markov_coefficients_dj, 1e-4, 1e-4)
+            && self.markov_chain_vd.transition_matrix.relative_eq(
+                &m.markov_chain_vd.transition_matrix,
+                1e-4,
+                1e-4,
+            )
+            && self.markov_chain_dj.transition_matrix.relative_eq(
+                &m.markov_chain_dj.transition_matrix,
+                1e-4,
+                1e-4,
+            )
             && (self.range_del_v == m.range_del_v)
             && (self.range_del_j == m.range_del_j)
             && (self.range_del_d3 == m.range_del_d3)
@@ -931,7 +948,8 @@ impl Model {
             Marginal::create(Vec::new(), self.p_ins_vd.clone().into_dyn()).write()?;
         let marginal_vddinucl = Marginal::create(
             Vec::new(),
-            self.markov_coefficients_vd
+            self.markov_chain_vd
+                .transition_matrix
                 .iter()
                 .cloned()
                 .collect::<Array1<f64>>()
@@ -942,7 +960,8 @@ impl Model {
             Marginal::create(Vec::new(), self.p_ins_dj.clone().into_dyn()).write()?;
         let marginal_djdinucl = Marginal::create(
             Vec::new(),
-            self.markov_coefficients_dj
+            self.markov_chain_dj
+                .transition_matrix
                 .iter()
                 .cloned()
                 .collect::<Array1<f64>>()
@@ -1274,22 +1293,26 @@ impl Model {
         }
 
         // Markov coefficients
-        model.markov_coefficients_vd = pm
-            .marginals
-            .get("vd_dinucl")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_shape((4, 4))
-            .map_err(|_e| anyhow!("Wrong size for vd_dinucl"))?;
-        model.markov_coefficients_dj = pm
-            .marginals
-            .get("dj_dinucl")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_shape((4, 4))
-            .map_err(|_e| anyhow!("Wrong size for dj_dinucl"))?;
+        model.markov_chain_vd = Arc::new(DNAMarkovChain::new(
+            &pm.marginals
+                .get("vd_dinucl")
+                .unwrap()
+                .probabilities
+                .clone()
+                .into_shape((4, 4))
+                .map_err(|_e| anyhow!("Wrong size for vd_dinucl"))?,
+            false,
+        )?);
+        model.markov_chain_dj = Arc::new(DNAMarkovChain::new(
+            &pm.marginals
+                .get("dj_dinucl")
+                .unwrap()
+                .probabilities
+                .clone()
+                .into_shape((4, 4))
+                .map_err(|_e| anyhow!("Wrong size for dj_dinucl"))?,
+            true,
+        )?);
 
         // TODO: Need to deal with potential first nt bias in the file
         // model.first_nt_bias_ins_vd =
@@ -1361,8 +1384,8 @@ impl Model {
                 .push(DiscreteDistribution::new(d5d3)?);
         }
 
-        self.gen.markov_vd = MarkovDNA::new(self.markov_coefficients_vd.to_owned())?;
-        self.gen.markov_dj = MarkovDNA::new(self.markov_coefficients_dj.to_owned())?;
+        self.gen.markov_vd = MarkovDNA::new(self.markov_chain_vd.transition_matrix.to_owned())?;
+        self.gen.markov_dj = MarkovDNA::new(self.markov_chain_dj.transition_matrix.to_owned())?;
 
         Ok(())
     }
@@ -1651,11 +1674,11 @@ impl Model {
     }
 
     pub fn get_first_nt_bias_ins_vd(&self) -> Result<Vec<f64>> {
-        calc_steady_state_dist(&self.markov_coefficients_vd)
+        calc_steady_state_dist(&self.markov_chain_vd.transition_matrix)
     }
 
     pub fn get_first_nt_bias_ins_dj(&self) -> Result<Vec<f64>> {
-        calc_steady_state_dist(&self.markov_coefficients_vd)
+        calc_steady_state_dist(&self.markov_chain_dj.transition_matrix)
     }
 
     fn make_d_genes_alignments(

@@ -10,7 +10,6 @@ use anyhow::{anyhow, Result};
 use kdam::tqdm;
 use ndarray::array;
 use ndarray::Axis;
-use righor::shared::sequence::DegenerateCodonSequence;
 use righor::shared::ModelGen;
 use righor::AlignmentParameters;
 use righor::EntrySequence;
@@ -49,7 +48,7 @@ fn main() -> Result<()> {
         let cdr3_aa = sequence.cdr3_aa.unwrap();
         let vname = sequence.v_gene;
         let jname = sequence.j_gene;
-        igor_model.evaluate(
+        let a = igor_model.evaluate(
             EntrySequence::NucleotideCDR3((
                 DnaLike::from_amino_acid(AminoAcid::from_string(&cdr3_aa).unwrap()),
                 igor_model
@@ -65,7 +64,8 @@ fn main() -> Result<()> {
             )),
             &righor::AlignmentParameters::default(),
             &righor::InferenceParameters::default(),
-        );
+        )?;
+        println!("{:?}", a);
     }
 
     // let dna = Dna::from_string("TGCGCCAGGAACTATGAACAGTATTTT")?;

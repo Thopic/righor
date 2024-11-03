@@ -1,9 +1,11 @@
 use anyhow::Result;
 use ndarray::array;
 use righor::shared::errors::ErrorConstantRate;
+use righor::shared::markov_chain::DNAMarkovChain;
 use righor::shared::ErrorParameters;
 use righor::vdj;
 use righor::Modelable;
+use std::sync::Arc;
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -87,24 +89,30 @@ pub fn simple_model_vdj() -> vdj::Model {
                 [0.02, 0.02]
             ],
         ],
-        markov_coefficients_vd: array![
-            [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.1, 0.25, 0.4],
-            [0.4, 0.25, 0.1, 0.25],
-            [0.25, 0.25, 0.25, 0.25] // [0.259, 0.25, 0.25, 0.254],
-                                     // [0.25, 0.25, 0.251, 0.25],
-                                     // [0.25, 0.252, 0.25, 0.25],
-                                     // [0.25, 0.25, 0.25, 0.25]
-        ],
-        markov_coefficients_dj: array![
-            [0.25, 0.25, 0.25, 0.25],
-            [0.2, 0.3, 0.25, 0.25],
-            [0.3, 0.2, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25] // [0.2501, 0.25, 0.25, 0.25],
-                                     // [0.25, 0.25, 0.25, 0.25],
-                                     // [0.25, 0.2592, 0.25, 0.25],
-                                     // [0.25, 0.25, 0.2533, 0.2512]
-        ],
+        markov_chain_vd: Arc::new(
+            DNAMarkovChain::new(
+                &array![
+                    [0.25, 0.25, 0.25, 0.25],
+                    [0.25, 0.1, 0.25, 0.4],
+                    [0.4, 0.25, 0.1, 0.25],
+                    [0.25, 0.25, 0.25, 0.25]
+                ],
+                false,
+            )
+            .unwrap(),
+        ),
+        markov_chain_dj: Arc::new(
+            DNAMarkovChain::new(
+                &array![
+                    [0.25, 0.25, 0.25, 0.25],
+                    [0.2, 0.3, 0.25, 0.25],
+                    [0.3, 0.2, 0.25, 0.25],
+                    [0.25, 0.25, 0.25, 0.25]
+                ],
+                true,
+            )
+            .unwrap(),
+        ),
         range_del_v: (-2, 7),
         range_del_j: (-2, 4),
         range_del_d3: (-1, 1),
@@ -252,18 +260,31 @@ pub fn less_simple_model_vdj() -> vdj::Model {
                 [0.02, 0.02]
             ],
         ],
-        markov_coefficients_vd: array![
-            [0.4, 0.25, 0.3, 0.25],
-            [0.25, 0.1, 0.25, 0.4],
-            [0.4, 0.25, 0.1, 0.25],
-            [0.25, 0.4, 0.2, 0.25]
-        ],
-        markov_coefficients_dj: array![
-            [0.2501, 0.25, 0.25, 0.25],
-            [0.25, 0.25, 0.25, 0.25],
-            [0.25, 0.2592, 0.25, 0.25],
-            [0.25, 0.25, 0.2533, 0.2512]
-        ],
+        markov_chain_vd: Arc::new(
+            DNAMarkovChain::new(
+                &array![
+                    [0.4, 0.25, 0.3, 0.25],
+                    [0.25, 0.1, 0.25, 0.4],
+                    [0.4, 0.25, 0.1, 0.25],
+                    [0.25, 0.4, 0.2, 0.25]
+                ],
+                false,
+            )
+            .unwrap(),
+        ),
+        markov_chain_dj: Arc::new(
+            DNAMarkovChain::new(
+                &array![
+                    [0.2501, 0.25, 0.25, 0.25],
+                    [0.25, 0.25, 0.25, 0.25],
+                    [0.25, 0.2592, 0.25, 0.25],
+                    [0.25, 0.25, 0.2533, 0.2512]
+                ],
+                true,
+            )
+            .unwrap(),
+        ),
+
         range_del_v: (-2, 7),
         range_del_j: (-2, 4),
         range_del_d3: (-1, 1),

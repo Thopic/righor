@@ -2,6 +2,7 @@ use crate::shared::alignment::VJAlignment;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::shared::event::PyStaticEvent;
 use crate::shared::gene::Gene;
+use crate::shared::markov_chain::DNAMarkovChain;
 use crate::shared::sequence::Dna;
 use crate::shared::ResultInference;
 use crate::shared::StaticEvent;
@@ -10,6 +11,7 @@ use crate::vdj::model::EntrySequence;
 use crate::vdj::Sequence;
 use crate::vdj::{display_j_alignment, display_v_alignment};
 use ndarray::{Array1, Array2, Array3};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 
@@ -538,14 +540,16 @@ impl Model {
 
     pub fn get_markov_coefficients_vd(&self) -> Result<Array2<f64>> {
         match self {
-            Model::VDJ(x) => Ok(x.markov_coefficients_vd.clone()),
+            Model::VDJ(x) => Ok(x.markov_chain_vd.transition_matrix.clone()),
             Model::VJ(_) => Err(anyhow!("VJ model does not have VD insertions.")),
         }
     }
 
     pub fn set_markov_coefficients_vd(&mut self, value: Array2<f64>) -> Result<()> {
         match self {
-            Model::VDJ(x) => x.markov_coefficients_vd = value,
+            Model::VDJ(x) => {
+                x.markov_chain_vd = Arc::new(DNAMarkovChain::new(&value, false)?);
+            }
             Model::VJ(_) => Err(anyhow!("VJ model does not have VD insertions."))?,
         }
         self.initialize()?;
@@ -554,14 +558,16 @@ impl Model {
 
     pub fn get_markov_coefficients_dj(&self) -> Result<Array2<f64>> {
         match self {
-            Model::VDJ(x) => Ok(x.markov_coefficients_dj.clone()),
+            Model::VDJ(x) => Ok(x.markov_chain_dj.transition_matrix.clone()),
             Model::VJ(_) => Err(anyhow!("VJ model does not have DJ insertions.")),
         }
     }
 
     pub fn set_markov_coefficients_dj(&mut self, value: Array2<f64>) -> Result<()> {
         match self {
-            Model::VDJ(x) => x.markov_coefficients_dj = value,
+            Model::VDJ(x) => {
+                x.markov_chain_dj = Arc::new(DNAMarkovChain::new(&value, true)?);
+            }
             Model::VJ(_) => Err(anyhow!("VJ model does not have DJ insertions."))?,
         }
         self.initialize()?;

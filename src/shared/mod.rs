@@ -1,5 +1,6 @@
 //! Shared functionalities between VDJ and VJ (not related to alignment)
 pub mod alignment;
+pub mod amino_acids;
 pub mod data_structures;
 pub mod distributions;
 pub mod errors;

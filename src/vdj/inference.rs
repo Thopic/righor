@@ -1,7 +1,7 @@
-use crate::shared::feature::*;
 use crate::shared::utils::difference_as_i64;
 use crate::shared::{errors::FeatureError, ErrorParameters, InferenceParameters};
-use crate::shared::{DNAMarkovChain, ErrorDAlignment, ErrorJAlignment, ErrorVAlignment};
+use crate::shared::{feature::*, DNAMarkovChain};
+use crate::shared::{ErrorDAlignment, ErrorJAlignment, ErrorVAlignment};
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
     Model, Sequence,
@@ -29,14 +29,8 @@ impl Features {
             delv: CategoricalFeature1g1::new(&model.p_del_v_given_v)?,
             delj: CategoricalFeature1g1::new(&model.p_del_j_given_j)?,
             deld: CategoricalFeature2g1::new(&model.p_del_d5_del_d3)?, // dim: (d5, d3, d)
-            insvd: InsertionFeature::new(
-                &model.p_ins_vd,
-                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_vd, false)?),
-            )?,
-            insdj: InsertionFeature::new(
-                &model.p_ins_dj,
-                Arc::new(DNAMarkovChain::new(&model.markov_coefficients_dj, true)?),
-            )?,
+            insvd: InsertionFeature::new(&model.p_ins_vd, Arc::clone(&model.markov_chain_vd))?,
+            insdj: InsertionFeature::new(&model.p_ins_dj, Arc::clone(&model.markov_chain_dj))?,
             error: model.error.get_feature()?,
         })
     }
@@ -71,8 +65,12 @@ impl Features {
         model.p_del_j_given_j = delj.clone().probas;
         model.p_del_d5_del_d3 = deld.clone().probas;
 
-        (model.p_ins_vd, model.markov_coefficients_vd) = insvd.get_parameters();
-        (model.p_ins_dj, model.markov_coefficients_dj) = insdj.get_parameters();
+        let (p_vd, mc_vd) = insvd.get_parameters();
+        model.p_ins_vd = p_vd;
+        model.markov_chain_vd = Arc::new(DNAMarkovChain::new(&mc_vd, false)?);
+        let (p_dj, mc_dj) = insdj.get_parameters();
+        model.p_ins_dj = p_dj;
+        model.markov_chain_dj = Arc::new(DNAMarkovChain::new(&mc_dj, true)?);
 
         // Now update the features vector
         let mut new_features = Vec::new();

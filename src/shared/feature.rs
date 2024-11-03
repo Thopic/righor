@@ -558,8 +558,7 @@ pub struct InfEvent {
     pub d_segment: Option<DnaLike>,
     pub sequence: Option<DnaLike>,
     pub cdr3: Option<DnaLike>,
-    pub full_sequence: Option<DnaLike>,
-    // contrary to the full sequence the reconstructed sequence is *not* DnaLike
+    pub full_sequence: Option<Dna>,
     pub reconstructed_sequence: Option<Dna>,
 
     // likelihood (pgen + perror)
@@ -783,16 +782,16 @@ impl ResultInference {
                 .seq_with_pal
                 .ok_or(anyhow!("Model not loaded correctly"))?;
 
-            let mut full_seq = DnaLike::from_dna(gene_v.extract_subsequence(0, event.v_start_gene));
+            let gene_v_cut = DnaLike::from_dna(gene_v.extract_subsequence(0, event.v_start_gene));
 
-            full_seq.extend(sequence.sequence.clone());
+            let mut full_seq = gene_v_cut.extended(sequence.sequence.clone());
 
-            full_seq.extend(DnaLike::from_dna(gene_j.extract_subsequence(
+            full_seq = full_seq.extended_with_dna(&gene_j.extract_subsequence(
                 (sequence.sequence.len() as i64 - event.j_start_seq) as usize,
                 gene_j.len(),
-            )));
+            ));
 
-            event.full_sequence = Some(full_seq.into());
+            event.full_sequence = Some(full_seq.to_dna());
 
             let mut reconstructed_seq =
                 gene_v.extract_subsequence(0, (event.end_v + event.v_start_gene as i64) as usize);
