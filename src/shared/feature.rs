@@ -587,6 +587,7 @@ pub struct ResultInference {
     // best_event.likelihood is the way to go
     pub best_likelihood: f64,
     pub features: Option<Features>,
+    pub human_readable: Option<ResultHuman>,
 }
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -630,11 +631,37 @@ pub struct ResultHuman {
     pub aligned_j: String,
     pub v_name: String,
     pub j_name: String,
+    pub d_name: String,
+}
+
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl ResultInference {
+    fn __repr__(&self) -> String {
+        self.display().unwrap()
+    }
+    #[getter]
+    pub fn get_best_v_gene(&self) -> String {
+        self.human_readable.clone().unwrap().v_name
+    }
+    #[getter]
+    pub fn get_best_j_gene(&self) -> String {
+        self.human_readable.clone().unwrap().j_name
+    }
+    #[getter]
+    pub fn get_best_d_gene(&self) -> String {
+        self.human_readable.clone().unwrap().d_name
+    }
+    #[getter]
+    pub fn get_reconstructed_sequence(&self) -> String {
+        self.human_readable.clone().unwrap().reconstructed_seq
+    }
 }
 
 impl ResultInference {
-    pub fn display(&self, model: &vdj::Model) -> Result<String> {
-        if self.best_event.is_none() {
+    pub fn display(&self) -> Result<String> {
+        let rh = self.human_readable.clone();
+        if self.best_event.is_none() || rh.is_none() {
             return Ok(format!(
                 "Result:\n\
 		 - Likelihood: {}\n\
@@ -642,8 +669,7 @@ impl ResultInference {
                 self.likelihood, self.pgen
             ));
         }
-
-        let rh = self.to_human(model)?;
+        let rh = rh.unwrap();
         Ok(format!(
             "Result:\n\
 	     \tLikelihood: {:.2e}, pgen: {:.2e}\n\
@@ -664,7 +690,7 @@ impl ResultInference {
     }
 
     /// Translate the result to an easier to read/print version
-    pub fn to_human(&self, model: &vdj::Model) -> Result<ResultHuman> {
+    pub fn load_human(&mut self, model: &vdj::Model) -> Result<()> {
         let best_event = self.get_best_event().ok_or(anyhow!("No event"))?;
 
         let translated_cdr3 = if best_event.cdr3.clone().unwrap().len() % 3 == 0 {
@@ -697,7 +723,7 @@ impl ResultInference {
             width = width
         );
 
-        Ok(ResultHuman {
+        self.human_readable = Some(ResultHuman {
             n_cdr3: best_event.cdr3.clone().unwrap().get_string(),
             aa_cdr3: translated_cdr3,
             likelihood: self.likelihood,
@@ -709,8 +735,10 @@ impl ResultInference {
             aligned_v,
             aligned_j,
             v_name: model.get_v_gene(&best_event),
+            d_name: model.get_d_gene(&best_event),
             j_name: model.get_j_gene(&best_event),
-        })
+        });
+        Ok(())
     }
 
     pub fn impossible() -> ResultInference {
@@ -720,6 +748,7 @@ impl ResultInference {
             best_event: None,
             best_likelihood: 0.,
             features: None,
+            human_readable: None,
         }
     }
     pub fn set_best_event(&mut self, ev: InfEvent, ip: &InferenceParameters) {
@@ -815,6 +844,7 @@ impl ResultInference {
             ));
             event.reconstructed_sequence = Some(reconstructed_seq);
             self.best_event = Some(event);
+            self.load_human(model)?;
         }
         Ok(())
     }
