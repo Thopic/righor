@@ -4,6 +4,7 @@ use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
 use crate::shared::sequence::Dna;
+use crate::shared::utils::send_warning;
 use crate::shared::utils::Normalize2;
 use crate::shared::{self, distributions::*, model::GenerationResult};
 use crate::shared::{
@@ -14,8 +15,9 @@ use crate::shared::{
 use crate::shared::{DNAMarkovChain, ErrorParameters, Modelable};
 use crate::vdj::Features as FeaturesVDJ;
 
+use crate::shared::sequence::SequenceType;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
-use crate::vdj::{Sequence, StaticEvent};
+use crate::vdj::{event::StaticEvent, Sequence};
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -386,6 +388,7 @@ impl Modelable for Model {
         // self.markov_coefficients_dj = self.markov_coefficients_vd.normalize_last()?;
 
         self.initialize_generative_model()?;
+        self.safety_checks();
         Ok(())
     }
 
@@ -477,14 +480,22 @@ impl Modelable for Model {
             let event = result
                 .get_best_event()
                 .ok_or(anyhow!("Error with event extraction during pgen inference"))?;
-            let seq_without_err = event.reconstructed_sequence.ok_or(anyhow!(
-                "Error with event reconstruction during pgen inference"
-            ))?;
+            let cdr3_nt = event.clone().get_reconstructed_cdr3(&self)?;
+            let cdr3: DnaLike = match aligned_sequence.sequence_type {
+                SequenceType::Dna => cdr3_nt.into(),
+                SequenceType::Protein => cdr3_nt.translate()?.into(),
+            };
+
+            // let seq_without_err = event.reconstructed_sequence.ok_or(anyhow!(
+            //     "Error with event reconstruction during pgen inference"
+            // ))?;
 
             // full sequence, so default alignment parameters should be fine.
-            let aligned_seq = self.align_sequence(
-                DnaLike::from_dna(seq_without_err),
-                &AlignmentParameters::default(),
+            // except it's way too slow. Just do the CDR3 instead.
+            let aligned_seq = self.align_from_cdr3(
+                &cdr3,
+                &vec![self.seg_vs[event.v_index].clone()],
+                &vec![self.seg_js[event.j_index].clone()],
             )?;
 
             let mut features_pgen = match self.model_type {
@@ -1323,8 +1334,18 @@ impl Model {
         model.thymic_q = 9.41; // TODO: deal with this
 
         model.initialize()?;
-
         Ok(model)
+    }
+
+    /// Emit a warning if stuff are weird
+    /// Right now not much, but check the functionality of the genes
+    pub fn safety_checks(&self) {
+        if self.seg_vs.iter().all(|x| !x.is_functional) {
+            send_warning("All the V genes in the model are tagged as non-functional. This could result in an infinite loop if trying to generate functional sequences.\n")
+        }
+        if self.seg_js.iter().all(|x| !x.is_functional) {
+            send_warning("All the J genes in the model are tagged as non-functional. This could result in an infinite loop if trying to generate functional sequences.\n")
+        }
     }
 
     pub fn sanitize_genes(&mut self) -> Result<()> {
@@ -1557,11 +1578,13 @@ impl Model {
 
             let vdj_index: usize = self.gen.d_vdj.generate(rng);
             event.v_index = vdj_index / (self.p_vdj.dim().1 * self.p_vdj.dim().2);
-            if !self.seg_vs[event.v_index].is_functional() {
+            // if the V gene is not functional and we're looking for functional seqs
+            if functional && !self.seg_vs[event.v_index].is_functional() {
                 continue;
             }
             event.j_index = vdj_index % self.p_dj.dim().1;
-            if !self.seg_js[event.j_index].is_functional() {
+            // same for J gene
+            if functional && !self.seg_js[event.j_index].is_functional() {
                 continue;
             }
 

@@ -379,7 +379,7 @@ impl Features {
         );
         for ev in min_ev..max_ev {
             let likelihood_v = feature_v.likelihood(ev);
-            if (likelihood_v * likelihood_vdj).max() < cutoff {
+            if (likelihood_v.clone() * likelihood_vdj).max() < cutoff {
                 continue;
             }
             for sd in cmp::max(ev, min_sd)..max_sd {
@@ -391,12 +391,18 @@ impl Features {
                         .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
                 );
 
-                if (likelihood_v * likelihood_ins_vd * likelihood_vdj).max() < cutoff {
+                if (likelihood_v.clone() * likelihood_ins_vd.clone() * likelihood_vdj).max()
+                    < cutoff
+                {
                     continue;
                 }
                 for ed in cmp::max(sd - 1, min_ed)..max_ed {
                     let likelihood_d = feature_d.likelihood(sd, ed);
-                    if (likelihood_v * likelihood_ins_vd * likelihood_d * likelihood_vdj).max()
+                    if (likelihood_v.clone()
+                        * likelihood_ins_vd.clone()
+                        * likelihood_d.clone()
+                        * likelihood_vdj)
+                        .max()
                         < cutoff
                     {
                         continue;
@@ -411,9 +417,9 @@ impl Features {
                         );
 
                         let likelihood_j = feature_j.likelihood(sj);
-                        let likelihood = likelihood_v
-                            * likelihood_ins_vd
-                            * likelihood_d
+                        let likelihood = likelihood_v.clone()
+                            * likelihood_ins_vd.clone()
+                            * likelihood_d.clone()
                             * likelihood_ins_dj
                             * likelihood_j
                             * likelihood_vdj;

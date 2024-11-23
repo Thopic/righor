@@ -238,7 +238,7 @@ impl Features {
 
         for ev in min_ev..max_ev {
             let likelihood_v = feature_v.likelihood(ev);
-            if (likelihood_v * likelihood_vj).max() < cutoff {
+            if (likelihood_v.clone() * likelihood_vj).max() < cutoff {
                 continue;
             }
             for sd in cmp::max(ev, min_sd)..max_sd {
@@ -250,8 +250,9 @@ impl Features {
                         .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
                 );
                 let likelihood_dj = feature_dj.likelihood(sd);
-                let likelihood = (likelihood_v * likelihood_ins_vd * likelihood_dj * likelihood_vj)
-                    .to_scalar()? as f64;
+                let likelihood =
+                    (likelihood_v.clone() * likelihood_ins_vd * likelihood_dj * likelihood_vj)
+                        .to_scalar()? as f64;
 
                 if likelihood > cutoff {
                     current_result.likelihood += likelihood;

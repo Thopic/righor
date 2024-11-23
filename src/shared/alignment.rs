@@ -203,8 +203,8 @@ impl VJAlignment {
     }
 
     pub fn estimated_error_rate(&self, max_del_left: usize, max_del_right: usize) -> f64 {
-        return (self.nb_errors(max_del_left + max_del_right) as f64)
-            / (self.length_with_deletion(max_del_left, max_del_right) as f64);
+        (self.nb_errors(max_del_left + max_del_right) as f64)
+            / (self.length_with_deletion(max_del_left, max_del_right) as f64)
     }
 }
 
@@ -282,7 +282,7 @@ impl DAlignment {
                 vec.push((idx_left, idx_right[0]));
             }
         }
-        return vec;
+        vec
     }
 
     pub fn errors(&self, deld5: usize, deld3: usize) -> ErrorAlignment {

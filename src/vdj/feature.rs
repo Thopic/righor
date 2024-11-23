@@ -225,15 +225,13 @@ impl AggregatedFeatureStartJ {
                 feat_delj.likelihood((delj, j.index)) * feat_error.likelihood(j.errors(0, delj));
             if ll > ip.min_likelihood {
                 let dirty_proba = self.dirty_likelihood.get(j_start);
-                if dirty_proba > 0. {
-                    if ip.infer_features {
-                        feat_delj.dirty_update((delj, j.index), dirty_proba);
+                if dirty_proba > 0. && ip.infer_features {
+                    feat_delj.dirty_update((delj, j.index), dirty_proba);
 
-                        feat_error.dirty_update_j_fragment(
-                            ErrorJAlignment { jal: &j, del: delj },
-                            dirty_proba,
-                        )
-                    }
+                    feat_error.dirty_update_j_fragment(
+                        ErrorJAlignment { jal: &j, del: delj },
+                        dirty_proba,
+                    )
                 }
             }
         }

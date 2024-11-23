@@ -409,7 +409,7 @@ impl InsertionFeature {
         first_nucleotide: usize,
         likelihood: f64,
     ) {
-        if observation.len() == 0 {
+        if observation.is_empty() {
             self.length_distribution_dirty[0] += likelihood;
             return;
         }
@@ -426,7 +426,7 @@ impl InsertionFeature {
         if observation.len() >= self.length_distribution.len() {
             return Likelihood::zero(observation);
         }
-        if observation.len() == 0 {
+        if observation.is_empty() {
             return Likelihood::identity(observation) * self.length_distribution[0];
         }
         let len = observation.len();
@@ -481,7 +481,7 @@ impl InsertionFeature {
         let dim = transition.transition_matrix.dim();
         let m = InsertionFeature {
             length_distribution: length_distribution.normalize_distribution()?,
-            transition: transition,
+            transition,
             transition_matrix_dirty: Array2::<f64>::zeros(dim),
             length_distribution_dirty: Array1::<f64>::zeros(length_distribution.dim()),
         };
@@ -560,9 +560,19 @@ pub struct InfEvent {
     pub cdr3: Option<DnaLike>,
     pub full_sequence: Option<Dna>,
     pub reconstructed_sequence: Option<Dna>,
-
     // likelihood (pgen + perror)
     pub likelihood: f64,
+}
+
+impl InfEvent {
+    pub fn get_reconstructed_cdr3(self, model: &ModelVDJ) -> Result<Dna> {
+        let seq = self.reconstructed_sequence.unwrap();
+        let jgene = model.seg_js[self.j_index].clone();
+        Ok(seq.extract_subsequence(
+            model.seg_vs[self.v_index].cdr3_pos.unwrap(),
+            seq.len() - jgene.seq.len() + jgene.cdr3_pos.unwrap() + 3,
+        ))
+    }
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
@@ -728,24 +738,21 @@ impl ResultInference {
             event.ins_vd = Some(
                 sequence
                     .sequence
-                    .extract_padded_subsequence(event.end_v, event.start_d)
-                    .into(),
+                    .extract_padded_subsequence(event.end_v, event.start_d),
             );
 
             event.ins_dj = Some(
                 sequence
                     .sequence
-                    .extract_padded_subsequence(event.end_d, event.start_j)
-                    .into(),
+                    .extract_padded_subsequence(event.end_d, event.start_j),
             );
             event.d_segment = Some(
                 sequence
                     .sequence
-                    .extract_padded_subsequence(event.start_d, event.end_d)
-                    .into(),
+                    .extract_padded_subsequence(event.start_d, event.end_d),
             );
 
-            event.sequence = Some(sequence.sequence.clone().into());
+            event.sequence = Some(sequence.sequence.clone());
 
             let cdr3_pos_v = model.seg_vs[event.v_index]
                 .cdr3_pos
@@ -758,13 +765,12 @@ impl ResultInference {
 
             // careful, cdr3_pos_j does not! include the palindromic insertions
             // or the last nucleotide
-            let end_cdr3 = event.j_start_seq as i64 + cdr3_pos_j as i64 - model.range_del_j.0 + 3;
+            let end_cdr3 = event.j_start_seq + cdr3_pos_j as i64 - model.range_del_j.0 + 3;
 
             event.cdr3 = Some(
                 sequence
                     .sequence
-                    .extract_padded_subsequence(start_cdr3, end_cdr3)
-                    .into(),
+                    .extract_padded_subsequence(start_cdr3, end_cdr3),
             );
 
             let gene_v = model.seg_vs[event.v_index]
@@ -804,7 +810,7 @@ impl ResultInference {
             //            reconstructed_seq.extend(&event.d_segment.clone().unwrap());
             reconstructed_seq.extend(&event.ins_dj.clone().unwrap().to_dna());
             reconstructed_seq.extend(&gene_j.extract_padded_subsequence(
-                event.start_j - event.j_start_seq as i64,
+                event.start_j - event.j_start_seq,
                 gene_j.len() as i64,
             ));
             event.reconstructed_sequence = Some(reconstructed_seq);

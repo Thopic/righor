@@ -105,7 +105,7 @@ impl PyErrorParameters {
 
 impl Default for ErrorParameters {
     fn default() -> ErrorParameters {
-        return ErrorParameters::ConstantRate(ErrorConstantRate::new(0.));
+        ErrorParameters::ConstantRate(ErrorConstantRate::new(0.))
     }
 }
 
@@ -226,7 +226,7 @@ impl Default for ErrorConstantRate {
 impl ErrorConstantRate {
     pub fn new(error_rate: f64) -> ErrorConstantRate {
         ErrorConstantRate {
-            error_rate: error_rate,
+            error_rate,
             gen: UniformError::new(),
         }
     }
@@ -330,8 +330,8 @@ impl Default for ErrorUniformRate {
 impl ErrorUniformRate {
     pub fn new(bins: Vec<f64>, probas: Vec<f64>) -> Result<ErrorUniformRate> {
         let mut error = ErrorUniformRate {
-            bins: bins,
-            probas: probas,
+            bins,
+            probas,
             error_rate_gen: HistogramDistribution::default(),
             gen: UniformError::new(),
         };
@@ -375,7 +375,7 @@ impl ErrorUniformRate {
         )
     }
 
-    pub fn load(str_vec: &Vec<String>) -> Result<ErrorUniformRate> {
+    pub fn load(str_vec: &[String]) -> Result<ErrorUniformRate> {
         if !str_vec[1].starts_with("#IndividualErrorRate") {
             return Err(anyhow!("Wrong error type"));
         }
@@ -579,6 +579,7 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
 
     /// Arguments
     /// - observation: "(nb of error, length of the sequence without insertion)"
+    ///
     /// The complete formula is likelihood = (r/3)^(nb error) * (1-r)^(length - nb error)
     fn likelihood(&self, observation: ErrorAlignment) -> f64 {
         if observation.nb_errors == 0 {
@@ -658,6 +659,7 @@ impl Feature<ErrorAlignment> for FeatureErrorUniform {
 
     /// Arguments
     /// - observation: "(nb of error, length of the sequence without insertion)"
+    ///
     /// The complete formula is likelihood = (r/3)^(nb error) * (1-r)^(length - nb error)
     fn likelihood(&self, observation: ErrorAlignment) -> f64 {
         if observation.nb_errors == 0 {

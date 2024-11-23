@@ -4,6 +4,16 @@ use ndarray::{s, Array, Array1, Array2, Array3, Dimension};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use log::warn;
+
+/// Sends a warning: uses Python warnings in PyO3 mode, otherwise logs to stderr.
+pub fn send_warning(message: &str) {
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    warn!("Warning: {}", message);
+    eprintln!("Warning: {}", message);
+}
+
 pub fn count_differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> usize {
     vec1.iter()
         .zip(vec2.iter())

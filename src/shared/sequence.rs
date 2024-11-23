@@ -666,7 +666,7 @@ impl Dna {
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl Dna {
     fn __repr__(&self) -> String {
-        self.get_string()
+        String::from("Dna(") + &self.get_string() + &String::from(")")
     }
 
     pub fn get_string(&self) -> String {
@@ -1146,13 +1146,17 @@ impl AminoAcid {
 #[pymethods]
 impl AminoAcid {
     fn __repr__(&self) -> String {
-        String::from_utf8_lossy(&self.seq).to_string()
+        String::from("AminoAcid(") + &self.get_string() + &String::from(")")
     }
 
     #[staticmethod]
     #[pyo3(name = "from_string")]
     pub fn py_from_string(s: &str) -> Result<AminoAcid> {
         AminoAcid::from_string(s)
+    }
+
+    fn get_string(&self) -> String {
+        String::from_utf8_lossy(&self.seq).to_string()
     }
 }
 
@@ -1220,6 +1224,18 @@ impl DnaLike {
     }
 }
 
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl DnaLike {
+    // pure python functions
+    pub fn __repr__(&self) -> String {
+        match &self.inner {
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.__repr__(),
+            DnaLikeEnum::Protein(s) => s.__repr__(),
+        }
+    }
+}
+
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl DnaLike {
     pub fn to_dna(&self) -> Dna {
@@ -1227,10 +1243,6 @@ impl DnaLike {
     }
     pub fn get_string(&self) -> String {
         self.inner.get_string()
-    }
-
-    fn __repr__(&self) -> String {
-        self.get_string()
     }
 
     pub fn translate(&self) -> Result<AminoAcid> {

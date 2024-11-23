@@ -41,11 +41,11 @@ pub enum LikelihoodType {
     Matrix,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug)]
 pub enum Likelihood {
     Scalar(f64),
-    Vector(Vector16),
-    Matrix(Matrix16),
+    Vector(Box<Vector16>),
+    Matrix(Box<Matrix16>),
 }
 
 // Implement Add for Likelihood + Likelihood
@@ -55,8 +55,12 @@ impl ops::Add for Likelihood {
     fn add(self, rhs: Likelihood) -> Likelihood {
         match (self, rhs) {
             (Likelihood::Scalar(lhs), Likelihood::Scalar(rhs)) => Likelihood::Scalar(lhs + rhs),
-            (Likelihood::Vector(lhs), Likelihood::Vector(rhs)) => Likelihood::Vector(lhs + rhs),
-            (Likelihood::Matrix(lhs), Likelihood::Matrix(rhs)) => Likelihood::Matrix(lhs + rhs),
+            (Likelihood::Vector(lhs), Likelihood::Vector(rhs)) => {
+                Likelihood::Vector(Box::new(*lhs + *rhs))
+            }
+            (Likelihood::Matrix(lhs), Likelihood::Matrix(rhs)) => {
+                Likelihood::Matrix(Box::new(*lhs + *rhs))
+            }
             _ => panic!("Incompatible types for addition"),
         }
     }
@@ -67,8 +71,8 @@ impl ops::AddAssign for Likelihood {
     fn add_assign(&mut self, rhs: Likelihood) {
         match (self, rhs) {
             (Likelihood::Scalar(ref mut lhs), Likelihood::Scalar(rhs)) => *lhs += rhs,
-            (Likelihood::Vector(ref mut lhs), Likelihood::Vector(rhs)) => *lhs += rhs,
-            (Likelihood::Matrix(ref mut lhs), Likelihood::Matrix(rhs)) => *lhs += rhs,
+            (Likelihood::Vector(ref mut lhs), Likelihood::Vector(rhs)) => **lhs += *rhs,
+            (Likelihood::Matrix(ref mut lhs), Likelihood::Matrix(rhs)) => **lhs += *rhs,
             _ => panic!("Incompatible types for addition assignment"),
         }
     }
@@ -80,13 +84,13 @@ impl ops::Mul<Likelihood> for Likelihood {
         match (self, rhs) {
             (Likelihood::Scalar(u), Likelihood::Scalar(v)) => Likelihood::Scalar(u * v),
             (Likelihood::Vector(u), Likelihood::Vector(v)) => {
-                Likelihood::Scalar((u.transpose() * v)[(0, 0)])
+                Likelihood::Scalar(((*u).transpose() * *v)[(0, 0)])
             }
-            (Likelihood::Matrix(u), Likelihood::Matrix(v)) => Likelihood::Matrix(u * v),
+            (Likelihood::Matrix(u), Likelihood::Matrix(v)) => Likelihood::Matrix(Box::new(*u * *v)),
             (Likelihood::Vector(u), Likelihood::Matrix(v)) => {
-                Likelihood::Vector((u.transpose() * v).transpose())
+                Likelihood::Vector(Box::new(((*u).transpose() * *v).transpose()))
             }
-            (Likelihood::Matrix(u), Likelihood::Vector(v)) => Likelihood::Vector(u * v),
+            (Likelihood::Matrix(u), Likelihood::Vector(v)) => Likelihood::Vector(Box::new(*u * *v)),
             (_, _) => panic!("Incompatible types for vector multiplications"),
         }
     }
@@ -97,8 +101,8 @@ impl ops::Mul<f64> for Likelihood {
     fn mul(self, rhs: f64) -> Likelihood {
         match (self, rhs) {
             (Likelihood::Scalar(u), x) => Likelihood::Scalar(u * x),
-            (Likelihood::Vector(u), x) => Likelihood::Vector(u * x),
-            (Likelihood::Matrix(u), x) => Likelihood::Matrix(u * x),
+            (Likelihood::Vector(u), x) => Likelihood::Vector(Box::new(*u * x)),
+            (Likelihood::Matrix(u), x) => Likelihood::Matrix(Box::new(*u * x)),
         }
     }
 }
@@ -125,7 +129,7 @@ impl Likelihood {
 
     pub fn zero(dna: &DnaLike) -> Likelihood {
         if dna.is_protein() {
-            Likelihood::Matrix(Matrix16::zeros())
+            Likelihood::Matrix(Box::new(Matrix16::zeros()))
         } else {
             Likelihood::Scalar(0.)
         }
@@ -133,7 +137,7 @@ impl Likelihood {
 
     pub fn identity(dna: &DnaLike) -> Likelihood {
         if dna.is_protein() {
-            Likelihood::Matrix(Matrix16::identity())
+            Likelihood::Matrix(Box::new(Matrix16::identity()))
         } else {
             Likelihood::Scalar(1.)
         }
@@ -147,7 +151,7 @@ impl Likelihood {
         for (idx1, idx2) in d.valid_extremities(deld5, deld3) {
             m[(idx1, idx2)] = 1.
         }
-        Likelihood::Matrix(m)
+        Likelihood::Matrix(Box::new(m))
     }
 
     /// Return a vector set to 1. for positions that match
@@ -157,7 +161,7 @@ impl Likelihood {
         for idx in j.valid_extended_j(del) {
             vec[idx] = 1.;
         }
-        Likelihood::Vector(vec)
+        Likelihood::Vector(Box::new(vec))
     }
 
     /// Return a vector set to 1 for position that match
@@ -173,7 +177,7 @@ impl Likelihood {
         {
             vec[idx] = 1.;
         }
-        Likelihood::Vector(vec)
+        Likelihood::Vector(Box::new(vec))
     }
 
     pub fn max(&self) -> f64 {
@@ -195,14 +199,14 @@ impl Likelihood {
     }
     pub fn to_matrix(&self) -> Result<Matrix16> {
         match self {
-            Likelihood::Matrix(x) => Ok(*x),
+            Likelihood::Matrix(x) => Ok(**x),
             _ => Err(anyhow!("This likelihood is not a matrix")),
         }
     }
 
     pub fn to_vector(&self) -> Result<Vector16> {
         match self {
-            Likelihood::Vector(x) => Ok(*x),
+            Likelihood::Vector(x) => Ok(**x),
             _ => Err(anyhow!("This likelihood is not a matrix")),
         }
     }
@@ -210,8 +214,8 @@ impl Likelihood {
     pub fn zero_from_type(lt: LikelihoodType) -> Likelihood {
         match lt {
             LikelihoodType::Scalar => Likelihood::Scalar(0.),
-            LikelihoodType::Vector => Likelihood::Vector(Vector16::zeros()),
-            LikelihoodType::Matrix => Likelihood::Matrix(Matrix16::zeros()),
+            LikelihoodType::Vector => Likelihood::Vector(Box::new(Vector16::zeros())),
+            LikelihoodType::Matrix => Likelihood::Matrix(Box::new(Matrix16::zeros())),
         }
     }
 
@@ -220,10 +224,10 @@ impl Likelihood {
         match (self, rhs) {
             (Likelihood::Scalar(lhs), Likelihood::Scalar(rhs)) => Likelihood::Scalar(lhs / rhs),
             (Likelihood::Vector(lhs), Likelihood::Vector(rhs)) => {
-                Likelihood::Vector(lhs.component_div(&rhs))
+                Likelihood::Vector(Box::new(lhs.component_div(&rhs)))
             }
             (Likelihood::Matrix(lhs), Likelihood::Matrix(rhs)) => {
-                Likelihood::Matrix(lhs.component_div(&rhs))
+                Likelihood::Matrix(Box::new(lhs.component_div(&rhs)))
             }
             _ => panic!("Incompatible types for addition"),
         }
@@ -248,9 +252,9 @@ impl Likelihood1DContainer {
             Likelihood1DContainer::Matrix(x) => {
                 //debug_assert!(pos >= self.min() && pos <= self.max());
                 if !x.contains_key(&pos) {
-                    Likelihood::Vector(Vector16::zeros())
+                    Likelihood::Vector(Box::new(Vector16::zeros()))
                 } else {
-                    Likelihood::Vector(*x.get(&pos).unwrap())
+                    Likelihood::Vector(Box::new(*x.get(&pos).unwrap()))
                 }
             }
         }
@@ -262,7 +266,7 @@ impl Likelihood1DContainer {
                 *x.get_mut(pos) += ll;
             }
             (Likelihood1DContainer::Matrix(x), Likelihood::Vector(ll)) => {
-                *x.entry(pos).or_insert(Vector16::zeros()) += ll;
+                *x.entry(pos).or_insert(Vector16::zeros()) += *ll;
             }
             _ => unimplemented!("Something wrong with add_to 1Dcontainer"),
         }
@@ -305,7 +309,7 @@ impl Likelihood1DContainer {
             ),
             Likelihood1DContainer::Matrix(x) => Either::Right(
                 x.iter()
-                    .map(|(&key, &value)| (key, Likelihood::Vector(value))),
+                    .map(|(&key, &value)| (key, Likelihood::Vector(Box::new(value)))),
             ),
         }
     }
@@ -343,9 +347,9 @@ impl Likelihood2DContainer {
                 //         && pos.1 <= self.max().1
                 // );
                 if !x.contains_key(&pos) {
-                    Likelihood::Matrix(Matrix16::zeros())
+                    Likelihood::Matrix(Box::new(Matrix16::zeros()))
                 } else {
-                    Likelihood::Matrix(*x.get(&pos).unwrap())
+                    Likelihood::Matrix(Box::new(*x.get(&pos).unwrap()))
                 }
             }
         }
@@ -356,7 +360,7 @@ impl Likelihood2DContainer {
         match (self, likelihood) {
             (Likelihood2DContainer::Scalar(x), Likelihood::Scalar(ll)) => *x.get_mut(pos) += ll,
             (Likelihood2DContainer::Matrix(x), Likelihood::Matrix(ll)) => {
-                x.entry(pos).and_modify(|v| *v += ll).or_insert(ll);
+                x.entry(pos).and_modify(|v| *v += *ll).or_insert(*ll);
             }
             _ => unimplemented!("Problem with add_to for Likelihood2DContainer"),
         }
@@ -401,7 +405,7 @@ impl Likelihood2DContainer {
             ),
             Likelihood2DContainer::Matrix(x) => Either::Right(
                 x.iter()
-                    .map(|(&key, &value)| (key.0, key.1, Likelihood::Matrix(value))),
+                    .map(|(&key, &value)| (key.0, key.1, Likelihood::Matrix(Box::new(value)))),
             ),
         }
     }
@@ -416,7 +420,7 @@ impl Likelihood2DContainer {
             Likelihood2DContainer::Matrix(x) => Either::Right(
                 x.iter()
                     .filter(move |(key, _)| key.1 == dend)
-                    .map(|(&key, &value)| (key.0, Likelihood::Matrix(value))),
+                    .map(|(&key, &value)| (key.0, Likelihood::Matrix(Box::new(value)))),
             ),
         }
     }

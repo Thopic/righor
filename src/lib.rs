@@ -1,3 +1,5 @@
+#![warn(clippy::large_types_passed_by_value)]
+
 pub mod shared;
 pub mod v_dj;
 pub mod vdj;
@@ -17,9 +19,9 @@ use pyo3::prelude::*;
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymodule]
-fn righor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
-    let vdj_submod = PyModule::new(py, "vdj")?;
-    let vj_submod = PyModule::new(py, "vj")?;
+fn righor(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    let vdj_submod = PyModule::new_bound(py, "vdj")?;
+    let vj_submod = PyModule::new_bound(py, "vj")?;
 
     m.add_class::<Gene>()?;
     m.add_class::<Dna>()?;
@@ -32,8 +34,8 @@ fn righor(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<CategoricalFeature2g1>()?;
     m.add_class::<InsertionFeature>()?;
     m.add_class::<vdj::Sequence>()?;
-    m.add_submodule(vdj_submod)?;
-    m.add_submodule(vj_submod)?;
+    m.add_submodule(&vdj_submod)?;
+    m.add_submodule(&vj_submod)?;
 
     Ok(())
 }

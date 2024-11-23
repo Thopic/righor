@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use pyo3::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Define some storage wrapper for the V/D/J genes
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
@@ -90,14 +91,29 @@ pub trait ModelGen {
 
 pub fn genes_matching(x: &str, model: &impl ModelGen, exact: bool) -> Result<Vec<Gene>> {
     let regex = Regex::new(
-        r"^(TRB|TRA|IGH|IGK|IGL|TRG|TRD)(?:\w+)?(V|D|J)([\w-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$",
+        r"^(TCRB|TCRA|TCRG|TCRD|TRB|TRA|IGH|IGK|IGL|TRG|TRD)(?:\w+)?(V|D|J)([\w-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$",
     )
     .unwrap();
     let g = regex
         .captures(x)
         .ok_or(anyhow!("Gene {} does not have a valid name", x))?;
 
-    let chain = g.get(1).map_or("", |m| m.as_str());
+    // deal with the possibly weird convention for TCR names
+    let chain_map = HashMap::from([
+        ("TCRB".to_string(), "TRB".to_string()),
+        ("TCRA".to_string(), "TRA".to_string()),
+        ("TCRG".to_string(), "TRG".to_string()),
+        ("TCRD".to_string(), "TRD".to_string()),
+        ("TRB".to_string(), "TRB".to_string()),
+        ("TRA".to_string(), "TRA".to_string()),
+        ("IGH".to_string(), "IGH".to_string()),
+        ("IGK".to_string(), "IGK".to_string()),
+        ("IGL".to_string(), "IGL".to_string()),
+        ("TRG".to_string(), "TRG".to_string()),
+        ("TRD".to_string(), "TRD".to_string()),
+    ]);
+
+    let chain = chain_map.get(g.get(1).map_or("", |m| m.as_str())).unwrap();
     let gene_type = g.get(2).map_or("", |m| m.as_str());
     let gene_id = g.get(3).map_or("", |m| m.as_str());
     let allele = g.get(4).and_then(|m| m.as_str().parse::<i32>().ok());

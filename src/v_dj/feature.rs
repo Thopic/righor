@@ -145,7 +145,7 @@ impl AggregatedFeatureStartDAndJ {
                 let ratio_old_new = dirty_proba / self.likelihood(d_start).max();
                 for j_start in min_sj..max_sj {
                     let ll_j = self.feature_j.likelihood(j_start);
-                    if (ll_dj * ll_j).max() < ip.min_likelihood {
+                    if (ll_dj * ll_j.clone()).max() < ip.min_likelihood {
                         continue;
                     }
                     for d_end in cmp::max(d_start - 1, min_ed)..cmp::min(max_ed, j_start + 1) {
@@ -158,7 +158,7 @@ impl AggregatedFeatureStartDAndJ {
                                 .get_first_nucleotide((j_start - self.feature_j.start_j5) as usize),
                         );
 
-                        let ll = ll_dj * ll_deld * ll_insdj * ll_j;
+                        let ll = ll_dj * ll_deld * ll_insdj * ll_j.clone();
 
                         if ll.max() > ip.min_likelihood {
                             let corrected_proba = ratio_old_new * ll.max();
@@ -181,16 +181,13 @@ impl AggregatedFeatureStartDAndJ {
                                 agg_deld.dirty_update(d_start, d_end, corrected_proba);
                             }
 
-                            if ip.store_best_event {
-                                if ll.max() > best_likelihood {
-                                    if let Some(ev) = event {
-                                        if ev.start_d == d_start && ev.j_index == j_alignment.index
-                                        {
-                                            ev.d_index = agg_deld.index;
-                                            ev.end_d = d_end;
-                                            ev.start_j = j_start;
-                                            best_likelihood = ll.max();
-                                        }
+                            if ip.store_best_event && ll.max() > best_likelihood {
+                                if let Some(ev) = event {
+                                    if ev.start_d == d_start && ev.j_index == j_alignment.index {
+                                        ev.d_index = agg_deld.index;
+                                        ev.end_d = d_end;
+                                        ev.start_j = j_start;
+                                        best_likelihood = ll.max();
                                     }
                                 }
                             }

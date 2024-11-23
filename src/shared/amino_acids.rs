@@ -372,7 +372,7 @@ impl DegenerateCodon {
     /// Remove the start/end of a codon (replace by BLANK) and uniquify
     pub fn extract_subsequence(&self, start: usize, end: usize) -> DegenerateCodon {
         debug_assert!(end <= 3);
-        let mirror_end = (3 - end) as usize;
+        let mirror_end = 3 - end;
         match (start, mirror_end) {
             (0, 0) => DegenerateCodon {
                 triplets: self.triplets.iter().cloned().unique().collect(),
@@ -577,7 +577,7 @@ impl DegenerateCodon {
                     [3, 3, 2],
                     [3, 3, 3],
                 ], // NNN
-                a if (a >= 128 && a < 192) => vec![[
+                a if (128..192).contains(&a) => vec![[
                     ((a - 128) % 4) as usize,
                     (((a - 128) / 4) % 4) as usize,
                     ((a - 128) / 16) as usize,
@@ -859,7 +859,7 @@ impl DegenerateCodonSequence {
         DegenerateCodonSequence {
             codons: padded_dna.seq[..]
                 .chunks(3)
-                .map(|x| DegenerateCodon::from_u8(x))
+                .map(DegenerateCodon::from_u8)
                 .collect(),
             codon_start: start,
             codon_end: mod_euclid(3 - seq.len() as i64 - start as i64, 3) as usize,
@@ -894,7 +894,7 @@ impl DegenerateCodonSequence {
                 }
             }
         }
-        return result;
+        result
     }
 
     /// lossy process, remove some information about the codon
@@ -1083,7 +1083,7 @@ impl DegenerateCodonSequence {
     /// return [(XX, XXsssssssss) for all XX]
     pub fn left_extremities(&self) -> Vec<(usize, DegenerateCodonSequence)> {
         let mut results = vec![];
-        if self.len() == 0 {
+        if self.is_empty() {
             // no codons
             for idx_left in 0..16 {
                 let mut s = self.clone();
@@ -1144,7 +1144,7 @@ impl DegenerateCodonSequence {
         let last_codon = codons_minus_last.pop().unwrap();
 
         if self.codon_end == 0 {
-            return last_codon
+            last_codon
                 .fix_end_two()
                 .into_iter()
                 .map(|(idx, cod)| {
@@ -1159,10 +1159,10 @@ impl DegenerateCodonSequence {
                         },
                     )
                 })
-                .collect();
+                .collect()
         } else if self.codon_end == 1 {
             // easy case
-            return last_codon
+            last_codon
                 .fix_start_two()
                 .into_iter()
                 .map(|(x, _)| {
@@ -1179,7 +1179,7 @@ impl DegenerateCodonSequence {
                         },
                     )
                 })
-                .collect();
+                .collect()
         } else if self.codon_end == 2 {
             let mut results = vec![];
             let mut codons_minus_two = codons_minus_last.clone();
@@ -1220,9 +1220,7 @@ impl DegenerateCodonSequence {
 
     pub fn reverse(&mut self) {
         self.codons = self.codons.iter().rev().map(|x| x.reverse()).collect();
-        let old_end = self.codon_end;
-        self.codon_end = self.codon_start;
-        self.codon_start = old_end;
+        std::mem::swap(&mut self.codon_end, &mut self.codon_start);
     }
 
     pub fn extend(&mut self, _dna: &DegenerateCodonSequence) {
@@ -1232,7 +1230,7 @@ impl DegenerateCodonSequence {
 
     pub fn extended_with_dna(&self, dna: &Dna) -> DegenerateCodonSequence {
         let mut s = self.clone();
-        s.extend_dna(&dna);
+        s.extend_dna(dna);
         s
     }
 
@@ -1245,7 +1243,7 @@ impl DegenerateCodonSequence {
         // with all the painful edge cases (empty dna, very short dna)
         // need extensive testing
 
-        if self.len() == 0 {
+        if self.is_empty() {
             *self = DegenerateCodonSequence::from_dna(dna, 0);
         }
 
@@ -1257,7 +1255,7 @@ impl DegenerateCodonSequence {
         );
 
         if self.codon_end >= dna.len() {
-            self.codon_end = self.codon_end - dna.len();
+            self.codon_end -= dna.len();
             return;
         }
 
@@ -1277,7 +1275,7 @@ impl DegenerateCodonSequence {
     pub fn append_to_dna(&mut self, dna: &Dna) {
         // need to complete the first codon
 
-        if self.len() == 0 {
+        if self.is_empty() {
             *self = DegenerateCodonSequence::from_dna(dna, 0);
             return;
         }

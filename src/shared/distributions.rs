@@ -18,10 +18,7 @@ impl HistogramDistribution {
     pub fn new(bins: Vec<f64>, probas: Vec<f64>) -> Result<HistogramDistribution> {
         Ok(HistogramDistribution {
             bin_pick: DiscreteDistribution::new(probas)?,
-            uniform_in_bins: bins
-                .windows(2)
-                .map(|w| Uniform::try_from(w[0]..w[1]).unwrap())
-                .collect(),
+            uniform_in_bins: bins.windows(2).map(|w| Uniform::from(w[0]..w[1])).collect(),
         })
     }
 

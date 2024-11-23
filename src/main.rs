@@ -1,5 +1,6 @@
 #![allow(unused_imports)] //TODO REMOVE
 #![allow(dead_code)]
+#![warn(clippy::large_types_passed_by_value)]
 
 pub mod shared;
 pub mod v_dj;
@@ -59,17 +60,18 @@ fn main() -> Result<()> {
         Path::new("/home/thomas/Downloads/righor-py/righor.data/data/righor_models/"),
     )?;
     igor_model.set_model_type(ModelStructure::VxDJ)?;
-    igor_model.set_error(ErrorParameters::ConstantRate(ErrorConstantRate::new(0.)))?;
+    igor_model.set_error(ErrorParameters::ConstantRate(ErrorConstantRate::new(0.01)))?;
 
     // println!("{}", igor_model.get_markov_coefficients_vd()?);
     // println!("{}", igor_model.get_markov_coefficients_dj()?);
     // return Ok(());
     let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
 
-    for _ in 0..1000 {
+    for _ in 0..100 {
         let sequence = generator.generate_without_errors(true);
         println!("{:?}", sequence.clone());
         let cdr3_aa = sequence.cdr3_aa.unwrap();
+        //let cdr3_nt = sequence.cdr3_nt;
         let vname = sequence.v_gene;
         let jname = sequence.j_gene;
         // let cdr3_aa = "CASRKRRVTGVSPLHF";
@@ -80,7 +82,7 @@ fn main() -> Result<()> {
 
         let a = igor_model.evaluate(
             EntrySequence::NucleotideCDR3((
-                DnaLike::from_amino_acid(AminoAcid::from_string(&cdr3_aa).unwrap()),
+                AminoAcid::from_string(&cdr3_aa).unwrap().into(),
                 igor_model
                     .get_v_segments()
                     .into_iter()

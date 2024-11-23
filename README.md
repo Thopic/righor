@@ -75,7 +75,7 @@ print(f"Pgen: {result_inference.pgen:.1e}")
 Infer a model:
 
 ```py
-# Inference of a model 
+# Inference of a model
 # use a very small number of sequences to keep short (takes ~30s)
 
 # here we just generate the sequences needed
@@ -88,7 +88,7 @@ align_params = righor.AlignmentParameters()
 align_params.left_v_cutoff = 70
 infer_params = righor.InferenceParameters()
 
-# generate an uniform model as a starting point 
+# generate an uniform model as a starting point
 # (it's generally *much* faster to start from an already inferred model)
 model = igor_model.copy()
 model.p_ins_vd = np.ones(model.p_ins_vd.shape)
@@ -132,6 +132,8 @@ Extra stuff:
 Main differences with IGoR:
 - "dynamic programming" method, instead of summing over all events we first pre-compute over sum of events. This means that we can run it with undefined nucleotides like N (at least in theory, I need to add full support for these).
 - The D gene alignment is less constrained
+- can measure pgen for amino-acid sequences (like olga)
+- more error models (and more flexible, better for IGH)
 
 Limitations:
 - Need to get rid of any primers/ends on the V gene side before running it
@@ -142,7 +144,4 @@ Programming stuff:
 - There's a wasm version for web use.
 - python version is in a different crate now.
 - to add a model permanently, add it to "models.json". First model in a category is the default model. Each field is one independant model. The elements in chain and species should always be lower-case.
-
-Current status:
-- speed is ok (50 seqs/s roughly ?). Could be slightly faster. I think some range should be replaced by iterator.
-- pgen works, but because I consider way more D gene alignment than Quentin some issue when endD and startD are really close to each other.
+- ambiguous nucleotide with "errors", the pgen won't work very well probably.
