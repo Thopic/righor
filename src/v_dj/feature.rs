@@ -34,11 +34,7 @@ impl AggregatedFeatureStartDAndJ {
         feat: &Features,
         ip: &InferenceParameters,
     ) -> Option<AggregatedFeatureStartDAndJ> {
-        let Some(feature_j) =
-            AggregatedFeatureStartJ::new(j_alignment, &feat.delj, &feat.error, ip)
-        else {
-            return None;
-        };
+        let feature_j = AggregatedFeatureStartJ::new(j_alignment, &feat.delj, &feat.error, ip)?;
 
         // define the likelihood object with the right length
         let mut likelihoods = Likelihood1DContainer::zeros(
@@ -54,7 +50,7 @@ impl AggregatedFeatureStartDAndJ {
 
         // for every parameters, iterate over delj / d / deld3 / deld5
         // to find the most likely events
-        feature_ds.iter().for_each(|agg_d| {
+        for agg_d in feature_ds {
             let ll_dj = feat.d.likelihood((agg_d.index, feature_j.index)); // P(D|J)
             feat_insdj
                 .iter()
@@ -62,7 +58,7 @@ impl AggregatedFeatureStartDAndJ {
                     // j_start needs to be compatible with feature_j
                     if (j_start >= feature_j.start_j5)
                         && (j_start < feature_j.end_j5)
-                        && (last_nuc as usize
+                        && (last_nuc
                             == j_alignment
                                 .get_first_nucleotide((j_start - feature_j.start_j5) as usize))
                     {
@@ -77,7 +73,7 @@ impl AggregatedFeatureStartDAndJ {
                         });
                     }
                 });
-        });
+        }
 
         if total_likelihood.is_zero() {
             return None;
@@ -204,6 +200,6 @@ impl AggregatedFeatureStartDAndJ {
         }
 
         self.feature_j
-            .disaggregate(j_alignment, &mut feat.delj, &mut feat.error, ip)
+            .disaggregate(j_alignment, &mut feat.delj, &mut feat.error, ip);
     }
 }

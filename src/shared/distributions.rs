@@ -15,7 +15,7 @@ pub struct HistogramDistribution {
 }
 
 impl HistogramDistribution {
-    pub fn new(bins: Vec<f64>, probas: Vec<f64>) -> Result<HistogramDistribution> {
+    pub fn new(bins: &[f64], probas: &[f64]) -> Result<HistogramDistribution> {
         Ok(HistogramDistribution {
             bin_pick: DiscreteDistribution::new(probas)?,
             uniform_in_bins: bins.windows(2).map(|w| Uniform::from(w[0]..w[1])).collect(),
@@ -30,7 +30,7 @@ impl HistogramDistribution {
 
 impl Default for HistogramDistribution {
     fn default() -> HistogramDistribution {
-        HistogramDistribution::new(vec![0., 1e-12], vec![1.]).unwrap()
+        HistogramDistribution::new(&[0., 1e-12], &[1.]).unwrap()
     }
 }
 
@@ -71,19 +71,20 @@ pub struct DiscreteDistribution {
 }
 
 impl DiscreteDistribution {
-    pub fn new(weights: Vec<f64>) -> Result<Self> {
+    pub fn new(weights: &[f64]) -> Result<Self> {
         if !weights.iter().all(|&x| x >= 0.) {
             return Err(anyhow!(
                 "Error when creating distribution: negative weights"
             ))?;
         }
 
-        let distribution = match weights.iter().sum::<f64>().abs() < 1e-10 {
-	    true => WeightedAliasIndex::new(vec![1.; weights.len()]) // when all the value are 0, all the values are equiprobable.
-		.map_err(|e| anyhow!(format!("Error when creating distribution: {}", e)))?,
-	    false => WeightedAliasIndex::new(weights)
+        let distribution = if weights.iter().sum::<f64>().abs() < 1e-10 {
+            WeightedAliasIndex::new(vec![1.; weights.len()]) // when all the value are 0, all the values are equiprobable.
 		.map_err(|e| anyhow!(format!("Error when creating distribution: {}", e)))?
-	};
+        } else {
+            WeightedAliasIndex::new(weights.to_vec())
+                .map_err(|e| anyhow!(format!("Error when creating distribution: {}", e)))?
+        };
         Ok(DiscreteDistribution { distribution })
     }
 
@@ -124,10 +125,10 @@ pub struct MarkovDNA {
 }
 
 impl MarkovDNA {
-    pub fn new(transition_probs: Array2<f64>) -> Result<Self> {
+    pub fn new(transition_probs: &Array2<f64>) -> Result<Self> {
         let mut transition_matrix = Vec::with_capacity(transition_probs.dim().0);
         for probs in transition_probs.axis_iter(Axis(0)) {
-            transition_matrix.push(DiscreteDistribution::new(probs.to_vec())?);
+            transition_matrix.push(DiscreteDistribution::new(&probs.to_vec())?);
         }
         Ok(MarkovDNA { transition_matrix })
     }
@@ -167,7 +168,7 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
         let norm = vec_next.sum();
         let vec_next = vec_next / norm;
 
-        if (&vec_next - &vec).mapv(|a| a.abs()).sum() < epsilon {
+        if (&vec_next - &vec).mapv(f64::abs).sum() < epsilon {
             return Ok(vec_next.to_vec());
         }
         vec = vec_next;

@@ -71,8 +71,10 @@ impl DNAMarkovChain {
     }
 
     pub fn new(transition_matrix: &Array2<f64>, reverse: bool) -> Result<DNAMarkovChain> {
-        let mut mc = DNAMarkovChain::default();
-        mc.reverse = reverse;
+        let mut mc = DNAMarkovChain {
+            reverse,
+            ..Default::default()
+        };
         mc.precompute(transition_matrix)?;
         Ok(mc)
     }
@@ -111,13 +113,13 @@ impl DNAMarkovChain {
 // functions specific to non-degenerate dna sequences
 impl DNAMarkovChain {
     pub fn likelihood_dna(&self, s: &Dna, first: usize) -> Likelihood {
-        if s.len() == 0 {
+        if s.is_empty() {
             return Likelihood::Scalar(1.);
         }
 
         let mut new_s = s.clone();
         if self.reverse {
-            new_s.reverse()
+            new_s.reverse();
         }
 
         let mut proba = self.transition_matrix[[first, nucleotides_inv(new_s.seq[0])]];
@@ -134,14 +136,14 @@ impl DNAMarkovChain {
         let mut transition_mat = Array2::zeros((4, 4));
         let mut new_s = s.clone();
         if self.reverse {
-            new_s.reverse()
+            new_s.reverse();
         }
         transition_mat[[first, nucleotides_inv(new_s.seq[0])]] += likelihood;
         for ii in 1..new_s.len() {
             transition_mat[[
                 nucleotides_inv(new_s.seq[ii - 1]),
                 nucleotides_inv(new_s.seq[ii]),
-            ]] += likelihood
+            ]] += likelihood;
         }
         transition_mat
     }
@@ -150,13 +152,13 @@ impl DNAMarkovChain {
 // functions specific to degenerate dna sequences
 impl DNAMarkovChain {
     pub fn likelihood_degenerate(&self, s: &Dna, first: usize) -> Likelihood {
-        if s.len() == 0 {
+        if s.is_empty() {
             return Likelihood::Scalar(1.);
         }
 
         let mut new_s = s.clone();
         if self.reverse {
-            new_s.reverse()
+            new_s.reverse();
         }
 
         let mut vector_proba = Vector4::new(0., 0., 0., 0.);
@@ -164,11 +166,10 @@ impl DNAMarkovChain {
         let mut vector_proba = vector_proba.transpose()
             * self.get_degenerate_matrix(first, nucleotides_inv(new_s.seq[0]));
         for ii in 1..new_s.len() {
-            vector_proba = vector_proba
-                * self.get_degenerate_matrix(
-                    nucleotides_inv(new_s.seq[ii - 1]),
-                    nucleotides_inv(new_s.seq[ii]),
-                );
+            vector_proba *= self.get_degenerate_matrix(
+                nucleotides_inv(new_s.seq[ii - 1]),
+                nucleotides_inv(new_s.seq[ii]),
+            );
         }
         Likelihood::Scalar(
             (vector_proba * self.get_degenerate_end(nucleotides_inv(*new_s.seq.last().unwrap())))
@@ -186,7 +187,7 @@ impl DNAMarkovChain {
         for ii in 1..s.len() {
             if !is_degenerate(s.seq[ii - 1]) && !is_degenerate(s.seq[ii]) {
                 transition_mat[[nucleotides_inv(s.seq[ii - 1]), nucleotides_inv(s.seq[ii])]] +=
-                    likelihood
+                    likelihood;
             }
         }
         transition_mat
@@ -215,7 +216,7 @@ impl DNAMarkovChain {
                             && compatible_nucleotides(NUCLEOTIDES[jj], next)
                         {
                             // transition matrix is P_{a,b} = P(a -> b)
-                            matrix[(ii, jj)] = self.transition_matrix[[ii, jj]]
+                            matrix[(ii, jj)] = self.transition_matrix[[ii, jj]];
                         }
                     }
                 }
@@ -242,7 +243,7 @@ impl DNAMarkovChain {
     pub fn likelihood_aminoacid(&self, s: &AminoAcid, start_chain: usize) -> Likelihood {
         Likelihood::Matrix(
             // if empty sequence
-            if s.seq.len() == 0 || (s.seq.len() == 1 && s.start + s.end == 3) {
+            if s.seq.is_empty() || (s.seq.len() == 1 && s.start + s.end == 3) {
                 Box::new(Matrix16::identity())
             }
             // weird case #1, only one codon
@@ -267,7 +268,7 @@ impl DNAMarkovChain {
                 } else {
                     let mut m_4_4 = Matrix4::identity();
                     for ii in 1..s.seq.len() - 1 {
-                        m_4_4 *= self.aa_middle[&s.seq[ii]]
+                        m_4_4 *= self.aa_middle[&s.seq[ii]];
                     }
                     let m0 = self.aa_start[&(s.seq[0], s.start, start_chain)];
                     let mf = m0 * m_4_4 * self.aa_end[&(s.seq[s.seq.len() - 1], s.end)];

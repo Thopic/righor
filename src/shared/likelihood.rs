@@ -1,5 +1,5 @@
 //! Define the "Likelihood" class that contain the likelihood of a DNA segment
-//! as well as its container (Likelihood1dContainer, etc...)
+//! as well as its container (`Likelihood1dContainer`, etc...)
 //! When the DNA segment is only known through its amino-acid sequence, we don't
 //! completely know the likelihood, as it can depend on the nucleotide that
 //! are before, or after, the sequence.
@@ -149,7 +149,7 @@ impl Likelihood {
     pub fn from_d_sides(d: &DAlignment, deld5: usize, deld3: usize) -> Likelihood {
         let mut m = Matrix16::zeros();
         for (idx1, idx2) in d.valid_extremities(deld5, deld3) {
-            m[(idx1, idx2)] = 1.
+            m[(idx1, idx2)] = 1.;
         }
         Likelihood::Matrix(Box::new(m))
     }
@@ -288,7 +288,7 @@ impl Likelihood1DContainer {
     pub fn min(&self) -> i64 {
         match self {
             Likelihood1DContainer::Scalar(x) => x.min,
-            Likelihood1DContainer::Matrix(x) => x.keys().cloned().min().unwrap(),
+            Likelihood1DContainer::Matrix(x) => x.keys().copied().min().unwrap(),
         }
     }
 
@@ -296,7 +296,7 @@ impl Likelihood1DContainer {
     pub fn max(&self) -> i64 {
         match self {
             Likelihood1DContainer::Scalar(x) => x.max,
-            Likelihood1DContainer::Matrix(x) => x.keys().cloned().max().unwrap() + 1,
+            Likelihood1DContainer::Matrix(x) => x.keys().copied().max().unwrap() + 1,
         }
     }
 
@@ -379,8 +379,8 @@ impl Likelihood2DContainer {
         match self {
             Likelihood2DContainer::Scalar(x) => x.min,
             Likelihood2DContainer::Matrix(x) => (
-                x.keys().cloned().map(|u| u.0).min().unwrap(),
-                x.keys().cloned().map(|u| u.1).min().unwrap(),
+                x.keys().copied().map(|u| u.0).min().unwrap(),
+                x.keys().copied().map(|u| u.1).min().unwrap(),
             ),
         }
     }
@@ -390,8 +390,8 @@ impl Likelihood2DContainer {
         match self {
             Likelihood2DContainer::Scalar(x) => x.max,
             Likelihood2DContainer::Matrix(x) => (
-                x.keys().cloned().map(|u| u.0).max().unwrap() + 1,
-                x.keys().cloned().map(|u| u.1).max().unwrap() + 1,
+                x.keys().copied().map(|u| u.0).max().unwrap() + 1,
+                x.keys().copied().map(|u| u.1).max().unwrap() + 1,
             ),
         }
     }

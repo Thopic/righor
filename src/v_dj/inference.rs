@@ -24,11 +24,12 @@ pub struct Features {
     pub insvd: InsertionFeature,
     pub insdj: InsertionFeature,
     pub error: FeatureError,
+    pub log_likelihood: Option<f64>, // after each inference contains the log likelihood
 }
 
 impl Features {
     /// Update the model from a vector of features and return an updated vector of features
-    pub fn update(features: Vec<Features>, model: &mut Model) -> Result<Vec<Features>> {
+    pub fn update(features: Vec<Features>, model: &mut Model) -> Result<(Vec<Features>, f64)> {
         let errors = &mut ErrorParameters::update_error(
             features.iter().map(|a| a.error.clone()).collect(),
             &mut model.error,
@@ -66,6 +67,8 @@ impl Features {
         model.p_ins_dj = p_dj;
         model.markov_chain_dj = Arc::new(DNAMarkovChain::new(&mc_dj, true)?);
 
+        let sum_log_likelihood = features.iter().map(|x| x.log_likelihood.unwrap()).sum();
+
         // Now update the features vector
         let mut new_features = Vec::new();
         for error in errors {
@@ -75,13 +78,14 @@ impl Features {
                 delv: delv.clone(),
                 delj: delj.clone(),
                 deld: deld.clone(),
-                insvd: insvd.correct_for_error(&error).clone(),
-                insdj: insdj.correct_for_error(&error).clone(),
+                insvd: insvd.correct_for_error(error).clone(),
+                insdj: insdj.correct_for_error(error).clone(),
                 error: error.clone(),
-            })
+                log_likelihood: None,
+            });
         }
 
-        Ok(new_features)
+        Ok((new_features, sum_log_likelihood))
     }
 
     pub fn new(model: &Model) -> Result<Features> {
@@ -94,6 +98,7 @@ impl Features {
             insvd: InsertionFeature::new(&model.p_ins_vd, Arc::clone(&model.markov_chain_vd))?,
             insdj: InsertionFeature::new(&model.p_ins_dj, Arc::clone(&model.markov_chain_dj))?,
             error: model.error.get_feature()?,
+            log_likelihood: None,
         })
     }
 
@@ -105,25 +110,23 @@ impl Features {
         ip: &InferenceParameters,
     ) -> Result<ResultInference> {
         // Estimate the likelihood of all possible insertions
-        let mut agg_ins_vd = match FeatureVD::new(
+        let Some(mut agg_ins_vd) = FeatureVD::new(
             sequence,
             &self.insvd,
             self.delv.dim().0,
             self.deld.dim().0,
             ip,
-        ) {
-            Some(ivd) => ivd,
-            None => return Ok(ResultInference::impossible()),
+        ) else {
+            return Ok(ResultInference::impossible());
         };
-        let mut agg_ins_dj = match FeatureDJ::new(
+        let Some(mut agg_ins_dj) = FeatureDJ::new(
             sequence,
             &self.insdj,
             self.deld.dim().1,
             self.delj.dim().0,
             ip,
-        ) {
-            Some(idj) => idj,
-            None => return Ok(ResultInference::impossible()),
+        ) else {
+            return Ok(ResultInference::impossible());
         };
 
         // Define the aggregated features for this sequence:
@@ -141,8 +144,8 @@ impl Features {
                 &self.error,
                 ip,
             );
-            if feature_d.is_some() {
-                features_d.push(feature_d.unwrap());
+            if let Some(fd) = feature_d {
+                features_d.push(fd);
             }
         }
         if features_d.is_empty() {
@@ -187,7 +190,7 @@ impl Features {
                 None => continue,
             }
         }
-        for d in features_d.iter_mut() {
+        for d in &mut features_d {
             d.disaggregate(
                 &sequence.get_specific_dgene(d.index),
                 &mut self.deld,
@@ -204,6 +207,9 @@ impl Features {
         if result.likelihood > 0. {
             self.cleanup(result.likelihood)?;
         }
+        // add a small positive likelihood to deal with the case where result.likelihood is 0.
+        self.log_likelihood = Some((result.likelihood + ip.min_likelihood).log2());
+
         // Return the result
         Ok(result)
     }
@@ -252,7 +258,7 @@ impl Features {
                 let likelihood_dj = feature_dj.likelihood(sd);
                 let likelihood =
                     (likelihood_v.clone() * likelihood_ins_vd * likelihood_dj * likelihood_vj)
-                        .to_scalar()? as f64;
+                        .to_scalar()?;
 
                 if likelihood > cutoff {
                     current_result.likelihood += likelihood;

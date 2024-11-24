@@ -12,8 +12,8 @@ use crate::vdj::Sequence;
 use itertools::iproduct;
 use std::sync::Arc;
 
-/// Contains the probability of the V gene ending at position e_v
-/// For all reasonnable e_v
+/// Contains the probability of the V gene ending at position `e_v`
+/// For all reasonnable `e_v`
 #[derive(Debug)]
 pub struct AggregatedFeatureEndV {
     pub index: usize,      // store the index of the V gene
@@ -145,7 +145,7 @@ impl AggregatedFeatureEndV {
                     // at that point the V gene proba should be already updated
                     feat_delv.dirty_update((delv, v.index), dirty_proba);
                     feat_error.dirty_update_v_fragment(
-                        ErrorVAlignment { val: &v, del: delv },
+                        &ErrorVAlignment { val: v, del: delv },
                         dirty_proba,
                     );
                 }
@@ -229,9 +229,9 @@ impl AggregatedFeatureStartJ {
                     feat_delj.dirty_update((delj, j.index), dirty_proba);
 
                     feat_error.dirty_update_j_fragment(
-                        ErrorJAlignment { jal: &j, del: delj },
+                        &ErrorJAlignment { jal: j, del: delj },
                         dirty_proba,
-                    )
+                    );
                 }
             }
         }
@@ -251,10 +251,10 @@ impl AggregatedFeatureSpanD {
 
         let mut total_likelihood = 0.;
 
-        let min_start = ds.iter().map(|x| x.pos).min().unwrap() as i64;
+        let min_start = ds.iter().map(|x| x.pos).min().unwrap();
         let min_end =
             ds.iter().map(|x| x.pos + x.len() as i64).min().unwrap() - feat_deld.dim().1 as i64 + 1;
-        let max_start = ds.iter().map(|x| x.pos).max().unwrap() as i64 + feat_deld.dim().0 as i64;
+        let max_start = ds.iter().map(|x| x.pos).max().unwrap() + feat_deld.dim().0 as i64;
         let max_end = ds.iter().map(|x| x.pos + x.len() as i64).max().unwrap() + 1;
 
         let mut likelihoods = Likelihood2DContainer::zeros(
@@ -343,7 +343,7 @@ impl AggregatedFeatureSpanD {
 
         let mut best_likelihood = 0.;
         // Now with startD and endD
-        for d in ds.iter() {
+        for d in ds {
             for (deld5, deld3) in iproduct!(0..feat_deld.dim().0, 0..feat_deld.dim().1) {
                 let d_start = d.pos + deld5 as i64;
                 let d_end = d.pos + (d.len() - deld3) as i64;
@@ -364,8 +364,8 @@ impl AggregatedFeatureSpanD {
                         feat_deld.dirty_update((deld5, deld3, d.index), corrected_proba);
 
                         feat_error.dirty_update_d_fragment(
-                            ErrorDAlignment {
-                                dal: &d,
+                            &ErrorDAlignment {
+                                dal: d,
                                 deld5,
                                 deld3,
                             },
@@ -382,7 +382,7 @@ impl AggregatedFeatureSpanD {
                                     && (ev.start_d == d_start)
                                     && (ev.end_d == d_end)
                                 {
-                                    ev.pos_d = d.pos as i64;
+                                    ev.pos_d = d.pos;
                                     best_likelihood = likelihood;
                                 }
                             }
@@ -414,10 +414,10 @@ impl FeatureVD {
         }
         let min_end_v =
             sequence.v_genes.iter().map(|x| x.end_seq).min().unwrap() as i64 - delv_max as i64 + 1;
-        let min_start_d = sequence.d_genes.iter().map(|x| x.pos).min().unwrap() as i64;
+        let min_start_d = sequence.d_genes.iter().map(|x| x.pos).min().unwrap();
         let max_end_v = sequence.v_genes.iter().map(|x| x.end_seq).max().unwrap() as i64;
         let max_start_d =
-            sequence.d_genes.iter().map(|x| x.pos).max().unwrap() as i64 + deld5_max as i64 - 1;
+            sequence.d_genes.iter().map(|x| x.pos).max().unwrap() + deld5_max as i64 - 1;
 
         let mut likelihoods = LikelihoodInsContainer::zeros(
             (min_end_v, min_start_d),
@@ -549,7 +549,7 @@ impl FeatureVD {
                             .to_scalar()
                             .unwrap();
                         if ll > ip.min_likelihood && updated_ll > 0. {
-                            feat_insvd.dirty_update(ins_vd, previous_nucleotide, updated_ll)
+                            feat_insvd.dirty_update(ins_vd, previous_nucleotide, updated_ll);
                         }
                     }
                 }
@@ -662,7 +662,7 @@ impl FeatureDJ {
             .iter()
             .map(|x| x.start_seq as i64 - x.start_gene as i64)
             .min()
-            .unwrap() as i64;
+            .unwrap();
         let max_end_d = sequence
             .d_genes
             .iter()
@@ -674,7 +674,7 @@ impl FeatureDJ {
             .iter()
             .map(|x| x.start_seq as i64 - x.start_gene as i64)
             .max()
-            .unwrap() as i64
+            .unwrap()
             + max_delj as i64
             - 1;
         ((min_end_d, max_end_d), (min_start_j, max_start_j))

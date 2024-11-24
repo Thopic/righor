@@ -29,7 +29,7 @@ pub struct Generator {
 
 impl Generator {
     pub fn new(
-        model: Model,
+        model: &Model,
         seed: Option<u64>,
         available_v: Option<Vec<Gene>>,
         available_j: Option<Vec<Gene>>,
@@ -204,7 +204,7 @@ impl Modelable for Model {
     fn save_json(&self, filename: &Path) -> Result<()> {
         let mut file = File::create(filename)?;
         let json = serde_json::to_string(&self)?;
-        Ok(writeln!(file, "{}", json)?)
+        Ok(writeln!(file, "{json}")?)
     }
 
     /// Load a saved model in json format
@@ -297,7 +297,7 @@ impl Modelable for Model {
         features: Option<Vec<Features>>,
         alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
-    ) -> Result<Vec<Features>> {
+    ) -> Result<(Vec<Features>, f64)> {
         let feats = self
             .inner
             .infer(sequences, features, alignment_params, inference_params)?;
@@ -335,8 +335,8 @@ impl Modelable for Model {
     fn align_from_cdr3(
         &self,
         cdr3_seq: &DnaLike,
-        vgenes: &Vec<Gene>,
-        jgenes: &Vec<Gene>,
+        vgenes: &[Gene],
+        jgenes: &[Gene],
     ) -> Result<Sequence> {
         self.inner.align_from_cdr3(cdr3_seq, vgenes, jgenes)
     }
@@ -496,10 +496,10 @@ impl Model {
             *arrdelj.iter().max().ok_or(anyhow!("Empty j_5_del"))?,
         );
 
-        if !(sorted_and_complete(arrdelv)
-            & sorted_and_complete(arrdelj)
+        if !(sorted_and_complete(&arrdelv)
+            & sorted_and_complete(&arrdelj)
             & sorted_and_complete_0start(
-                pp.params
+                &pp.params
                     .get("vj_ins")
                     .ok_or(anyhow!("Invalid vj_ins"))?
                     .clone()
@@ -626,7 +626,7 @@ impl Model {
             Vec::new(),
             self.markov_coefficients_vj
                 .iter()
-                .cloned()
+                .copied()
                 .collect::<Array1<f64>>()
                 .into_dyn(),
         )
@@ -661,11 +661,11 @@ impl Model {
         result.push_str(&jgenes.write());
 
         result.push_str("#Deletion;V_gene;Three_prime;5;v_3_del\n");
-        let delvs = EventType::Numbers((self.range_del_v.0..self.range_del_v.1 + 1).collect());
+        let delvs = EventType::Numbers((self.range_del_v.0..=self.range_del_v.1).collect());
         result.push_str(&delvs.write());
 
         result.push_str("#Deletion;J_gene;Five_prime;5;j_5_del\n");
-        let deljs = EventType::Numbers((self.range_del_j.0..self.range_del_j.1 + 1).collect());
+        let deljs = EventType::Numbers((self.range_del_j.0..=self.range_del_j.1).collect());
         result.push_str(&deljs.write());
 
         result.push_str("#Insertion;VJ_gene;Undefined_side;4;vj_ins\n");
@@ -793,9 +793,9 @@ impl Model {
         for ii in 0..arr.shape()[0] {
             for jj in 0..arr.shape()[1] {
                 if arr[[ii, jj]] == 0.0 {
-                    self.p_j_given_v[[jj, ii]] = arr[[ii, jj]] / self.p_v[ii]
+                    self.p_j_given_v[[jj, ii]] = 0.;
                 } else {
-                    self.p_j_given_v[[jj, ii]] = arr[[ii, jj]] / self.p_v[ii]
+                    self.p_j_given_v[[jj, ii]] = arr[[ii, jj]] / self.p_v[ii];
                 }
             }
         }

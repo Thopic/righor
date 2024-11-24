@@ -1,28 +1,17 @@
-#![allow(unused_imports)] //TODO REMOVE
-#![allow(dead_code)]
-#![warn(clippy::large_types_passed_by_value)]
+#![warn(clippy::all)]
 
 pub mod shared;
 pub mod v_dj;
 pub mod vdj;
 pub mod vj;
 
-use anyhow::{anyhow, Result};
-use kdam::tqdm;
-use ndarray::array;
-use ndarray::Axis;
-use righor::shared::DNAMarkovChain;
-use righor::shared::ModelGen;
-use righor::AlignmentParameters;
+use anyhow::Result;
 use righor::EntrySequence;
-use righor::{AminoAcid, Dna, DnaLike, Gene};
-use std::fs::File;
+use righor::{AminoAcid, Dna, DnaLike};
 
 use righor::shared::model::ModelStructure;
-use righor::shared::{errors::ErrorConstantRate, errors::ErrorUniformRate, ErrorParameters};
-use righor::Modelable;
+use righor::shared::{errors::ErrorConstantRate, ErrorParameters};
 
-use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
 fn main() -> Result<()> {
@@ -65,7 +54,7 @@ fn main() -> Result<()> {
     // println!("{}", igor_model.get_markov_coefficients_vd()?);
     // println!("{}", igor_model.get_markov_coefficients_dj()?);
     // return Ok(());
-    let mut generator = righor::Generator::new(igor_model.clone(), Some(42), None, None)?;
+    let mut generator = righor::Generator::new(&igor_model.clone(), Some(42), None, None)?;
 
     for _ in 0..100 {
         let sequence = generator.generate_without_errors(true);
@@ -98,7 +87,7 @@ fn main() -> Result<()> {
             &righor::InferenceParameters::default(),
         )?;
 
-        println!("{:?}", a);
+        println!("{a:?}");
     }
 
     // let dna = Dna::from_string("TGCGCCAGGAACTATGAACAGTATTTT")?;

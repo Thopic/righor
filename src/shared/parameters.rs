@@ -21,16 +21,16 @@ pub struct AlignmentParameters {
 #[derive(Clone, Debug)]
 pub struct InferenceParameters {
     /// The evaluation/inference algorithm will cut branches
-    /// with likelihood < min_likelihood
+    /// with likelihood < `min_likelihood`
     pub min_likelihood: f64,
     /// Needed during inference, but can slow down evaluation
     pub infer_features: bool,
     /// The evaluation/inference algorithm will cut branches with
-    /// likelihood < (best current likelihood * min_ratio_likelihood)
+    /// likelihood < `best current likelihood * min_ratio_likelihood`
     pub min_ratio_likelihood: f64,
     /// If true store the highest likelihood event
     pub store_best_event: bool,
-    /// If true and "store_best_event" is true, compute the pgen of the sequence
+    /// If true and `store_best_event` is true, compute the pgen of the sequence
     /// (pgen is computed by default if the model error rate is 0)
     pub compute_pgen: bool,
 }

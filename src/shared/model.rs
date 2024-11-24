@@ -84,6 +84,7 @@ impl GenerationResult {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Model {
     VDJ(crate::vdj::Model),
@@ -190,6 +191,28 @@ impl Model {
         ))
     }
 
+    pub fn get_gene(&self, name: &str) -> Result<Gene> {
+        for g in self.get_v_segments() {
+            if g.name == name {
+                return Ok(g);
+            }
+        }
+        for g in self.get_j_segments() {
+            if g.name == name {
+                return Ok(g);
+            }
+        }
+        let dgenes = self.get_d_segments();
+        if dgenes.is_ok() {
+            for g in dgenes.unwrap() {
+                if g.name == name {
+                    return Ok(g);
+                }
+            }
+        }
+        Err(anyhow!("Gene not found."))
+    }
+
     pub fn filter_vs(&self, vs: Vec<Gene>) -> Result<Model> {
         Ok(match self {
             Model::VDJ(x) => Model::VDJ(x.filter_vs(vs)?),
@@ -219,14 +242,15 @@ impl Model {
         }
     }
 
-    /// Run one round of expectation-maximization on the current model and return the next model.
+    /// Run one round of expectation-maximization on the current model
+    /// Return the features and the total log-likelihood (over all sequences)
     pub fn infer(
         &mut self,
         sequences: &[EntrySequence],
         features: Option<Vec<Features>>,
         alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
-    ) -> Result<Vec<Features>> {
+    ) -> Result<(Vec<Features>, f64)> {
         match self {
             Model::VDJ(x) => x.infer(sequences, features, alignment_params, inference_params),
             Model::VJ(x) => x.infer(sequences, features, alignment_params, inference_params),
@@ -237,8 +261,8 @@ impl Model {
     pub fn align_from_cdr3(
         &self,
         cdr3_seq: &DnaLike,
-        vgenes: &Vec<Gene>,
-        jgenes: &Vec<Gene>,
+        vgenes: &[Gene],
+        jgenes: &[Gene],
     ) -> Result<Sequence> {
         match self {
             Model::VDJ(x) => x.align_from_cdr3(cdr3_seq, vgenes, jgenes),
@@ -295,7 +319,7 @@ impl Model {
         align_params: &AlignmentParameters,
     ) -> String {
         match &model {
-            Model::VDJ(x) => display_v_alignment(seq, v_al, &x, align_params),
+            Model::VDJ(x) => display_v_alignment(seq, v_al, x, align_params),
             Model::VJ(x) => display_v_alignment(seq, v_al, &x.inner, align_params),
         }
     }
@@ -307,7 +331,7 @@ impl Model {
         align_params: &AlignmentParameters,
     ) -> String {
         match &model {
-            Model::VDJ(x) => display_j_alignment(seq, j_al, &x, align_params),
+            Model::VDJ(x) => display_j_alignment(seq, j_al, x, align_params),
             Model::VJ(x) => display_j_alignment(seq, j_al, &x.inner, align_params),
         }
     }
@@ -628,7 +652,7 @@ pub struct Generator {
 
 impl Generator {
     pub fn new(
-        model: Model,
+        model: &Model,
         seed: Option<u64>,
         available_v: Option<Vec<Gene>>,
         available_j: Option<Vec<Gene>>,
@@ -684,7 +708,7 @@ pub trait Modelable {
     where
         Self: Sized;
 
-    /// Load the model from a set of files in IGoR format
+    /// Load the model from a set of files in `IGoR` format
     fn load_from_files(
         path_params: &Path,
         path_marginals: &Path,
@@ -694,7 +718,7 @@ pub trait Modelable {
     where
         Self: Sized;
 
-    /// Load the model from a set of String in IGoR format
+    /// Load the model from a set of String in `IGoR` format
     fn load_from_str(
         params: &str,
         marginals: &str,
@@ -750,7 +774,7 @@ pub trait Modelable {
         features: Option<Vec<Features>>,
         alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
-    ) -> Result<Vec<Features>>;
+    ) -> Result<(Vec<Features>, f64)>;
 
     // fn align_and_infer(
     //     &mut self,
@@ -769,8 +793,8 @@ pub trait Modelable {
     fn align_from_cdr3(
         &self,
         cdr3_seq: &DnaLike,
-        vgenes: &Vec<Gene>,
-        jgenes: &Vec<Gene>,
+        vgenes: &[Gene],
+        jgenes: &[Gene],
     ) -> Result<Sequence>;
 
     /// Align one nucleotide sequence and return a `Sequence` object

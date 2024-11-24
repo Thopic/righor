@@ -173,7 +173,7 @@ fn igor_genes(chain: &str, gene_type: &str, model: &impl ModelGen) -> Result<Vec
         _ => return Err(anyhow!("Gene type {} is not valid", gene_type)),
     };
 
-    let key = format!("{}{}", chain, gene_type);
+    let key = format!("{chain}{gene_type}");
     let mut lst: Vec<GeneNameParser> = Vec::new();
 
     for gene_obj in list_genes {

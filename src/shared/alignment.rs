@@ -67,7 +67,7 @@ pub struct VJAlignment {
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl VJAlignment {
-    /// the first nucleotide of "gene" when the sequence start at j_start
+    /// the first nucleotide of "gene" when the sequence start at `j_start`
     /// elements are removed at the start
     pub fn get_first_nucleotide(&self, del: usize) -> usize {
         nucleotides_inv(self.gene_sequence.seq[self.start_gene + del])
@@ -375,9 +375,9 @@ impl DAlignment {
             unimplemented!("Working on it. Later.");
         }
 
-        let mut line1 = "".to_string();
-        let mut line2 = "".to_string();
-        let mut line3 = "".to_string();
+        let mut line1 = String::new();
+        let mut line2 = String::new();
+        let mut line3 = String::new();
         let dna_sequence = sequence.seq.clone();
         let dna_dgene = model.seg_ds[self.index].seq_with_pal.clone().unwrap().seq;
         for ii in 0..sequence.len() {

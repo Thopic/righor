@@ -1,6 +1,12 @@
 use crate::shared::utils::difference_as_i64;
 use crate::shared::{errors::FeatureError, ErrorParameters, InferenceParameters};
-use crate::shared::{feature::*, DNAMarkovChain};
+use crate::shared::{
+    feature::{
+        CategoricalFeature1g1, CategoricalFeature2g1, CategoricalFeature3, Feature, InfEvent,
+        InsertionFeature, ResultInference,
+    },
+    DNAMarkovChain,
+};
 use crate::shared::{ErrorDAlignment, ErrorJAlignment, ErrorVAlignment};
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
@@ -20,6 +26,7 @@ pub struct Features {
     pub insvd: InsertionFeature,
     pub insdj: InsertionFeature,
     pub error: FeatureError,
+    pub log_likelihood: Option<f64>,
 }
 
 impl Features {
@@ -32,11 +39,13 @@ impl Features {
             insvd: InsertionFeature::new(&model.p_ins_vd, Arc::clone(&model.markov_chain_vd))?,
             insdj: InsertionFeature::new(&model.p_ins_dj, Arc::clone(&model.markov_chain_dj))?,
             error: model.error.get_feature()?,
+            log_likelihood: None,
         })
     }
 
     /// Update the model from a vector of features and "average" the features.
-    pub fn update(features: Vec<Features>, model: &mut Model) -> Result<Vec<Features>> {
+    /// Return the new features and the total log likelihood
+    pub fn update(features: Vec<Features>, model: &mut Model) -> Result<(Vec<Features>, f64)> {
         let errors = &mut ErrorParameters::update_error(
             features.iter().map(|a| a.error.clone()).collect(),
             &mut model.error,
@@ -72,6 +81,8 @@ impl Features {
         model.p_ins_dj = p_dj;
         model.markov_chain_dj = Arc::new(DNAMarkovChain::new(&mc_dj, true)?);
 
+        let sum_log_likelihood = features.iter().map(|x| x.log_likelihood.unwrap()).sum();
+
         // Now update the features vector
         let mut new_features = Vec::new();
         for error in errors {
@@ -83,9 +94,10 @@ impl Features {
                 insvd: insvd.clone(),
                 insdj: insdj.clone(),
                 error: error.clone(),
-            })
+                log_likelihood: None,
+            });
         }
-        Ok(new_features)
+        Ok((new_features, sum_log_likelihood))
     }
 
     /// Core function, iterate over all realistic scenarios to compute the
@@ -99,25 +111,23 @@ impl Features {
         // println!("JAL {:?}", sequence.j_genes[0]);
 
         // Estimate the likelihood of all possible insertions
-        let mut ins_vd = match FeatureVD::new(
+        let Some(mut ins_vd) = FeatureVD::new(
             sequence,
             &self.insvd,
             self.delv.dim().0,
             self.deld.dim().0,
             ip,
-        ) {
-            Some(ivd) => ivd,
-            None => return Ok(ResultInference::impossible()),
+        ) else {
+            return Ok(ResultInference::impossible());
         };
-        let mut ins_dj = match FeatureDJ::new(
+        let Some(mut ins_dj) = FeatureDJ::new(
             sequence,
             &self.insdj,
             self.deld.dim().1,
             self.delj.dim().0,
             ip,
-        ) {
-            Some(idj) => idj,
-            None => return Ok(ResultInference::impossible()),
+        ) else {
+            return Ok(ResultInference::impossible());
         };
 
         // Define the aggregated features for this sequence:
@@ -173,7 +183,7 @@ impl Features {
             }
         }
 
-        for d in features_d.iter_mut() {
+        for d in &mut features_d {
             match d {
                 Some(f) => f.disaggregate(
                     &sequence.get_specific_dgene(f.index),
@@ -190,6 +200,9 @@ impl Features {
         if result.likelihood > 0. {
             self.scale(result.likelihood)?;
         }
+
+        // add a small positive likelihood to deal with the case where result.likelihood is 0.
+        self.log_likelihood = Some((result.likelihood + ip.min_likelihood).log2());
 
         // Return the result
         Ok(result)
@@ -282,21 +295,21 @@ impl Features {
                                         self.insdj.dirty_update(&ins_dj, first_j_nucleotide, ll);
                                         self.insvd.dirty_update(&ins_vd, last_v_nucleotide, ll);
                                         self.error.dirty_update_v_fragment(
-                                            ErrorVAlignment {
+                                            &ErrorVAlignment {
                                                 val: &val,
                                                 del: delv,
                                             },
                                             ll,
                                         );
                                         self.error.dirty_update_j_fragment(
-                                            ErrorJAlignment {
+                                            &ErrorJAlignment {
                                                 jal: &jal,
                                                 del: delj,
                                             },
                                             ll,
                                         );
                                         self.error.dirty_update_d_fragment(
-                                            ErrorDAlignment {
+                                            &ErrorDAlignment {
                                                 dal: &dal,
                                                 deld5,
                                                 deld3,
@@ -316,7 +329,7 @@ impl Features {
                                                 start_d: d_start,
                                                 end_d: d_end,
                                                 start_j: j_start,
-                                                pos_d: dal.pos as i64,
+                                                pos_d: dal.pos,
                                                 likelihood: ll,
                                                 ..Default::default()
                                             };
@@ -337,6 +350,9 @@ impl Features {
         if result.likelihood > 0. {
             self.scale(result.likelihood)?;
         }
+
+        // add a small positive likelihood to deal with the case where result.likelihood is 0.
+        self.log_likelihood = Some((result.likelihood + ip.min_likelihood).log2());
 
         // Return the result
         Ok(result)

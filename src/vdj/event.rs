@@ -80,7 +80,7 @@ impl StaticEvent {
 
         // add errors
         for (ii, nuc) in &self.errors {
-            seq.seq[*ii] = *nuc
+            seq.seq[*ii] = *nuc;
         }
 
         seq

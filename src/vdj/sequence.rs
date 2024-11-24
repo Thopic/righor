@@ -74,10 +74,10 @@ impl Sequence {
         let end_insdj = j.start_seq as i64 - j.start_gene as i64 + e.delj as i64;
         let insvd = self
             .sequence
-            .extract_padded_subsequence(start_insvd, end_insvd as i64);
+            .extract_padded_subsequence(start_insvd, end_insvd);
         let insdj = self
             .sequence
-            .extract_padded_subsequence(start_insdj as i64, end_insdj);
+            .extract_padded_subsequence(start_insdj, end_insdj);
         (insvd, insdj)
     }
 }
@@ -110,16 +110,15 @@ pub fn display_v_alignment(
 }
 
 pub fn align_all_vgenes(
-    seq: DnaLike,
+    seq: &DnaLike,
     model: &Model,
     align_params: &AlignmentParameters,
 ) -> Vec<VJAlignment> {
     let mut v_genes: Vec<VJAlignment> = Vec::new();
     for (indexv, v) in model.seg_vs.iter().enumerate() {
         let palv = v.seq_with_pal.as_ref().unwrap();
-        let alignment = match DnaLike::v_alignment(palv, seq.clone(), align_params) {
-            Some(al) => al,
-            None => continue,
+        let Some(alignment) = DnaLike::v_alignment(palv, seq.clone(), align_params) else {
+            continue;
         };
 
         let mut v_alignment = VJAlignment {
@@ -135,7 +134,7 @@ pub fn align_all_vgenes(
             ..Default::default()
         };
 
-        v_alignment.precompute_errors_v(&seq);
+        v_alignment.precompute_errors_v(seq);
 
         v_genes.push(v_alignment);
     }
@@ -143,7 +142,7 @@ pub fn align_all_vgenes(
 }
 
 pub fn align_all_jgenes(
-    seq: DnaLike,
+    seq: &DnaLike,
     model: &Model,
     align_params: &AlignmentParameters,
 ) -> Vec<VJAlignment> {
@@ -165,7 +164,7 @@ pub fn align_all_jgenes(
                 sequence_type: seq.sequence_type(),
                 ..Default::default()
             };
-            j_al.precompute_errors_j(&seq);
+            j_al.precompute_errors_j(seq);
             j_aligns.push(j_al);
         }
     }

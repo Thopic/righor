@@ -73,9 +73,10 @@ impl CategoricalFeature1 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
+        assert!(
+            !self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
     pub fn average(
         mut iter: impl Iterator<Item = CategoricalFeature1> + Clone,
@@ -129,9 +130,10 @@ impl CategoricalFeature1g1 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
+        assert!(
+            !self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
     pub fn average(
         mut iter: impl Iterator<Item = CategoricalFeature1g1> + Clone,
@@ -145,7 +147,7 @@ impl CategoricalFeature1g1 {
             average_proba += &feat.probas_dirty;
             len += 1;
         }
-        let average_feat = CategoricalFeature1g1::new(&(average_proba / (len as f64)))?;
+        let average_feat = CategoricalFeature1g1::new(&(average_proba / (f64::from(len))))?;
         Ok(average_feat)
     }
 }
@@ -186,9 +188,10 @@ impl CategoricalFeature1g2 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
+        assert!(
+            !self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
     pub fn average(
         mut iter: impl Iterator<Item = CategoricalFeature1g2> + Clone,
@@ -203,7 +206,7 @@ impl CategoricalFeature1g2 {
             average_proba += &feat.probas_dirty;
             len += 1;
         }
-        let average_feat = CategoricalFeature1g2::new(&(average_proba / (len as f64)))?;
+        let average_feat = CategoricalFeature1g2::new(&(average_proba / (f64::from(len))))?;
         Ok(average_feat)
     }
 }
@@ -247,9 +250,10 @@ impl CategoricalFeature2 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
+        assert!(
+            self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
     pub fn average(
         mut iter: impl Iterator<Item = CategoricalFeature2> + Clone,
@@ -263,7 +267,7 @@ impl CategoricalFeature2 {
             average_proba += &feat.probas_dirty;
             len += 1;
         }
-        let average_feat = CategoricalFeature2::new(&(average_proba / (len as f64)))?;
+        let average_feat = CategoricalFeature2::new(&(average_proba / (f64::from(len))))?;
         Ok(average_feat)
     }
 }
@@ -304,9 +308,10 @@ impl CategoricalFeature2g1 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
+        assert!(
+            self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
     pub fn average(
         mut iter: impl Iterator<Item = CategoricalFeature2g1> + Clone,
@@ -320,7 +325,7 @@ impl CategoricalFeature2g1 {
             average_proba = average_proba + feat.probas_dirty;
             len += 1;
         }
-        let average_feat = CategoricalFeature2g1::new(&(average_proba / (len as f64)))?;
+        let average_feat = CategoricalFeature2g1::new(&(average_proba / (f64::from(len))))?;
         Ok(average_feat)
     }
 }
@@ -364,9 +369,10 @@ impl CategoricalFeature3 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
+        assert!(
+            !self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
     pub fn average(
         mut iter: impl Iterator<Item = CategoricalFeature3> + Clone,
@@ -380,7 +386,7 @@ impl CategoricalFeature3 {
             average_proba = average_proba + feat.probas_dirty;
             len += 1;
         }
-        let average_feat = CategoricalFeature3::new(&(average_proba / (len as f64)))?;
+        let average_feat = CategoricalFeature3::new(&(average_proba / (f64::from(len))))?;
         Ok(average_feat)
     }
 }
@@ -401,8 +407,8 @@ pub struct InsertionFeature {
 
 impl InsertionFeature {
     /// - observation: sequence of interest
-    /// - first_nucleotide: the nucleotide preceding the sequence of interest
-    /// - likelihood: likelihood value to be updated
+    /// - `first_nucleotide`: the nucleotide preceding the sequence of interest
+    /// - `likelihood`: likelihood value to be updated
     pub fn dirty_update(
         &mut self,
         observation: &DnaLike,
@@ -421,7 +427,7 @@ impl InsertionFeature {
     }
 
     /// - observation: sequence of interest
-    /// - first_nucleotide: the nucleotide preceding the sequence of interest
+    /// - `first_nucleotide`: the nucleotide preceding the sequence of interest
     pub fn likelihood(&self, observation: &DnaLike, first_nucleotide: usize) -> Likelihood {
         if observation.len() >= self.length_distribution.len() {
             return Likelihood::zero(observation);
@@ -466,12 +472,14 @@ impl InsertionFeature {
     }
 
     pub fn check(&self) {
-        if self.transition.transition_matrix.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
-        if self.length_distribution.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
+        assert!(
+            !self.transition.transition_matrix.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
+        assert!(
+            !self.length_distribution.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
 
     pub fn new(
@@ -526,11 +534,11 @@ impl InsertionFeature {
         average_mat.mapv_inplace(|a| if a < 0.0 { 1e-4 * sum } else { a });
 
         let transition = Arc::new(DNAMarkovChain::new(
-            &(average_mat / (len as f64)),
+            &(average_mat / (f64::from(len))),
             direction,
         )?);
 
-        let average_feat = InsertionFeature::new(&(average_length / (len as f64)), transition)?;
+        let average_feat = InsertionFeature::new(&(average_length / (f64::from(len))), transition)?;
         Ok(average_feat)
     }
 }
@@ -819,7 +827,7 @@ impl ResultInference {
 
             let gene_v_cut = DnaLike::from_dna(gene_v.extract_subsequence(0, event.v_start_gene));
 
-            let mut full_seq = gene_v_cut.extended(sequence.sequence.clone());
+            let mut full_seq = gene_v_cut.extended(&sequence.sequence);
 
             full_seq = full_seq.extended_with_dna(&gene_j.extract_subsequence(
                 (sequence.sequence.len() as i64 - event.j_start_seq) as usize,
@@ -890,40 +898,40 @@ impl Features {
         }
     }
 
-    pub fn update(features: Vec<Features>, model: &mut ModelVDJ) -> Result<Vec<Features>> {
+    pub fn update(features: Vec<Features>, model: &mut ModelVDJ) -> Result<(Vec<Features>, f64)> {
         Ok(match model.model_type {
-            ModelStructure::VDJ => vdj::Features::update(
-                features
-                    .into_iter()
-                    .filter_map(|x| {
-                        if let Features::VDJ(f) = x {
-                            Some(f)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect(),
-                model,
-            )?
-            .into_iter()
-            .map(Features::VDJ)
-            .collect(),
-            ModelStructure::VxDJ => v_dj::Features::update(
-                features
-                    .into_iter()
-                    .filter_map(|x| {
-                        if let Features::VxDJ(f) = x {
-                            Some(f)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect(),
-                model,
-            )?
-            .into_iter()
-            .map(Features::VxDJ)
-            .collect(),
+            ModelStructure::VDJ => {
+                let feats = vdj::Features::update(
+                    features
+                        .into_iter()
+                        .filter_map(|x| {
+                            if let Features::VDJ(f) = x {
+                                Some(f)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                    model,
+                )?;
+                (feats.0.into_iter().map(Features::VDJ).collect(), feats.1)
+            }
+            ModelStructure::VxDJ => {
+                let feats = v_dj::Features::update(
+                    features
+                        .into_iter()
+                        .filter_map(|x| {
+                            if let Features::VxDJ(f) = x {
+                                Some(f)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                    model,
+                )?;
+                (feats.0.into_iter().map(Features::VxDJ).collect(), feats.1)
+            }
         })
     }
 }

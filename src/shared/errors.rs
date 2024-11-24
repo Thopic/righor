@@ -68,6 +68,7 @@ impl PyErrorParameters {
     }
 
     #[staticmethod]
+    #[pyo3(signature = (probas = vec![1./100.;100], bins = (0..=100).map(|x| x as f64/100.).collect()))]
     fn uniform_error(probas: Vec<f64>, bins: Vec<f64>) -> PyResult<PyErrorParameters> {
         let error = ErrorUniformRate::new(bins, probas)?;
         Ok(PyErrorParameters {
@@ -159,12 +160,12 @@ impl ErrorParameters {
     pub fn similar(e1: ErrorParameters, e2: ErrorParameters) -> bool {
         match e1 {
             ErrorParameters::ConstantRate(ee1) => match e2 {
-                ErrorParameters::ConstantRate(ee2) => ErrorConstantRate::similar(ee1, ee2),
+                ErrorParameters::ConstantRate(ee2) => ErrorConstantRate::similar(&ee1, &ee2),
                 ErrorParameters::UniformRate(_) => false,
             },
             ErrorParameters::UniformRate(ee1) => match e2 {
                 ErrorParameters::ConstantRate(_) => false,
-                ErrorParameters::UniformRate(ee2) => ErrorUniformRate::similar(ee1, ee2),
+                ErrorParameters::UniformRate(ee2) => ErrorUniformRate::similar(&ee1, &ee2),
             },
         }
     }
@@ -264,7 +265,7 @@ impl ErrorConstantRate {
         Ok(ErrorConstantRate::new(0.1))
     }
 
-    fn similar(e1: Self, e2: Self) -> bool {
+    fn similar(e1: &Self, e2: &Self) -> bool {
         (e1.error_rate - e2.error_rate).abs() < 1e-4
     }
     pub fn get_feature(&self) -> Result<FeatureErrorConstant> {
@@ -320,7 +321,7 @@ impl Default for ErrorUniformRate {
     fn default() -> ErrorUniformRate {
         // default distribution (a bit ad-hoc but well)
         ErrorUniformRate::new(
-            (0..1001).map(|x| (x as f64) / 1000.).collect(),
+            (0..1001).map(|x| f64::from(x) / 1000.).collect(),
             vec![1. / 1000.; 1000],
         )
         .unwrap()
@@ -341,7 +342,7 @@ impl ErrorUniformRate {
     }
 
     pub fn init_generation(&mut self) -> Result<()> {
-        self.error_rate_gen = HistogramDistribution::new(self.bins.clone(), self.probas.clone())?;
+        self.error_rate_gen = HistogramDistribution::new(&self.bins, &self.probas)?;
         Ok(())
     }
 
@@ -403,7 +404,7 @@ impl ErrorUniformRate {
         )
     }
 
-    fn similar(e1: Self, e2: Self) -> bool {
+    fn similar(e1: &Self, e2: &Self) -> bool {
         if e1.bins.len() != e2.bins.len() || e1.probas.len() != e2.probas.len() {
             return false;
         }
@@ -438,7 +439,12 @@ impl ErrorUniformRate {
     ) -> Result<Vec<FeatureErrorUniform>> {
         let mut counts = vec![0usize; error.bins.len() - 1];
         for feat in &features {
-            let error_rate = feat.error_dirty / feat.total_likelihood_dirty;
+            let error_rate = if feat.error_dirty > 0. {
+                feat.error_dirty / feat.total_likelihood_dirty
+            } else {
+                0.
+            };
+
             let idx = error
                 .bins
                 .binary_search_by(|&bin| bin.partial_cmp(&error_rate).unwrap());
@@ -514,21 +520,21 @@ impl FeatureError {
         }
     }
 
-    pub fn dirty_update_v_fragment(&mut self, observation: ErrorVAlignment, likelihood: f64) {
+    pub fn dirty_update_v_fragment(&mut self, observation: &ErrorVAlignment, likelihood: f64) {
         match self {
             FeatureError::ConstantRate(f) => f.dirty_update_v_fragment(observation, likelihood),
             FeatureError::UniformRate(f) => f.dirty_update_v_fragment(observation, likelihood),
         }
     }
 
-    pub fn dirty_update_j_fragment(&mut self, observation: ErrorJAlignment, likelihood: f64) {
+    pub fn dirty_update_j_fragment(&mut self, observation: &ErrorJAlignment, likelihood: f64) {
         match self {
             FeatureError::ConstantRate(f) => f.dirty_update_j_fragment(observation, likelihood),
             FeatureError::UniformRate(f) => f.dirty_update_j_fragment(observation, likelihood),
         }
     }
 
-    pub fn dirty_update_d_fragment(&mut self, observation: ErrorDAlignment, likelihood: f64) {
+    pub fn dirty_update_d_fragment(&mut self, observation: &ErrorDAlignment, likelihood: f64) {
         match self {
             FeatureError::ConstantRate(f) => f.dirty_update_d_fragment(observation, likelihood),
             FeatureError::UniformRate(f) => f.dirty_update_d_fragment(observation, likelihood),
@@ -600,21 +606,21 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
 }
 
 impl FeatureErrorConstant {
-    pub fn dirty_update_v_fragment(&mut self, observation: ErrorVAlignment, likelihood: f64) {
+    pub fn dirty_update_v_fragment(&mut self, observation: &ErrorVAlignment, likelihood: f64) {
         self.total_lengths_dirty +=
             likelihood * (observation.val.length_with_deletion(observation.del, 0) as f64);
         self.total_errors_dirty += likelihood * (observation.val.nb_errors(observation.del) as f64);
         self.total_probas_dirty += likelihood;
     }
 
-    pub fn dirty_update_j_fragment(&mut self, observation: ErrorJAlignment, likelihood: f64) {
+    pub fn dirty_update_j_fragment(&mut self, observation: &ErrorJAlignment, likelihood: f64) {
         self.total_lengths_dirty +=
             likelihood * (observation.jal.length_with_deletion(0, observation.del) as f64);
         self.total_errors_dirty += likelihood * (observation.jal.nb_errors(observation.del) as f64);
         self.total_probas_dirty += likelihood;
     }
 
-    pub fn dirty_update_d_fragment(&mut self, observation: ErrorDAlignment, likelihood: f64) {
+    pub fn dirty_update_d_fragment(&mut self, observation: &ErrorDAlignment, likelihood: f64) {
         self.total_lengths_dirty += likelihood
             * (observation
                 .dal
@@ -701,7 +707,7 @@ impl FeatureErrorUniform {
     pub fn get_error_rate(&self) -> f64 {
         self.error_rate
     }
-    pub fn dirty_update_v_fragment(&mut self, observation: ErrorVAlignment, likelihood: f64) {
+    pub fn dirty_update_v_fragment(&mut self, observation: &ErrorVAlignment, likelihood: f64) {
         self.error_dirty += observation
             .val
             .estimated_error_rate(observation.val.max_del.unwrap(), 0)
@@ -709,7 +715,7 @@ impl FeatureErrorUniform {
         self.total_likelihood_dirty += likelihood;
     }
 
-    pub fn dirty_update_j_fragment(&mut self, _observation: ErrorJAlignment, _likelihood: f64) {}
+    pub fn dirty_update_j_fragment(&mut self, _observation: &ErrorJAlignment, _likelihood: f64) {}
 
-    pub fn dirty_update_d_fragment(&mut self, _observation: ErrorDAlignment, _likelihood: f64) {}
+    pub fn dirty_update_d_fragment(&mut self, _observation: &ErrorDAlignment, _likelihood: f64) {}
 }

@@ -1,5 +1,5 @@
-//! Contains data structures (RangeArray for now)
-//! RangeArray are array structures (similar to ndarray)
+//! Contains data structures (`RangeArray`)
+//! `RangeArray` are array structures (similar to `ndarray`)
 //! containing f64 indexed by i64, with fast access
 
 fn max_vector(arr: &[f64]) -> Option<f64> {
