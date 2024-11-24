@@ -6,7 +6,7 @@ use crate::shared::feature::{
     CategoricalFeature3, InsertionFeature,
 };
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyArrayMethods};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
@@ -15,7 +15,7 @@ use pyo3::prelude::*;
 impl CategoricalFeature1 {
     #[getter]
     fn get_probas(&self, py: Python) -> Py<PyArray1<f64>> {
-        self.probas.to_owned().into_pyarray(py).to_owned()
+        self.probas.to_owned().into_pyarray_bound(py).into()
     }
 }
 
@@ -24,7 +24,7 @@ impl CategoricalFeature1 {
 impl CategoricalFeature1g1 {
     #[getter]
     fn get_probas(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.probas.to_owned().into_pyarray(py).to_owned()
+        self.probas.to_owned().into_pyarray_bound(py).into()
     }
 }
 
@@ -33,11 +33,11 @@ impl CategoricalFeature1g1 {
 impl CategoricalFeature2 {
     #[getter]
     fn get_probas(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.probas.to_owned().into_pyarray(py).to_owned()
+        self.probas.to_owned().into_pyarray_bound(py).into()
     }
     #[setter]
     fn set_probas(&mut self, py: Python, value: Py<PyArray2<f64>>) -> PyResult<()> {
-        self.probas = value.as_ref(py).to_owned_array();
+        self.probas = value.bind(py).to_owned_array();
         Ok(())
     }
 }
@@ -47,11 +47,11 @@ impl CategoricalFeature2 {
 impl CategoricalFeature3 {
     #[getter]
     fn get_probas(&self, py: Python) -> Py<PyArray3<f64>> {
-        self.probas.to_owned().into_pyarray(py).to_owned()
+        self.probas.to_owned().into_pyarray_bound(py).into()
     }
     #[setter]
     fn set_probas(&mut self, py: Python, value: Py<PyArray3<f64>>) -> PyResult<()> {
-        self.probas = value.as_ref(py).to_owned_array();
+        self.probas = value.bind(py).to_owned_array();
         Ok(())
     }
 }
@@ -61,7 +61,7 @@ impl CategoricalFeature3 {
 impl CategoricalFeature2g1 {
     #[getter]
     fn get_probas(&self, py: Python) -> Py<PyArray3<f64>> {
-        self.probas.to_owned().into_pyarray(py).to_owned()
+        self.probas.to_owned().into_pyarray_bound(py).into()
     }
 }
 
@@ -70,24 +70,25 @@ impl CategoricalFeature2g1 {
 impl InsertionFeature {
     #[getter]
     fn get_transition_matrix(&self, py: Python) -> Py<PyArray2<f64>> {
-        self.transition_matrix
+        self.transition
+            .transition_matrix
             .to_owned()
-            .into_pyarray(py)
-            .to_owned()
+            .into_pyarray_bound(py)
+            .into()
     }
     #[getter]
     fn get_length_distribution(&self, py: Python) -> Py<PyArray1<f64>> {
         self.length_distribution
             .to_owned()
-            .into_pyarray(py)
-            .to_owned()
+            .into_pyarray_bound(py)
+            .into()
     }
     #[getter]
     fn get_initial_distribution(&self, py: Python) -> Py<PyArray1<f64>> {
-        calc_steady_state_dist(&self.transition_matrix)
+        calc_steady_state_dist(&self.transition.transition_matrix)
             .unwrap()
             .to_owned()
-            .into_pyarray(py)
-            .to_owned()
+            .into_pyarray_bound(py)
+            .into()
     }
 }

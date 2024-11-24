@@ -1,4 +1,7 @@
 //! The structs used for specifying the parameters of the model
+
+//use crate::shared::sequence::SequenceType;
+
 use bio::alignment::{pairwise, Alignment};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
@@ -18,27 +21,18 @@ pub struct AlignmentParameters {
 #[derive(Clone, Debug)]
 pub struct InferenceParameters {
     /// The evaluation/inference algorithm will cut branches
-    /// with likelihood < min_likelihood
+    /// with likelihood < `min_likelihood`
     pub min_likelihood: f64,
+    /// Needed during inference, but can slow down evaluation
+    pub infer_features: bool,
     /// The evaluation/inference algorithm will cut branches with
-    /// likelihood < (best current likelihood * min_ratio_likelihood)
+    /// likelihood < `best current likelihood * min_ratio_likelihood`
     pub min_ratio_likelihood: f64,
-    /// If true, run the inference (so update the features)
-    pub infer: bool,
     /// If true store the highest likelihood event
     pub store_best_event: bool,
-    /// If true and "store_best_event" is true, compute the pgen of the sequence
+    /// If true and `store_best_event` is true, compute the pgen of the sequence
     /// (pgen is computed by default if the model error rate is 0)
     pub compute_pgen: bool,
-
-    /// If true (default) infer the insertion distribution
-    pub infer_insertions: bool,
-    /// If true (default) infer the deletion distribution & gene usage
-    pub infer_genes: bool,
-
-    /// if true (default is false), use the P(V, D, J) complete model
-    /// rather than the P(V, J)×P(D|J) model
-    pub complete_vdj_inference: bool,
 }
 
 impl Default for AlignmentParameters {
@@ -46,8 +40,8 @@ impl Default for AlignmentParameters {
         AlignmentParameters {
             min_score_v: -20,
             min_score_j: 0,
-            max_error_d: 100,
-            left_v_cutoff: 50,
+            max_error_d: 200,
+            left_v_cutoff: 600, // long cutoff by default, to avoid issues
         }
     }
 }
@@ -140,6 +134,7 @@ impl AlignmentParameters {
     }
 
     pub fn valid_v_alignment(&self, al: &Alignment) -> bool {
+        // right now: no insert
         al.xend - al.xstart == al.yend - al.ystart
     }
 
@@ -157,7 +152,7 @@ impl InferenceParameters {
         InferenceParameters::default()
     }
     fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={}, complete_vdj_inference={})", self.min_likelihood, self.min_ratio_likelihood, self.infer, self.store_best_event, self.compute_pgen, self.complete_vdj_inference))
+        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features, self.store_best_event, self.compute_pgen))
     }
     fn __str__(&self) -> PyResult<String> {
         // This is what will be shown when you use print() in Python
@@ -170,12 +165,9 @@ impl Default for InferenceParameters {
         InferenceParameters {
             min_likelihood: (-400.0f64).exp2(),
             min_ratio_likelihood: (-100.0f64).exp2(),
-            infer: true,
+            infer_features: true,
             store_best_event: true,
             compute_pgen: true,
-            infer_insertions: true,
-            infer_genes: true,
-            complete_vdj_inference: false,
         }
     }
 }

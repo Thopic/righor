@@ -1,11 +1,68 @@
 //! Distributions to improve the speed of the generation process
+use crate::shared::sequence::Dna;
 use crate::shared::sequence::{nucleotides_inv, NUCLEOTIDES};
 use crate::shared::utils::normalize_transition_matrix;
-use crate::shared::Dna;
 use anyhow::{anyhow, Result};
 use ndarray::{Array1, Array2, Axis};
 use rand::Rng;
 use rand_distr::{Distribution, Uniform, WeightedAliasIndex};
+
+#[derive(Clone, Debug)]
+/// Pick a random number according to a histogram defined distribution
+pub struct HistogramDistribution {
+    bin_pick: DiscreteDistribution,
+    uniform_in_bins: Vec<Uniform<f64>>,
+}
+
+impl HistogramDistribution {
+    pub fn new(bins: &[f64], probas: &[f64]) -> Result<HistogramDistribution> {
+        Ok(HistogramDistribution {
+            bin_pick: DiscreteDistribution::new(probas)?,
+            uniform_in_bins: bins.windows(2).map(|w| Uniform::from(w[0]..w[1])).collect(),
+        })
+    }
+
+    pub fn generate<R: Rng>(&self, rng: &mut R) -> f64 {
+        let idx = self.bin_pick.generate(rng);
+        self.uniform_in_bins[idx].sample(rng)
+    }
+}
+
+impl Default for HistogramDistribution {
+    fn default() -> HistogramDistribution {
+        HistogramDistribution::new(&[0., 1e-12], &[1.]).unwrap()
+    }
+}
+
+#[derive(Clone, Debug)]
+/// Generate a random f64 between 0/1 and a random nucleotide
+pub struct UniformError {
+    is_error: Uniform<f64>,
+    nucleotide: Uniform<usize>,
+}
+
+impl Default for UniformError {
+    fn default() -> UniformError {
+        UniformError::new()
+    }
+}
+
+impl UniformError {
+    pub fn new() -> UniformError {
+        UniformError {
+            is_error: Uniform::new(0.0, 1.0),
+            nucleotide: Uniform::new_inclusive(0, 3),
+        }
+    }
+
+    pub fn is_error<R: Rng>(&self, er: f64, rng: &mut R) -> bool {
+        self.is_error.sample(rng) < er
+    }
+
+    pub fn random_nucleotide<R: Rng>(&self, rng: &mut R) -> u8 {
+        NUCLEOTIDES[self.nucleotide.sample(rng)]
+    }
+}
 
 /// Generate an integer with a given probability
 #[derive(Clone, Debug)]
@@ -14,23 +71,24 @@ pub struct DiscreteDistribution {
 }
 
 impl DiscreteDistribution {
-    pub fn new(weights: Vec<f64>) -> Result<Self> {
+    pub fn new(weights: &[f64]) -> Result<Self> {
         if !weights.iter().all(|&x| x >= 0.) {
             return Err(anyhow!(
                 "Error when creating distribution: negative weights"
             ))?;
         }
 
-        let distribution = match weights.iter().sum::<f64>().abs() < 1e-10 {
-	    true => WeightedAliasIndex::new(vec![1.; weights.len()]) // when all the value are 0, all the values are equiprobable.
-		.map_err(|e| anyhow!(format!("Error when creating distribution: {}", e)))?,
-	    false => WeightedAliasIndex::new(weights)
+        let distribution = if weights.iter().sum::<f64>().abs() < 1e-10 {
+            WeightedAliasIndex::new(vec![1.; weights.len()]) // when all the value are 0, all the values are equiprobable.
 		.map_err(|e| anyhow!(format!("Error when creating distribution: {}", e)))?
-	};
+        } else {
+            WeightedAliasIndex::new(weights.to_vec())
+                .map_err(|e| anyhow!(format!("Error when creating distribution: {}", e)))?
+        };
         Ok(DiscreteDistribution { distribution })
     }
 
-    pub fn generate<R: Rng>(&mut self, rng: &mut R) -> usize {
+    pub fn generate<R: Rng>(&self, rng: &mut R) -> usize {
         self.distribution.sample(rng)
     }
 }
@@ -67,10 +125,10 @@ pub struct MarkovDNA {
 }
 
 impl MarkovDNA {
-    pub fn new(transition_probs: Array2<f64>) -> Result<Self> {
+    pub fn new(transition_probs: &Array2<f64>) -> Result<Self> {
         let mut transition_matrix = Vec::with_capacity(transition_probs.dim().0);
         for probs in transition_probs.axis_iter(Axis(0)) {
-            transition_matrix.push(DiscreteDistribution::new(probs.to_vec())?);
+            transition_matrix.push(DiscreteDistribution::new(&probs.to_vec())?);
         }
         Ok(MarkovDNA { transition_matrix })
     }
@@ -110,7 +168,7 @@ pub fn calc_steady_state_dist(transition_matrix: &Array2<f64>) -> Result<Vec<f64
         let norm = vec_next.sum();
         let vec_next = vec_next / norm;
 
-        if (&vec_next - &vec).mapv(|a| a.abs()).sum() < epsilon {
+        if (&vec_next - &vec).mapv(f64::abs).sum() < epsilon {
             return Ok(vec_next.to_vec());
         }
         vec = vec_next;

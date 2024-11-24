@@ -1,44 +1,43 @@
-use crate::shared::distributions::*;
+use crate::shared::gene::Gene;
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
-use crate::shared::Modelable;
-
+use crate::shared::sequence::Dna;
+use crate::shared::utils::send_warning;
+use crate::shared::utils::Normalize2;
 use crate::shared::{
-    sequence::NUCLEOTIDES, utils::count_differences, utils::sorted_and_complete,
-    utils::sorted_and_complete_0start, utils::Normalize, utils::Normalize3, AlignmentParameters,
-    AminoAcid, DAlignment, Dna, FeaturesTrait, Gene, InfEvent, InferenceParameters, ModelGen,
-    RecordModel, ResultInference, VJAlignment,
+    self,
+    distributions::{calc_steady_state_dist, DiscreteDistribution, MarkovDNA},
+    model::GenerationResult,
 };
+use crate::shared::{
+    utils::sorted_and_complete, utils::sorted_and_complete_0start, utils::Normalize,
+    utils::Normalize3, AlignmentParameters, AminoAcid, DAlignment, Features, InfEvent,
+    InferenceParameters, ModelGen, ModelStructure, RecordModel, ResultInference, VJAlignment,
+};
+use crate::shared::{DNAMarkovChain, ErrorParameters, Modelable};
+use crate::vdj::Features as FeaturesVDJ;
 
+use crate::shared::sequence::SequenceType;
 use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
-use crate::vdj::{Features, Sequence, StaticEvent};
+use crate::vdj::{event::StaticEvent, Sequence};
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
-pub struct GenerationResult {
-    pub cdr3_nt: String,
-    pub cdr3_aa: Option<String>,
-    pub full_seq: String,
-    pub v_gene: String,
-    pub j_gene: String,
-    pub recombination_event: StaticEvent,
-}
-
 use crate::{v_dj, vdj};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rand_distr::Distribution;
+
+use crate::shared::sequence::DnaLike;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::BufReader;
 use std::path::Path;
+use std::sync::Arc;
 use std::{cmp, fs::read_to_string, fs::File, io::Write};
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
@@ -47,31 +46,46 @@ pub struct Generator {
     rng: SmallRng,
 }
 
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-#[pymethods]
-impl GenerationResult {
-    fn __repr__(&self) -> String {
-        format!(
-            "GenerationResult(\n\
-		 CDR3 (nucletides): {},\n\
-		 CDR3 (amino-acids): {},\n\
-		 Full sequence (nucleotides): {}...,\n\
-		 V gene: {},\n\
-		 J gene: {})
-		 ",
-            self.cdr3_nt,
-            self.cdr3_aa.clone().unwrap_or("Out-of-frame".to_string()),
-            &self.full_seq[0..30],
-            self.v_gene,
-            self.j_gene
-        )
+#[derive(Clone, Debug)]
+/// Make infer a generic function by allowing different entry
+pub enum EntrySequence {
+    Aligned(Sequence),
+    NucleotideSequence(DnaLike),
+    NucleotideCDR3((DnaLike, Vec<Gene>, Vec<Gene>)),
+}
+
+impl EntrySequence {
+    pub fn align(&self, model: &Model, align_params: &AlignmentParameters) -> Result<Sequence> {
+        match self {
+            EntrySequence::Aligned(x) => Ok(x.clone()),
+            EntrySequence::NucleotideSequence(seq) => {
+                model.align_sequence(seq.clone(), align_params)
+            }
+            EntrySequence::NucleotideCDR3((seq, v, j)) => model.align_from_cdr3(seq, v, j),
+        }
+    }
+
+    pub fn compatible_with_inference(&self) -> bool {
+        match self {
+            EntrySequence::Aligned(s) => !s.sequence.is_ambiguous(),
+            EntrySequence::NucleotideSequence(s) => !s.is_ambiguous(),
+            EntrySequence::NucleotideCDR3((s, _, _)) => !s.is_ambiguous(),
+        }
+    }
+
+    pub fn is_protein(&self) -> bool {
+        match self {
+            EntrySequence::Aligned(s) => s.sequence.is_protein(),
+            EntrySequence::NucleotideSequence(s) => s.is_protein(),
+            EntrySequence::NucleotideCDR3((s, _, _)) => s.is_protein(),
+        }
     }
 }
 
 impl Generator {
-    /// available_v, available_j: set of v,j genes to choose from
+    /// `available_v`, `available_j`: set of v,j genes to choose from
     pub fn new(
-        model: Model,
+        model: &Model,
         seed: Option<u64>,
         available_v: Option<Vec<Gene>>,
         available_j: Option<Vec<Gene>>,
@@ -99,7 +113,7 @@ impl Generator {
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pymethods)]
 impl Generator {
-    pub fn generate(&mut self, functional: bool) -> GenerationResult {
+    pub fn generate(&mut self, functional: bool) -> Result<GenerationResult> {
         self.model.generate(functional, &mut self.rng)
     }
     pub fn generate_without_errors(&mut self, functional: bool) -> GenerationResult {
@@ -119,11 +133,13 @@ pub struct Generative {
     d_del_d5_del_d3: Vec<DiscreteDistribution>,
     markov_vd: MarkovDNA,
     markov_dj: MarkovDNA,
-    error: ErrorDistribution,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Model {
+    // Schema of the model
+    pub model_type: ModelStructure,
+
     // Sequence information
     pub seg_vs: Vec<Gene>,
     pub seg_js: Vec<Gene>,
@@ -143,13 +159,15 @@ pub struct Model {
     pub p_del_d5_del_d3: Array3<f64>, // P(del_d5, del_d3 | D)
     #[serde(skip)]
     pub gen: Generative,
-    pub markov_coefficients_vd: Array2<f64>,
-    pub markov_coefficients_dj: Array2<f64>,
-    pub range_del_v: (i64, i64),
+    //    pub markov_coefficients_vd: Array2<f64>,
+    pub markov_chain_vd: Arc<DNAMarkovChain>,
+    pub markov_chain_dj: Arc<DNAMarkovChain>,
+    //   pub markov_coefficients_dj: Array2<f64>,
+    pub range_del_v: (i64, i64), // range of "real deletions", e.g -5, 12 (neg. del. => pal. ins.)
     pub range_del_j: (i64, i64),
     pub range_del_d3: (i64, i64),
     pub range_del_d5: (i64, i64),
-    pub error_rate: f64,
+    pub error: ErrorParameters,
 
     // Not directly useful for the model but useful for integration with other soft
     // TODO: transform these in "getter" in the python bindings, they don't need to be precomputed
@@ -157,15 +175,10 @@ pub struct Model {
     pub p_dj: Array2<f64>,
     pub p_d_given_vj: Array3<f64>,
     pub p_j_given_v: Array2<f64>,
-    pub first_nt_bias_ins_vd: Array1<f64>,
-    pub first_nt_bias_ins_dj: Array1<f64>,
     pub thymic_q: f64,
 }
 
 impl Modelable for Model {
-    type GenerationResult = GenerationResult;
-    type RecombinaisonEvent = StaticEvent;
-
     fn load_from_name(
         species: &str,
         chain: &str,
@@ -270,7 +283,7 @@ impl Modelable for Model {
     fn save_json(&self, filename: &Path) -> Result<()> {
         let mut file = File::create(filename)?;
         let json = serde_json::to_string(&self)?;
-        Ok(writeln!(file, "{}", json)?)
+        Ok(writeln!(file, "{json}")?)
     }
 
     /// Load a saved model in json format
@@ -282,50 +295,45 @@ impl Modelable for Model {
         Ok(model)
     }
 
-    /// Return (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname)
-    fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> GenerationResult {
-        let (full_seq, _, _, mut event) = self.generate_no_error(functional, rng);
+    /// Return (`cdr3_nt`, `cdr3_aa`, `full_sequence`, `event`, `vname`, `jname`)
+    fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> Result<GenerationResult> {
+        let (mut full_seq, _, _, mut event) = self.generate_no_error(functional, rng);
 
+        let mut generic_event = shared::StaticEvent::VDJ(event);
         // add errors
-        let effective_error_rate = self.error_rate * 4. / 3.;
-        event.errors =
-            Vec::with_capacity((effective_error_rate * full_seq.len() as f64).ceil() as usize);
+        self.error
+            .apply_to_sequence(&full_seq, &mut generic_event, rng);
+        event = match generic_event.clone() {
+            shared::StaticEvent::VDJ(x) => x,
+            _ => unreachable!(),
+        };
+        full_seq = event.to_sequence(self);
 
-        for (idx, nucleotide) in full_seq.seq.iter().enumerate() {
-            if self.gen.error.is_error.sample(rng) < effective_error_rate {
-                let a = NUCLEOTIDES[self.gen.error.nucleotide.sample(rng)];
-                if a != *nucleotide {
-                    event.errors.push((idx, a));
-                }
-            }
-        }
-
-        let full_seq = event.to_sequence(self);
         let cdr3_nt = event.extract_cdr3(&full_seq, self);
         let cdr3_aa = cdr3_nt.translate().ok();
 
-        GenerationResult {
+        Ok(GenerationResult {
             v_gene: self.seg_vs[event.v_index].name.clone(),
             j_gene: self.seg_js[event.j_index].name.clone(),
-            recombination_event: event,
+            recombination_event: generic_event,
             full_seq: full_seq.get_string(),
             cdr3_nt: cdr3_nt.get_string(),
             cdr3_aa: cdr3_aa.map(|x| x.to_string()),
-        }
+        })
     }
 
-    /// Return (cdr3_nt, cdr3_aa, full_sequence, event, vname, jname)
+    /// Return (`cdr3_nt`, `cdr3_aa`, `full_sequence`, `event`, `vname`, `jname`)
     fn generate_without_errors<R: Rng>(
         &mut self,
         functional: bool,
         rng: &mut R,
     ) -> GenerationResult {
         let (full_seq, cdr3_nt, cdr3_aa, event) = self.generate_no_error(functional, rng);
-
+        let generic_event = shared::StaticEvent::VDJ(event.clone());
         GenerationResult {
             v_gene: self.seg_vs[event.v_index].name.clone(),
             j_gene: self.seg_js[event.j_index].name.clone(),
-            recombination_event: event,
+            recombination_event: generic_event,
             full_seq: full_seq.get_string(),
             cdr3_nt: cdr3_nt.get_string(),
             cdr3_aa: cdr3_aa.map(|x| x.to_string()),
@@ -350,80 +358,162 @@ impl Modelable for Model {
             p_del_v_given_v: Array2::<f64>::ones(self.p_del_v_given_v.dim()),
             p_del_j_given_j: Array2::<f64>::ones(self.p_del_j_given_j.dim()),
             p_del_d5_del_d3: Array3::<f64>::ones(self.p_del_d5_del_d3.dim()),
-            markov_coefficients_vd: Array2::<f64>::ones(self.markov_coefficients_vd.dim()),
-            markov_coefficients_dj: Array2::<f64>::ones(self.markov_coefficients_dj.dim()),
-            first_nt_bias_ins_vd: Array1::<f64>::ones(self.first_nt_bias_ins_vd.dim()),
-            first_nt_bias_ins_dj: Array1::<f64>::ones(self.first_nt_bias_ins_dj.dim()),
-            error_rate: 0.1, // TODO: too ad-hoc
+            markov_chain_vd: Arc::new(DNAMarkovChain::new(
+                &Array2::<f64>::ones(self.markov_chain_vd.transition_matrix.dim()),
+                false,
+            )?),
+            markov_chain_dj: Arc::new(DNAMarkovChain::new(
+                &Array2::<f64>::ones(self.markov_chain_dj.transition_matrix.dim()),
+                true, // reversed
+            )?),
+
+            //            markov_coefficients_vd: Array2::<f64>::ones(self.markov_coefficients_vd.dim()),
+            // markov_coefficients_dj: Array2::<f64>::ones(self.markov_coefficients_dj.dim()),
+            error: ErrorParameters::uniform(&self.error)?,
+            model_type: self.model_type.clone(),
             ..Default::default()
         };
         m.initialize()?;
         Ok(m)
     }
 
+    /// Re-initialize the error model, normalize the parameters
     fn initialize(&mut self) -> Result<()> {
         self.sanitize_genes()?;
-        // load the data and normalize
-        let mut feature = Features::new(self)?;
-        feature.normalize()?;
-        feature.update_model(self)?;
+
+        self.p_vdj = self.p_vdj.normalize_distribution_3()?;
+        self.set_p_vdj(&self.p_vdj.clone())?;
+        self.p_ins_vd = self.p_ins_vd.normalize_distribution()?;
+        self.p_ins_dj = self.p_ins_dj.normalize_distribution()?;
+        self.p_del_v_given_v = self.p_del_v_given_v.normalize_distribution()?;
+        self.p_del_j_given_j = self.p_del_j_given_j.normalize_distribution()?;
+        self.p_del_d5_del_d3 = self.p_del_d5_del_d3.normalize_distribution_double()?;
+        // self.markov_coefficients_vd = self.markov_coefficients_vd.normalize_last()?;
+        // self.markov_coefficients_dj = self.markov_coefficients_vd.normalize_last()?;
+
         self.initialize_generative_model()?;
+        self.safety_checks();
         Ok(())
     }
 
+    /// One step of expectation maximization given a set of sequences
     fn infer(
         &mut self,
-        sequences: &[Sequence],
+        sequences: &[EntrySequence],
+        features_opt: Option<Vec<Features>>,
+        alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        if inference_params.complete_vdj_inference {
-            self.infer_generic::<vdj::Features>(sequences, inference_params)
-        } else {
-            self.infer_generic::<v_dj::Features>(sequences, inference_params)
+    ) -> Result<(Vec<Features>, f64)> {
+        if !sequences
+            .iter()
+            .all(EntrySequence::compatible_with_inference)
+        {
+            return Err(anyhow!(
+                "Cannot do inference when sequences have ambiguity. \
+				Ambiguous nucleotides (N) or protein sequence \
+				are out."
+            ));
         }
+
+        let mut ip = inference_params.clone();
+
+        // no need to compute pgen or store best event if we're infering
+        ip.compute_pgen = false;
+        ip.store_best_event = false;
+
+        let features = match features_opt {
+            None => {
+                // Create new features object
+                vec![
+                    match self.model_type {
+                        ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
+                        ModelStructure::VxDJ => Features::VxDJ(v_dj::Features::new(self)?),
+                    };
+                    sequences.len()
+                ]
+            }
+            Some(feats) => feats,
+        };
+
+        let new_features = (&features, sequences)
+            .into_par_iter()
+            .map(|(feat, sequence)| {
+                let aligned = sequence.align(self, alignment_params)?;
+                let mut new_feat = feat.clone();
+                let _ = new_feat.infer(&aligned, &ip)?;
+                Ok(new_feat)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // update the model and clean up the features
+        Features::update(new_features, self)
     }
 
-    /// Align and infer in the same function (help with memory issues)
-    fn align_and_infer(
-        &mut self,
-        sequences: &[Dna],
-        align_params: &AlignmentParameters,
-        inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        if inference_params.complete_vdj_inference {
-            self.align_and_infer_generic::<vdj::Features>(sequences, align_params, inference_params)
-        } else {
-            self.align_and_infer_generic::<v_dj::Features>(
-                sequences,
-                align_params,
-                inference_params,
-            )
-        }
-    }
-
-    /// Align and infer, but starting with a tuple (cdr3, vgene, jgene) rather than a sequence
-    fn align_and_infer_from_cdr3(
-        &mut self,
-        sequences: &[(Dna, Vec<Gene>, Vec<Gene>)],
-        inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        if inference_params.complete_vdj_inference {
-            self.align_and_infer_cdr3_generic::<vdj::Features>(sequences, inference_params)
-        } else {
-            self.align_and_infer_cdr3_generic::<v_dj::Features>(sequences, inference_params)
-        }
-    }
-
+    /// Evaluate a sequence and return the result of the inference
     fn evaluate(
         &self,
-        sequence: &Sequence,
+        sequence: EntrySequence,
+        alignment_params: &AlignmentParameters,
         inference_params: &InferenceParameters,
     ) -> Result<ResultInference> {
-        if inference_params.complete_vdj_inference {
-            self.evaluate_generic::<vdj::Features>(sequence, inference_params)
-        } else {
-            self.evaluate_generic::<v_dj::Features>(sequence, inference_params)
+        let mut ip = inference_params.clone();
+        if sequence.is_protein() {
+            ip.infer_features = false;
         }
+
+        let mut features = match self.model_type {
+            ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
+            ModelStructure::VxDJ => Features::VxDJ(v_dj::Features::new(self)?),
+        };
+
+        let aligned_sequence = sequence.align(self, alignment_params)?;
+        let mut result = features.infer(&aligned_sequence, &ip)?;
+        result.fill_event(self, &aligned_sequence)?;
+
+        // no error: likelihood = pgen
+        if self.error.no_error() {
+            result.pgen = result.likelihood;
+            return Ok(result);
+        }
+
+        // likelihood is 0, so pgen is also 0
+        if result.likelihood == 0. {
+            result.pgen = 0.;
+            return Ok(result);
+        }
+
+        // Otherwise, we need to compute the pgen of the reconstructed sequence
+        if ip.compute_pgen && ip.store_best_event {
+            let event = result
+                .get_best_event()
+                .ok_or(anyhow!("Error with event extraction during pgen inference"))?;
+            let cdr3_nt = event.clone().get_reconstructed_cdr3(self)?;
+            let cdr3: DnaLike = match aligned_sequence.sequence_type {
+                SequenceType::Dna => cdr3_nt.into(),
+                SequenceType::Protein => cdr3_nt.translate()?.into(),
+            };
+
+            // let seq_without_err = event.reconstructed_sequence.ok_or(anyhow!(
+            //     "Error with event reconstruction during pgen inference"
+            // ))?;
+
+            // full sequence, so default alignment parameters should be fine.
+            // except it's way too slow. Just do the CDR3 instead.
+            let aligned_seq = self.align_from_cdr3(
+                &cdr3,
+                &[self.seg_vs[event.v_index].clone()],
+                &[self.seg_js[event.j_index].clone()],
+            )?;
+
+            let mut features_pgen = match self.model_type {
+                ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
+                ModelStructure::VxDJ => Features::VxDJ(v_dj::Features::new(self)?),
+            };
+            features_pgen.error_mut().remove_error()?; // remove the error
+
+            result.pgen = features_pgen.infer(&aligned_seq, &ip)?.likelihood;
+        }
+        Ok(result)
     }
 
     fn filter_vs(&self, vs: Vec<Gene>) -> Result<Model> {
@@ -487,14 +577,13 @@ impl Modelable for Model {
 
     fn align_from_cdr3(
         &self,
-        cdr3_seq: &Dna,
-        vgenes: &Vec<Gene>,
-        jgenes: &Vec<Gene>,
+        cdr3_seq: &DnaLike,
+        vgenes: &[Gene],
+        jgenes: &[Gene],
     ) -> Result<Sequence> {
-        let v_alignments = vgenes
+        let mut v_alignments = vgenes
             .iter()
             .map(|vg| {
-                let start_gene = vg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
                 let index = self
                     .seg_vs
                     .iter()
@@ -506,31 +595,34 @@ impl Modelable for Model {
                     .ok_or(anyhow!("Model not fully loaded yet."))?;
                 let cdr3_pos = vg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
                 let start_seq = 0;
+                if pal_v.len() < cdr3_pos {
+                    return Err(anyhow!(
+                        "cdr3 position farther up than v length ({})",
+                        vg.name
+                    ));
+                }
+                let start_gene = cdr3_pos;
                 let end_seq = pal_v.len() - cdr3_pos;
                 let end_gene = start_gene + pal_v.len() - cdr3_pos;
-                let mut errors = vec![0; self.p_del_v_given_v.dim().0];
-                for (del_v, err_delv) in errors.iter_mut().enumerate() {
-                    if del_v <= pal_v.len() && del_v <= end_seq - start_seq {
-                        *err_delv = count_differences(
-                            &cdr3_seq.seq[0..end_seq - del_v],
-                            &pal_v.seq[start_gene..end_gene - del_v],
-                        );
-                    }
-                }
 
-                Ok(VJAlignment {
+                let mut val = VJAlignment {
                     index,
                     start_seq,
                     end_seq,
                     start_gene,
                     end_gene,
-                    errors,
                     score: 0, // meaningless
-                })
+                    max_del: Some(self.p_del_v_given_v.shape()[0]),
+                    gene_sequence: pal_v.clone(),
+                    sequence_type: cdr3_seq.sequence_type(),
+                    ..Default::default()
+                };
+                val.precompute_errors_v(cdr3_seq);
+                Ok(val)
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let j_alignments = jgenes
+        let mut j_alignments = jgenes
             .iter()
             .map(|jg| {
                 let index = self
@@ -543,58 +635,120 @@ impl Modelable for Model {
                     .as_ref()
                     .ok_or(anyhow!("Model not fully loaded yet."))?;
                 let cdr3_pos = jg.cdr3_pos.ok_or(anyhow!("Model not fully loaded yet."))?;
-                let start_seq =
-                    ((cdr3_seq.len() - cdr3_pos - 3) as i64 + self.range_del_j.0) as usize;
-                let start_gene = 0;
-                let end_seq = cdr3_seq.len();
-                let end_gene = (cdr3_pos as i64 + 3 - self.range_del_j.0) as usize; // careful, palindromic insert
-                let mut errors = vec![0; self.p_del_j_given_j.dim().0];
-                for (del_j, err_delj) in errors.iter_mut().enumerate() {
-                    if del_j <= pal_j.len() && del_j <= end_gene - start_gene {
-                        *err_delj = count_differences(
-                            &cdr3_seq.seq[del_j + start_seq..end_seq],
-                            &pal_j.seq[del_j + start_gene..end_gene],
-                        );
-                    }
+
+                if cdr3_pos + 3 > pal_j.len() {
+                    return Err(anyhow!(
+                        "cdr3 position farther up than j length ({})",
+                        jg.name
+                    ));
                 }
 
-                Ok(VJAlignment {
+                let end_seq = cdr3_seq.len();
+                let end_gene = ((cdr3_pos as i64) - self.range_del_j.0 + 3) as usize;
+                let start_gene =
+                    if (cdr3_pos as i64) - self.range_del_j.0 <= cdr3_seq.len() as i64 - 3 {
+                        0
+                    } else {
+                        cdr3_pos as i64 - self.range_del_j.0 - cdr3_seq.len() as i64 + 3
+                    } as usize;
+
+                let start_seq =
+                    if (cdr3_pos as i64) - self.range_del_j.0 <= cdr3_seq.len() as i64 - 3 {
+                        cdr3_seq.len() as i64 - end_gene as i64
+                    } else {
+                        0
+                    } as usize;
+
+                debug_assert!(end_seq - start_seq > 0); // should be fine
+
+                let mut jal = VJAlignment {
                     index,
                     start_seq,
                     end_seq,
                     start_gene,
                     end_gene,
-                    errors,
                     score: 0, // meaningless
-                })
+                    max_del: Some(self.p_del_j_given_j.dim().0),
+                    gene_sequence: pal_j.clone(),
+                    sequence_type: cdr3_seq.sequence_type(),
+                    ..Default::default()
+                };
+                jal.precompute_errors_j(cdr3_seq);
+                Ok(jal)
             })
             .collect::<Result<Vec<_>>>()?;
 
+        let mut sequence = cdr3_seq.clone();
+        if v_alignments.len() == 1 {
+            // if only one V, we extend the seq
+            let mut only_val = v_alignments[0].clone();
+            if only_val.start_seq != 0 {
+                // weird edge case, the sequence starts before the V gene
+                // shouldn't happend, but there's a debug_assert just in case
+                debug_assert!(only_val.start_seq == 0);
+            } else {
+                let vg: DnaLike = only_val
+                    .gene_sequence
+                    .extract_subsequence(0, only_val.start_gene)
+                    .into();
+                only_val.start_seq = 0;
+                only_val.end_seq += only_val.start_gene;
+                sequence = vg.extended_in_frame(&sequence);
+                for jal in &mut j_alignments {
+                    jal.start_seq += only_val.start_gene;
+                    jal.end_seq += only_val.start_gene;
+                }
+                // need to do this last
+                only_val.start_gene = 0;
+                v_alignments = vec![only_val];
+            }
+        }
+        if j_alignments.len() == 1 {
+            // same if only one J
+            let mut only_jal = j_alignments[0].clone();
+            // maybe a bit more common, if the J gene end before the CDR3
+            // we don't do anything
+            if only_jal.start_seq == 0 {
+                let jg: DnaLike = only_jal
+                    .gene_sequence
+                    .extract_subsequence(only_jal.end_gene, only_jal.gene_sequence.len())
+                    .into();
+                sequence = sequence.extended_in_frame(&jg);
+                only_jal.end_seq += only_jal.gene_sequence.len() - only_jal.end_gene;
+                // need to do this last
+                only_jal.end_gene = only_jal.gene_sequence.len();
+                j_alignments = vec![only_jal];
+            }
+        }
+
         let mut seq = Sequence {
-            sequence: cdr3_seq.clone(),
+            sequence,
             v_genes: v_alignments,
             j_genes: j_alignments,
             d_genes: Vec::new(),
             valid_alignment: true,
+            sequence_type: cdr3_seq.sequence_type(),
         };
 
         let align_params = AlignmentParameters::default();
 
         seq.d_genes = self.make_d_genes_alignments(&seq, &align_params)?;
+
         Ok(seq)
     }
 
     fn align_sequence(
         &self,
-        dna_seq: &Dna,
+        dna_seq: DnaLike,
         align_params: &AlignmentParameters,
     ) -> Result<Sequence> {
         let mut seq = Sequence {
             sequence: dna_seq.clone(),
-            v_genes: align_all_vgenes(dna_seq, self, align_params),
-            j_genes: align_all_jgenes(dna_seq, self, align_params),
+            v_genes: align_all_vgenes(&dna_seq.clone(), self, align_params),
+            j_genes: align_all_jgenes(&dna_seq.clone(), self, align_params),
             d_genes: Vec::new(),
             valid_alignment: true,
+            sequence_type: dna_seq.sequence_type(),
         };
 
         // if we don't have v genes or j genes, don't try inferring the d gene
@@ -608,7 +762,7 @@ impl Modelable for Model {
     }
 
     /// Re-create the full sequence of the variable region (with complete V/J gene, not just the CDR3)
-    /// Return full_seq
+    /// Return `full_seq`
     fn recreate_full_sequence(&self, dna_cdr3: &Dna, vgene: &Gene, jgene: &Gene) -> Dna {
         let mut seq: Dna = Dna::new();
         let vgene_sans_cdr3 = vgene.seq.extract_subsequence(0, vgene.cdr3_pos.unwrap());
@@ -642,165 +796,80 @@ impl Modelable for Model {
             && self
                 .p_del_d5_del_d3
                 .relative_eq(&m.p_del_d5_del_d3, 1e-4, 1e-4)
-            && self
-                .markov_coefficients_vd
-                .relative_eq(&m.markov_coefficients_vd, 1e-4, 1e-4)
-            && self
-                .markov_coefficients_dj
-                .relative_eq(&m.markov_coefficients_dj, 1e-4, 1e-4)
+            && self.markov_chain_vd.transition_matrix.relative_eq(
+                &m.markov_chain_vd.transition_matrix,
+                1e-4,
+                1e-4,
+            )
+            && self.markov_chain_dj.transition_matrix.relative_eq(
+                &m.markov_chain_dj.transition_matrix,
+                1e-4,
+                1e-4,
+            )
             && (self.range_del_v == m.range_del_v)
             && (self.range_del_j == m.range_del_j)
             && (self.range_del_d3 == m.range_del_d3)
             && (self.range_del_d5 == m.range_del_d5)
-            && ((self.error_rate - m.error_rate).abs() < 1e-4)
-            && (self.thymic_q == m.thymic_q)
+            && ErrorParameters::similar(self.error.clone(), m.error)
+            && ((self.thymic_q - m.thymic_q).abs() < 1e-40)
             && self.p_dj.relative_eq(&m.p_dj, 1e-4, 1e-4)
             && self.p_vdj.relative_eq(&m.p_vdj, 1e-4, 1e-4)
     }
 }
 
 impl Model {
-    fn evaluate_generic<T: FeaturesTrait + Sized + std::marker::Send + Clone + 'static>(
-        &self,
-        sequence: &Sequence,
-        inference_params: &InferenceParameters,
-    ) -> Result<ResultInference> {
-        let mut feature = T::new(self)?;
-        let mut result = feature.infer(sequence, inference_params)?;
-        result.fill_event(self, sequence)?;
-        result.features = Some(Box::new(feature) as Box<dyn FeaturesTrait + Send>);
-
-        // compute the pgen if needed
-        if self.error_rate == 0. {
-            // no error: likelihood = pgen
-            result.pgen = result.likelihood;
-            return Ok(result);
-        }
-
-        if result.likelihood == 0. {
-            // likelihood is 0, so pgen is also 0
-            result.pgen = 0.;
-            return Ok(result);
-        }
-
-        if inference_params.compute_pgen && inference_params.store_best_event {
-            // if there is error, we use the reconstructed sequence to infer everything
-            let event = result
-                .get_best_event()
-                .ok_or(anyhow!("Error with event extraction during pgen inference"))?;
-            let seq_without_err = event.reconstructed_sequence.ok_or(anyhow!(
-                "Error with event reconstruction during pgen inference"
-            ))?;
-            // full sequence, so default alignment parameters should be fine.
-            let aligned_seq =
-                self.align_sequence(&seq_without_err, &AlignmentParameters::default())?;
-
-            let mut feature = T::new(self)?;
-            feature.error_mut().error_rate = 0.; // remove the error
-            result.pgen = feature.infer(&aligned_seq, inference_params)?.likelihood;
-        }
-
-        Ok(result)
-    }
-
-    fn align_and_infer_generic<T: FeaturesTrait + Sized + std::marker::Send + Clone + 'static>(
-        &mut self,
-        sequences: &[Dna],
-        align_params: &AlignmentParameters,
-        inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        let mut ip = inference_params.clone();
-        ip.infer = true;
-        ip.compute_pgen = false;
-        ip.store_best_event = false;
-
-        let features = sequences
-            .par_iter()
-            .map(|dna_seq| {
-                let sequence = self.align_sequence(dna_seq, align_params)?;
-                let mut feature = T::new(self)?;
-                let _ = feature.infer(&sequence, &ip)?;
-                Ok(feature)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let avg_features = T::average(features)?;
-        self.update(&avg_features)?;
-
-        Ok(())
-    }
-
-    fn align_and_infer_cdr3_generic<
-        T: FeaturesTrait + Sized + std::marker::Send + Clone + 'static,
-    >(
-        &mut self,
-        sequences: &[(Dna, Vec<Gene>, Vec<Gene>)],
-        inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        let mut ip = inference_params.clone();
-        ip.infer = true;
-        ip.compute_pgen = false;
-        ip.store_best_event = false;
-
-        let features = sequences
-            .par_iter()
-            .map(|(cdr3_seq, v_genes, j_genes)| {
-                let sequence = self.align_from_cdr3(cdr3_seq, v_genes, j_genes)?;
-                let mut feature = T::new(self)?;
-                let _ = feature.infer(&sequence, &ip)?;
-                Ok(feature)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let avg_features = T::average(features)?;
-        self.update(&avg_features)?;
-
-        Ok(())
-    }
-
-    fn infer_generic<T: FeaturesTrait + Sized + std::marker::Send + Clone>(
-        &mut self,
-        sequences: &[Sequence],
-        inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        let mut ip = inference_params.clone();
-        ip.infer = true;
-        ip.compute_pgen = false;
-        ip.store_best_event = false;
-
-        let features = sequences
-            .par_iter()
-            .map(|sequence| {
-                let mut feature = T::new(self)?;
-                let _ = feature.infer(sequence, &ip)?;
-                Ok(feature)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let avg_features = T::average(features)?;
-        self.update(&avg_features)?;
-
-        Ok(())
-    }
-
     pub fn infer_brute_force(
         &mut self,
-        sequences: &[Sequence],
-        _inference_params: &InferenceParameters,
-    ) -> Result<()> {
-        let features = sequences
-            .par_iter()
-            .map(|sequence| {
-                let mut feature = Features::new(self)?;
-                let _ = feature.infer_brute_force(sequence)?;
-                Ok(feature)
+        sequences: &[EntrySequence],
+        features_opt: Option<Vec<Features>>,
+        alignment_params: &AlignmentParameters,
+        inference_params: &InferenceParameters,
+    ) -> Result<(Vec<Features>, f64)> {
+        if sequences.iter().any(EntrySequence::is_protein) {
+            return Err(anyhow!("The brute-force model doesn't work with proteins"));
+        }
+
+        let features = match features_opt {
+            None => {
+                // Create new features object
+                vec![
+                    match self.model_type {
+                        ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
+                        ModelStructure::VxDJ => Features::VxDJ(v_dj::Features::new(self)?),
+                    };
+                    sequences.len()
+                ]
+            }
+            Some(feats) => feats,
+        };
+
+        let new_features = (&features, sequences)
+            .into_par_iter()
+            .map(|(feat, sequence)| {
+                let aligned = sequence.align(self, alignment_params)?;
+                let new_feat = feat.clone();
+                let mut feat_vdj = match new_feat {
+                    Features::VDJ(x) => Ok(x),
+                    Features::VxDJ(_) => Err(anyhow!("Shouldn't happen.")),
+                }?;
+
+                let _ = feat_vdj.infer_brute_force(&aligned, inference_params)?;
+                Ok(Features::VDJ(feat_vdj))
             })
             .collect::<Result<Vec<_>>>()?;
-        let avg_features = Features::average(features)?;
-        self.update(&avg_features)?;
-        Ok(())
+        Features::update(new_features, self)
     }
 
-    pub fn evaluate_brute_force(&mut self, sequence: &Sequence) -> Result<ResultInference> {
-        let mut feature = Features::new(self)?;
-        let result = feature.infer_brute_force(sequence)?;
+    pub fn evaluate_brute_force(
+        &self,
+        sequence: &EntrySequence,
+        alignment_params: &AlignmentParameters,
+        inference_params: &InferenceParameters,
+    ) -> Result<ResultInference> {
+        let mut feature = FeaturesVDJ::new(self)?;
+        let aligned = sequence.align(self, alignment_params)?;
+        let mut result = feature.infer_brute_force(&aligned, inference_params)?;
+        result.fill_event(self, &aligned)?;
         Ok(result)
     }
 
@@ -896,9 +965,10 @@ impl Model {
             Marginal::create(Vec::new(), self.p_ins_vd.clone().into_dyn()).write()?;
         let marginal_vddinucl = Marginal::create(
             Vec::new(),
-            self.markov_coefficients_vd
+            self.markov_chain_vd
+                .transition_matrix
                 .iter()
-                .cloned()
+                .copied()
                 .collect::<Array1<f64>>()
                 .into_dyn(),
         )
@@ -907,9 +977,10 @@ impl Model {
             Marginal::create(Vec::new(), self.p_ins_dj.clone().into_dyn()).write()?;
         let marginal_djdinucl = Marginal::create(
             Vec::new(),
-            self.markov_coefficients_dj
+            self.markov_chain_dj
+                .transition_matrix
                 .iter()
-                .cloned()
+                .copied()
                 .collect::<Array1<f64>>()
                 .into_dyn(),
         )
@@ -957,19 +1028,19 @@ impl Model {
         result.push_str(&jgenes.write());
 
         result.push_str("#Deletion;V_gene;Three_prime;5;v_3_del\n");
-        let delvs = EventType::Numbers((self.range_del_v.0..self.range_del_v.1 + 1).collect());
+        let delvs = EventType::Numbers((self.range_del_v.0..=self.range_del_v.1).collect());
         result.push_str(&delvs.write());
 
         result.push_str("#Deletion;D_gene;Three_prime;5;d_3_del\n");
-        let deld3s = EventType::Numbers((self.range_del_d3.0..self.range_del_d3.1 + 1).collect());
+        let deld3s = EventType::Numbers((self.range_del_d3.0..=self.range_del_d3.1).collect());
         result.push_str(&deld3s.write());
 
         result.push_str("#Deletion;D_gene;Five_prime;5;d_5_del\n");
-        let deld5s = EventType::Numbers((self.range_del_d5.0..self.range_del_d5.1 + 1).collect());
+        let deld5s = EventType::Numbers((self.range_del_d5.0..=self.range_del_d5.1).collect());
         result.push_str(&deld5s.write());
 
         result.push_str("#Deletion;J_gene;Five_prime;5;j_5_del\n");
-        let deljs = EventType::Numbers((self.range_del_j.0..self.range_del_j.1 + 1).collect());
+        let deljs = EventType::Numbers((self.range_del_j.0..=self.range_del_j.1).collect());
         result.push_str(&deljs.write());
 
         result.push_str("#Insertion;VD_genes;Undefined_side;4;vd_ins\n");
@@ -987,7 +1058,7 @@ impl Model {
         let dimdeld5 = self.p_del_d5_del_d3.dim().0;
         let dimj = self.seg_js.len();
         let dimdelj = self.p_del_j_given_j.dim().0;
-        let error_rate = self.error_rate;
+        let error = self.error.write();
         result.push_str(&format!(
             "#DinucMarkov;VD_genes;Undefined_side;3;vd_dinucl\n\
 	     %T;3\n\
@@ -1012,9 +1083,7 @@ impl Model {
 	     GeneChoice_D_gene_Undefined_side_prio6_size{dimd}\n\
 	     %Deletion_D_gene_Five_prime_prio5_size{dimdeld5};\
 	     Deletion_D_gene_Three_prime_prio5_size{dimdeld3}\n\
-	     @ErrorRate\n\
-	     #SingleErrorRate\n\
-	     {error_rate}\n"
+	     {error}"
         ));
         Ok(result)
     }
@@ -1089,19 +1158,19 @@ impl Model {
 
         model.sanitize_genes()?;
 
-        if !(sorted_and_complete(arrdelv)
-            & sorted_and_complete(arrdelj)
-            & sorted_and_complete(arrdeld3)
-            & sorted_and_complete(arrdeld5)
+        if !(sorted_and_complete(&arrdelv)
+            & sorted_and_complete(&arrdelj)
+            & sorted_and_complete(&arrdeld3)
+            & sorted_and_complete(&arrdeld5)
             & sorted_and_complete_0start(
-                pp.params
+                &pp.params
                     .get("vd_ins")
                     .ok_or(anyhow!("Invalid vd_ins"))?
                     .clone()
                     .to_numbers()?,
             )
             & sorted_and_complete_0start(
-                pp.params
+                &pp.params
                     .get("dj_ins")
                     .ok_or(anyhow!("Invalid dj_ins"))?
                     .clone()
@@ -1161,7 +1230,7 @@ impl Model {
                 }
             }
         } else {
-            return Err::<Model, anyhow::Error>(anyhow!("Wrong format for the VDJ probabilities"));
+            return Err(anyhow!("Wrong format for the VDJ probabilities"));
         }
 
         model.set_p_vdj(&model.p_vdj.clone())?;
@@ -1223,7 +1292,7 @@ impl Model {
         for dd in 0..ddim {
             for d5 in 0..d5dim {
                 for d3 in 0..d3dim {
-                    model.p_del_d5_del_d3[[d5, d3, dd]] = pdeld3[[dd, d5, d3]] * pdeld5[[dd, d5]]
+                    model.p_del_d5_del_d3[[d5, d3, dd]] = pdeld3[[dd, d5, d3]] * pdeld5[[dd, d5]];
                 }
             }
         }
@@ -1241,35 +1310,49 @@ impl Model {
         }
 
         // Markov coefficients
-        model.markov_coefficients_vd = pm
-            .marginals
-            .get("vd_dinucl")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_shape((4, 4))
-            .map_err(|_e| anyhow!("Wrong size for vd_dinucl"))?;
-        model.markov_coefficients_dj = pm
-            .marginals
-            .get("dj_dinucl")
-            .unwrap()
-            .probabilities
-            .clone()
-            .into_shape((4, 4))
-            .map_err(|_e| anyhow!("Wrong size for dj_dinucl"))?;
+        model.markov_chain_vd = Arc::new(DNAMarkovChain::new(
+            &pm.marginals
+                .get("vd_dinucl")
+                .unwrap()
+                .probabilities
+                .clone()
+                .into_shape((4, 4))
+                .map_err(|_e| anyhow!("Wrong size for vd_dinucl"))?,
+            false,
+        )?);
+        model.markov_chain_dj = Arc::new(DNAMarkovChain::new(
+            &pm.marginals
+                .get("dj_dinucl")
+                .unwrap()
+                .probabilities
+                .clone()
+                .into_shape((4, 4))
+                .map_err(|_e| anyhow!("Wrong size for dj_dinucl"))?,
+            true,
+        )?);
 
         // TODO: Need to deal with potential first nt bias in the file
-        model.first_nt_bias_ins_vd =
-            Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_vd)?);
-        model.first_nt_bias_ins_dj =
-            Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_dj)?);
+        // model.first_nt_bias_ins_vd =
+        //     Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_vd)?);
+        // model.first_nt_bias_ins_dj =
+        //     Array1::from_vec(calc_steady_state_dist(&model.markov_coefficients_dj)?);
 
-        model.error_rate = pp.error_rate;
+        model.error = pp.error.clone();
         model.thymic_q = 9.41; // TODO: deal with this
 
         model.initialize()?;
-
         Ok(model)
+    }
+
+    /// Emit a warning if stuff are weird
+    /// Right now not much, but check the functionality of the genes
+    pub fn safety_checks(&self) {
+        if self.seg_vs.iter().all(|x| !x.is_functional) {
+            send_warning("All the V genes in the model are tagged as non-functional. This could result in an infinite loop if trying to generate functional sequences.\n");
+        }
+        if self.seg_js.iter().all(|x| !x.is_functional) {
+            send_warning("All the J genes in the model are tagged as non-functional. This could result in an infinite loop if trying to generate functional sequences.\n");
+        }
     }
 
     pub fn sanitize_genes(&mut self) -> Result<()> {
@@ -1277,14 +1360,14 @@ impl Model {
         // and append the maximum number of reverse palindromic insertions appended.
 
         // Add the palindromic insertions
-        for g in self.seg_vs.iter_mut() {
+        for g in &mut self.seg_vs {
             g.create_palindromic_ends(0, (-self.range_del_v.0) as usize);
         }
-        for g in self.seg_js.iter_mut() {
+        for g in &mut self.seg_js {
             g.create_palindromic_ends((-self.range_del_j.0) as usize, 0);
         }
 
-        for g in self.seg_ds.iter_mut() {
+        for g in &mut self.seg_ds {
             g.create_palindromic_ends(
                 (-self.range_del_d5.0) as usize,
                 (-self.range_del_d3.0) as usize,
@@ -1298,21 +1381,22 @@ impl Model {
     }
 
     fn initialize_generative_model(&mut self) -> Result<()> {
-        self.gen.d_vdj = DiscreteDistribution::new(self.p_vdj.view().iter().cloned().collect())?;
-        self.gen.d_ins_vd = DiscreteDistribution::new(self.p_ins_vd.to_vec())?;
-        self.gen.d_ins_dj = DiscreteDistribution::new(self.p_ins_dj.to_vec())?;
+        self.gen.d_vdj =
+            DiscreteDistribution::new(&self.p_vdj.view().iter().copied().collect::<Vec<_>>())?;
+        self.gen.d_ins_vd = DiscreteDistribution::new(&self.p_ins_vd.to_vec())?;
+        self.gen.d_ins_dj = DiscreteDistribution::new(&self.p_ins_dj.to_vec())?;
 
         self.gen.d_del_v_given_v = Vec::new();
         for row in self.p_del_v_given_v.axis_iter(Axis(1)) {
             self.gen
                 .d_del_v_given_v
-                .push(DiscreteDistribution::new(row.to_vec())?);
+                .push(DiscreteDistribution::new(&row.to_vec())?);
         }
         self.gen.d_del_j_given_j = Vec::new();
         for row in self.p_del_j_given_j.axis_iter(Axis(1)) {
             self.gen
                 .d_del_j_given_j
-                .push(DiscreteDistribution::new(row.to_vec())?);
+                .push(DiscreteDistribution::new(&row.to_vec())?);
         }
 
         self.gen.d_del_d5_del_d3 = Vec::new();
@@ -1321,22 +1405,174 @@ impl Model {
                 .p_del_d5_del_d3
                 .slice(s![.., .., ddd])
                 .iter()
-                .cloned()
+                .copied()
                 .collect();
             self.gen
                 .d_del_d5_del_d3
-                .push(DiscreteDistribution::new(d5d3)?);
+                .push(DiscreteDistribution::new(&d5d3)?);
         }
 
-        self.gen.markov_vd = MarkovDNA::new(self.markov_coefficients_vd.to_owned())?;
-        self.gen.markov_dj = MarkovDNA::new(self.markov_coefficients_dj.to_owned())?;
-
-        self.gen.error = Default::default();
+        self.gen.markov_vd = MarkovDNA::new(&self.markov_chain_vd.transition_matrix.to_owned())?;
+        self.gen.markov_dj = MarkovDNA::new(&self.markov_chain_dj.transition_matrix.to_owned())?;
 
         Ok(())
     }
 
-    /// Return (full_seq, cdr3_seq, aa_seq, event)
+    /// Update the v segments and adapt the associated marginals
+    pub fn set_v_segments(&mut self, value: Vec<Gene>) -> Result<()> {
+        let [_, sd, sj] = *self.p_vdj.shape() else {
+            return Err(anyhow!("Something is wrong with the v segments"));
+        };
+        let mut new_p_vdj = Array3::<f64>::zeros([value.len(), sd, sj]);
+
+        let [sdelv, _] = *self.p_del_v_given_v.shape() else {
+            return Err(anyhow!("Something is wrong with the v segments"));
+        };
+        let mut new_p_del_v_given_v = Array2::<f64>::zeros([sdelv, value.len()]);
+
+        let proba_v_default = 1. / (value.len() as f64);
+        let delv_default = self.p_del_v_given_v.sum_axis(Axis(1)) / self.p_del_v_given_v.sum();
+
+        for (iv, v) in value.iter().enumerate() {
+            match self
+                .seg_vs
+                .iter()
+                .enumerate()
+                .find(|(_index, g)| g.name == v.name)
+            {
+                Some((index, _gene)) => {
+                    new_p_vdj
+                        .slice_mut(s![iv, .., ..])
+                        .assign(&self.p_vdj.slice_mut(s![index, .., ..]));
+                    new_p_del_v_given_v
+                        .slice_mut(s![.., iv])
+                        .assign(&self.p_del_v_given_v.slice_mut(s![.., index]));
+                }
+                None => {
+                    new_p_vdj.slice_mut(s![iv, .., ..]).fill(proba_v_default);
+                    new_p_del_v_given_v
+                        .slice_mut(s![.., iv])
+                        .assign(&delv_default);
+                }
+            }
+        }
+
+        // normalzie
+        new_p_vdj = new_p_vdj.normalize_distribution_3()?;
+        new_p_del_v_given_v = new_p_del_v_given_v.normalize_distribution()?;
+
+        self.seg_vs = value;
+        self.set_p_vdj(&new_p_vdj)?;
+        self.p_del_v_given_v = new_p_del_v_given_v;
+        self.initialize()?;
+        Ok(())
+    }
+
+    /// Update the j segments and adapt the associated marginals
+    pub fn set_j_segments(&mut self, value: Vec<Gene>) -> Result<()> {
+        let [sv, sd, _] = *self.p_vdj.shape() else {
+            return Err(anyhow!("Something is wrong with the j segments"));
+        };
+        let mut new_p_vdj = Array3::<f64>::zeros([sv, sd, value.len()]);
+
+        let [sdelj, _] = *self.p_del_j_given_j.shape() else {
+            return Err(anyhow!("Something is wrong with the j segments"));
+        };
+        let mut new_p_del_j_given_j = Array2::<f64>::zeros([sdelj, value.len()]);
+
+        let proba_j_default = 1. / (value.len() as f64);
+        let delj_default = self.p_del_j_given_j.sum_axis(Axis(1)) / self.p_del_j_given_j.sum();
+
+        for (ij, j) in value.iter().enumerate() {
+            match self
+                .seg_js
+                .iter()
+                .enumerate()
+                .find(|(_index, g)| g.name == j.name)
+            {
+                Some((index, _gene)) => {
+                    new_p_vdj
+                        .slice_mut(s![.., .., ij])
+                        .assign(&self.p_vdj.slice_mut(s![.., .., index]));
+                    new_p_del_j_given_j
+                        .slice_mut(s![.., ij])
+                        .assign(&self.p_del_j_given_j.slice_mut(s![.., index]));
+                }
+                None => {
+                    new_p_vdj.slice_mut(s![.., .., ij]).fill(proba_j_default);
+                    new_p_del_j_given_j
+                        .slice_mut(s![.., ij])
+                        .assign(&delj_default);
+                }
+            }
+        }
+
+        // normalzie
+        new_p_vdj = new_p_vdj.normalize_distribution_3()?;
+        new_p_del_j_given_j = new_p_del_j_given_j.normalize_distribution()?;
+
+        self.seg_js = value;
+        self.set_p_vdj(&new_p_vdj)?;
+        self.p_del_j_given_j = new_p_del_j_given_j;
+        self.initialize()?;
+        Ok(())
+    }
+
+    /// Update the d segments and adapt the associated marginals
+    /// The new d segments (the ones with a different name), get probability equal
+    /// to `1/number_d_segments` and average deletion profiles.
+    pub fn set_d_segments(&mut self, value: Vec<Gene>) -> Result<()> {
+        let [sv, _, sj] = *self.p_vdj.shape() else {
+            return Err(anyhow!("Something is wrong with the v segments"));
+        };
+        let mut new_p_vdj = Array3::<f64>::zeros([sv, value.len(), sj]);
+
+        let [sdeld5, sdeld3, _] = *self.p_del_d5_del_d3.shape() else {
+            return Err(anyhow!("Something is wrong with the v segments"));
+        };
+        let mut new_p_del_d5_del_d3 = Array3::<f64>::zeros([sdeld5, sdeld3, value.len()]);
+
+        let proba_d_default = 1. / (value.len() as f64);
+        let deld5_deld3_default =
+            self.p_del_d5_del_d3.sum_axis(Axis(2)) / self.p_del_d5_del_d3.sum();
+
+        for (id, d) in value.iter().enumerate() {
+            // try to see if we find a gene with the same name,
+            match self
+                .seg_ds
+                .iter()
+                .enumerate()
+                .find(|(_index, g)| g.name == d.name)
+            {
+                Some((index, _gene)) => {
+                    new_p_vdj
+                        .slice_mut(s![.., id, ..])
+                        .assign(&self.p_vdj.slice_mut(s![.., index, ..]));
+                    new_p_del_d5_del_d3
+                        .slice_mut(s![.., .., id])
+                        .assign(&self.p_del_d5_del_d3.slice_mut(s![.., .., index]));
+                }
+                None => {
+                    new_p_vdj.slice_mut(s![.., id, ..]).fill(proba_d_default);
+                    new_p_del_d5_del_d3
+                        .slice_mut(s![.., .., id])
+                        .assign(&deld5_deld3_default);
+                }
+            }
+        }
+
+        // normalize
+        new_p_vdj = new_p_vdj.normalize_distribution_3()?;
+        new_p_del_d5_del_d3 = new_p_del_d5_del_d3.normalize_distribution_double()?;
+
+        self.seg_ds = value;
+        self.set_p_vdj(&new_p_vdj)?;
+        self.p_del_d5_del_d3 = new_p_del_d5_del_d3;
+        self.initialize()?;
+        Ok(())
+    }
+
+    /// Return (`full_seq`, `cdr3_seq`, `aa_seq`, `event`)
     pub fn generate_no_error<R: Rng>(
         &mut self,
         functional: bool,
@@ -1350,9 +1586,18 @@ impl Model {
 
             let vdj_index: usize = self.gen.d_vdj.generate(rng);
             event.v_index = vdj_index / (self.p_vdj.dim().1 * self.p_vdj.dim().2);
+            // if the V gene is not functional and we're looking for functional seqs
+            if functional && !self.seg_vs[event.v_index].is_functional() {
+                continue;
+            }
+            event.j_index = vdj_index % self.p_dj.dim().1;
+            // same for J gene
+            if functional && !self.seg_js[event.j_index].is_functional() {
+                continue;
+            }
+
             event.d_index =
                 (vdj_index % (self.p_vdj.dim().1 * self.p_vdj.dim().2)) / self.p_vdj.dim().2;
-            event.j_index = vdj_index % self.p_dj.dim().1;
 
             let seq_v_cdr3: &Dna = &self.seg_vs_sanitized[event.v_index];
             let seq_j_cdr3: &Dna = &self.seg_js_sanitized[event.j_index];
@@ -1394,16 +1639,14 @@ impl Model {
             event.insdj = ins_seq_dj.clone();
             event.insvd = ins_seq_vd.clone();
             event.v_start_gene = 0;
-            event.d_start_seq = seq_v.len() - event.delv - event.deld5 + ins_vd;
-            event.j_start_seq = seq_v.len() - event.delv + ins_vd + ins_dj + seq_d.len()
+            event.d_start_seq = (seq_v.len() - event.delv - event.deld5 + ins_vd) as i64;
+            event.j_start_seq = (seq_v.len() - event.delv + ins_vd + ins_dj + seq_d.len()
                 - event.deld5
                 - event.deld3
-                - event.delj;
+                - event.delj) as i64;
 
             // create the complete sequence:
             let full_seq = event.to_sequence(self);
-
-            // println!("{:?}", full_seq.get_string());
 
             // create the complete CDR3 sequence
             let cdr3_seq = event.to_cdr3(self);
@@ -1428,6 +1671,14 @@ impl Model {
                     if functional && (saa.seq[0] != b'C') {
                         continue;
                     }
+
+                    if functional
+                        && saa.seq.last().copied().unwrap() != b'F'
+                        && saa.seq.last().copied().unwrap() != b'W'
+                    {
+                        continue;
+                    }
+
                     return (full_seq, cdr3_seq, Some(saa), event);
                 }
                 None => {
@@ -1452,6 +1703,14 @@ impl Model {
         self.seg_ds[event.d_index].name.clone()
     }
 
+    pub fn get_first_nt_bias_ins_vd(&self) -> Result<Vec<f64>> {
+        calc_steady_state_dist(&self.markov_chain_vd.transition_matrix)
+    }
+
+    pub fn get_first_nt_bias_ins_dj(&self) -> Result<Vec<f64>> {
+        calc_steady_state_dist(&self.markov_chain_dj.transition_matrix)
+    }
+
     fn make_d_genes_alignments(
         &self,
         seq: &Sequence,
@@ -1463,11 +1722,8 @@ impl Model {
             .v_genes
             .iter()
             .map(|v| {
-                if v.end_seq > self.p_del_v_given_v.dim().0 + self.p_del_d5_del_d3.dim().0 {
-                    v.end_seq - (self.p_del_v_given_v.dim().0 + self.p_del_d5_del_d3.dim().0)
-                } else {
-                    0
-                }
+                v.end_seq as i64
+                    - (self.p_del_v_given_v.dim().0 + self.p_del_d5_del_d3.dim().0) as i64
             })
             .min()
             .ok_or(anyhow!("Error in the definition of the D gene bounds"))?;
@@ -1477,8 +1733,9 @@ impl Model {
             .iter()
             .map(|j| {
                 cmp::min(
-                    j.start_seq + (self.p_del_j_given_j.dim().0 + self.p_del_d5_del_d3.dim().1),
-                    seq.sequence.len(),
+                    (j.start_seq as i64 - j.start_gene as i64)
+                        + (self.p_del_j_given_j.dim().0 + self.p_del_d5_del_d3.dim().1) as i64,
+                    seq.sequence.len() as i64,
                 )
             })
             .max()
@@ -1494,21 +1751,21 @@ impl Model {
         ))
     }
 
-    pub fn update<T: FeaturesTrait + ?Sized>(&mut self, feature: &T) -> Result<()> {
-        feature.update_model(self)?;
-        self.initialize()?;
-        Ok(())
-    }
+    // pub fn update(&mut self, feature: &Features) -> Result<()> {
+    //     feature.update_model(self)?;
+    //     self.initialize()?;
+    //     Ok(())
+    // }
 
-    pub fn from_features<T: FeaturesTrait + ?Sized>(&self, feature: &T) -> Result<Model> {
-        let mut m = self.clone();
-        m.update(feature)?;
-        Ok(m)
-    }
+    // pub fn from_features(&self, feature: &Features) -> Result<Model> {
+    //     let mut m = self.clone();
+    //     m.update(feature)?;
+    //     Ok(m)
+    // }
 
     pub fn set_p_vdj(&mut self, p_vdj: &Array3<f64>) -> Result<()> {
         // P(V,D,J) = P(D | V, J) * P(V, J) = P(D|V,J) * P(J|V)*P(V)
-        self.p_vdj = p_vdj.clone();
+        self.p_vdj.clone_from(p_vdj);
         self.p_d_given_vj = Array3::zeros((p_vdj.dim().1, p_vdj.dim().0, p_vdj.dim().2));
         self.p_j_given_v = Array2::zeros((p_vdj.dim().2, p_vdj.dim().0));
         self.p_dj = Array2::zeros((p_vdj.dim().1, p_vdj.dim().2));

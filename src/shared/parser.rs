@@ -1,6 +1,9 @@
 // Parser for the marginals and params files
 
-use crate::shared::{Dna, Gene};
+use crate::shared::errors::{ErrorConstantRate, ErrorUniformRate};
+use crate::shared::gene::Gene;
+use crate::shared::sequence::Dna;
+use crate::shared::ErrorParameters;
 use anyhow::{anyhow, Result};
 use csv::Reader;
 use ndarray::{ArrayD, IxDyn};
@@ -41,7 +44,7 @@ impl EventType {
             }
             EventType::Numbers(v) => {
                 for (ii, nb) in v.iter().enumerate() {
-                    result.push_str(&format!("%{};{}\n", nb, ii));
+                    result.push_str(&format!("%{nb};{ii}\n"));
                 }
             }
         }
@@ -50,14 +53,14 @@ impl EventType {
 
     pub fn to_genes(&self) -> Result<Vec<Gene>> {
         match self {
-            EventType::Genes(v) => Ok(v.to_vec()),
+            EventType::Genes(v) => Ok(v.clone()),
             _ => Err(anyhow!("Wrong conversion for the EventType (not genes)"))?,
         }
     }
 
     pub fn to_numbers(&self) -> Result<Vec<i64>> {
         match self {
-            EventType::Numbers(v) => Ok(v.to_vec()),
+            EventType::Numbers(v) => Ok(v.clone()),
             _ => Err(anyhow!("Wrong conversion for the EventType (not numbers)"))?,
         }
     }
@@ -66,7 +69,7 @@ impl EventType {
 #[derive(Default, Clone, Debug)]
 pub struct ParserParams {
     pub params: HashMap<String, EventType>,
-    pub error_rate: f64,
+    pub error: ErrorParameters,
 }
 
 impl Marginal {
@@ -105,7 +108,7 @@ impl Marginal {
             result.push_str("#\n%");
             for k in 0..self.dimensions[0] {
                 let prob = self.probabilities[k];
-                result.push_str(&format!("{},", prob));
+                result.push_str(&format!("{prob},"));
             }
             result.pop(); // remove last comma
             result.push('\n');
@@ -114,7 +117,7 @@ impl Marginal {
                 result.push_str(&format!("#[{},{}]\n%", self.dependences[0], i));
                 for k in 0..self.dimensions[1] {
                     let prob = self.probabilities[[i, k]];
-                    result.push_str(&format!("{},", prob));
+                    result.push_str(&format!("{prob},"));
                 }
                 result.pop(); // remove last comma
                 result.push('\n');
@@ -129,7 +132,7 @@ impl Marginal {
 
                     for k in 0..self.dimensions[2] {
                         let prob = self.probabilities[[i, j, k]];
-                        result.push_str(&format!("{},", prob));
+                        result.push_str(&format!("{prob},"));
                     }
                     result.pop(); // Remove the last comma
                     result.push('\n');
@@ -141,7 +144,7 @@ impl Marginal {
         Ok(result)
     }
 
-    pub fn parse(str_data: &Vec<String>) -> Result<(String, Marginal)> {
+    pub fn parse(str_data: &[String]) -> Result<(String, Marginal)> {
         if str_data.len() < 2 {
             return Err(anyhow!("Invalid file format."))?;
         }
@@ -194,7 +197,7 @@ impl Marginal {
 }
 
 fn parse_genes(str_data: &Vec<String>) -> Result<EventType> {
-    let mut events: Vec<Gene> = vec![Default::default(); str_data.len()];
+    let mut events: Vec<Gene> = vec![Gene::default(); str_data.len()];
     for line in str_data {
         let data: Vec<String> = line.split(';').map(|s| s.to_string()).collect();
         if data.len() != 3 {
@@ -202,7 +205,8 @@ fn parse_genes(str_data: &Vec<String>) -> Result<EventType> {
         } else {
             let gene = Gene {
                 name: data[0].chars().skip(1).collect(),
-                functional: "".to_string(), // not available from this file
+                functional: String::new(), // not available from this file
+                is_functional: false,      // still unknown
                 seq: Dna::from_string(&data[1])?,
                 seq_with_pal: None,
                 cdr3_pos: Some(0), // not available from this file
@@ -231,7 +235,7 @@ fn parse_numbers(str_data: &Vec<String>) -> Result<EventType> {
 
 impl ParserParams {
     pub fn parse(sections: Vec<Vec<String>>) -> Result<ParserParams> {
-        let mut pp: ParserParams = Default::default();
+        let mut pp: ParserParams = ParserParams::default();
         for s in sections {
             match s.first() {
                 Some(string) => match string.as_str() {
@@ -265,30 +269,32 @@ impl ParserParams {
         }
 
         if let Some(EventType::Genes(v)) = self.params.get_mut(gene_choice) {
-            v.iter_mut().for_each(|g| {
+            for g in v.iter_mut() {
                 g.cdr3_pos = Some(
                     *anchors
                         .get(&g.name)
                         .ok_or(anyhow!("{} not found in anchor file", g.name))
                         .unwrap(),
                 );
-                g.functional = functions
-                    .get(&g.name)
-                    .ok_or(anyhow!("{} not found in anchor file", g.name))
-                    .unwrap()
-                    .clone()
-            });
+                g.set_functional(
+                    functions
+                        .get(&g.name)
+                        .ok_or(anyhow!("{} not found in anchor file", g.name))
+                        .unwrap()
+                        .clone(),
+                );
+            }
         } else {
             return Err(anyhow!("Wrong value for gene_choice (add_anchors_gene)"))?;
         }
         Ok(())
     }
 
-    fn parse_event(&mut self, str_data: &Vec<String>) -> Result<()> {
+    fn parse_event(&mut self, str_data: &[String]) -> Result<()> {
         if str_data.len() < 2 {
             return Err(anyhow!("Invalid file format."))?;
         }
-        let name = str_data.get(0).ok_or(anyhow!("Invalid file format"))?;
+        let name = str_data.first().ok_or(anyhow!("Invalid file format"))?;
         let key = name
             .split(';')
             .last()
@@ -309,13 +315,22 @@ impl ParserParams {
         Ok(())
     }
 
-    fn parse_error_rate(&mut self, str_data: &Vec<String>) -> Result<()> {
+    fn parse_error_rate(&mut self, str_data: &[String]) -> Result<()> {
+        //
         if str_data.len() != 3 {
             return Err(anyhow!("Invalid format (error rate)"))?;
         }
-        self.error_rate = str_data[2]
-            .parse::<f64>()
-            .map_err(|_| anyhow!(format!("Failed to parse '{}'", str_data[2])))?;
+        if str_data[1].starts_with("#SingleErrorRate") {
+            let error_rate = str_data[2]
+                .parse::<f64>()
+                .map_err(|_| anyhow!(format!("Failed to parse '{}'", str_data[2])))?;
+            self.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(error_rate));
+        } else if str_data[1].starts_with("#IndividualErrorRate") {
+            self.error = ErrorParameters::UniformRate(ErrorUniformRate::load(str_data)?);
+        } else {
+            return Err(anyhow!("Invalid format (error rate)"))?;
+        }
+
         Ok(())
     }
 
@@ -342,7 +357,7 @@ impl ParserParams {
 
 impl ParserMarginals {
     pub fn parse(sections: Vec<Vec<String>>) -> Result<ParserMarginals> {
-        let mut pm: ParserMarginals = Default::default();
+        let mut pm: ParserMarginals = ParserMarginals::default();
         for s in sections {
             match s.first() {
                 Some(_) => {
@@ -401,7 +416,7 @@ fn parse_dim(s: &str) -> Result<Vec<usize>> {
             .unwrap()
             .as_str()
             .split(',')
-            .map(|num_str| num_str.trim()) // Trim whitespace around the numbers
+            .map(str::trim) // Trim whitespace around the numbers
             .filter_map(|num| usize::from_str(num).ok())
             .collect())
     } else {
@@ -433,7 +448,7 @@ fn parse_dependence(s: &str) -> Result<(Vec<String>, Vec<usize>)> {
 fn parse_values(s: &str) -> Result<Vec<f64>> {
     Ok(s.trim_start_matches('%')
         .split(',')
-        .map(|num_str| num_str.trim()) // Trim whitespace around the numbers
+        .map(str::trim) // Trim whitespace around the numbers
         .filter_map(|num_str| num_str.parse::<f64>().ok())
         .collect())
 }

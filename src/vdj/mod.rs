@@ -12,5 +12,5 @@ pub use self::feature::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
 };
 pub use self::inference::Features;
-pub use self::model::{GenerationResult, Generative, Generator, Model};
+pub use self::model::{Generative, Generator, Model};
 pub use self::sequence::{display_j_alignment, display_v_alignment, Sequence};

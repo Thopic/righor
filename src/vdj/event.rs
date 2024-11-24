@@ -1,4 +1,4 @@
-use crate::shared::Dna;
+use crate::shared::sequence::Dna;
 use crate::shared::{DAlignment, VJAlignment};
 use crate::vdj::Model;
 use anyhow::{anyhow, Result};
@@ -23,10 +23,10 @@ pub struct StaticEvent {
     pub v_start_gene: usize, // start of the sequence in the V gene
     pub delv: usize,
     pub j_index: usize,
-    pub j_start_seq: usize, // start of the palindromic J gene (with all dels) in the sequence
+    pub j_start_seq: i64, // start of the palindromic J gene (with all dels) in the sequence
     pub delj: usize,
     pub d_index: usize,
-    pub d_start_seq: usize,
+    pub d_start_seq: i64, // start of the palindromic D gene in the sequence
     pub deld3: usize,
     pub deld5: usize,
     pub insvd: Dna,
@@ -37,7 +37,7 @@ pub struct StaticEvent {
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl StaticEvent {
-    fn __repr__(&self) -> String {
+    pub fn __repr__(&self) -> String {
         format!(
             "StaticEvent(\n\
 		 nb. del. on V3: {},\n\
@@ -45,13 +45,23 @@ impl StaticEvent {
 		 nb. del. on D3: {},\n\
 		 nb. del. on J5: {},\n\
 		 V-D insertions: {},\n\
-		 D-J insertions: {})",
+		 D-J insertions: {},\n\
+		 errors: {})",
             self.delv,
             self.deld5,
             self.deld3,
             self.delj,
             self.insvd.get_string(),
-            self.insdj.get_string()
+            self.insdj.get_string(),
+            if self.errors.is_empty() {
+                "None".to_string()
+            } else {
+                self.errors
+                    .iter()
+                    .map(|(num, byte)| format!("S{}{}", num, *byte as char))
+                    .collect::<Vec<_>>()
+                    .join("")
+            },
         )
     }
 }
@@ -70,7 +80,7 @@ impl StaticEvent {
 
         // add errors
         for (ii, nuc) in &self.errors {
-            seq.seq[*ii] = *nuc
+            seq.seq[*ii] = *nuc;
         }
 
         seq
@@ -111,7 +121,11 @@ impl Event<'_> {
             j_start_seq: self
                 .j
                 .ok_or(anyhow!("Can't move that event to static"))?
-                .start_seq,
+                .start_seq as i64
+                - self
+                    .j
+                    .ok_or(anyhow!("Can't move that event to static"))?
+                    .start_gene as i64, // this is needed when J fully cover the sequence
             delj: self.delj,
             d_index: self
                 .d

@@ -1,12 +1,20 @@
-use crate::shared::utils::{normalize_transition_matrix, Normalize, Normalize2, Normalize3};
-use crate::shared::{nucleotides_inv, Dna, InferenceParameters};
+use crate::shared::likelihood::Likelihood;
+use crate::shared::sequence::Dna;
+use crate::shared::utils::{Normalize, Normalize2, Normalize3};
+use crate::shared::DNAMarkovChain;
+use crate::shared::ModelStructure;
+use crate::shared::{errors::FeatureError, DnaLike, InferenceParameters};
+use crate::vdj::Model as ModelVDJ;
 use crate::{v_dj, vdj};
 use anyhow::{anyhow, Result};
-use dyn_clone::DynClone;
-use ndarray::{Array1, Array2, Array3, Axis};
+use std::sync::Arc;
+
+use ndarray::{Array1, Array2, Array3};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 use std::fmt::Debug;
+
+//use crate::shared::distributions::calc_steady_state_dist;
 
 // This class define different type of Feature
 // Feature are used during the expectation maximization process
@@ -26,9 +34,6 @@ pub trait Feature<T> {
     fn dirty_update(&mut self, observation: T, likelihood: f64);
     fn likelihood(&self, observation: T) -> f64;
     fn scale_dirty(&mut self, factor: f64);
-    fn average(iter: impl Iterator<Item = Self> + ExactSizeIterator + Clone) -> Result<Self>
-    where
-        Self: Sized;
 }
 
 // One-dimensional categorical distribution
@@ -50,20 +55,6 @@ impl Feature<usize> for CategoricalFeature1 {
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
     }
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1> + ExactSizeIterator + Clone,
-    ) -> Result<CategoricalFeature1> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature1::new(&(average_proba / (len as f64)))
-    }
 }
 
 impl CategoricalFeature1 {
@@ -82,9 +73,25 @@ impl CategoricalFeature1 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
+        assert!(
+            !self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
+    }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature1> + Clone,
+    ) -> Result<Vec<CategoricalFeature1>> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba = average_proba + feat.probas_dirty;
+            len += 1;
         }
+        let new_feat = CategoricalFeature1::new(&(average_proba / (len as f64)))?;
+        Ok(vec![new_feat; len])
     }
 }
 
@@ -106,20 +113,6 @@ impl Feature<(usize, usize)> for CategoricalFeature1g1 {
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
     }
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1g1> + ExactSizeIterator + Clone,
-    ) -> Result<CategoricalFeature1g1> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba += &feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature1g1::new(&(average_proba / (len as f64)))
-    }
 }
 
 impl CategoricalFeature1g1 {
@@ -137,9 +130,25 @@ impl CategoricalFeature1g1 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
+        assert!(
+            !self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
+    }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature1g1> + Clone,
+    ) -> Result<CategoricalFeature1g1> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba += &feat.probas_dirty;
+            len += 1;
         }
+        let average_feat = CategoricalFeature1g1::new(&(average_proba / (f64::from(len))))?;
+        Ok(average_feat)
     }
 }
 
@@ -162,22 +171,6 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature1g2 {
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
     }
-
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature1g2> + ExactSizeIterator + Clone,
-    ) -> Result<CategoricalFeature1g2> {
-        let mut len = 1;
-
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba += &feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature1g2::new(&(average_proba / (len as f64)))
-    }
 }
 
 impl CategoricalFeature1g2 {
@@ -195,9 +188,26 @@ impl CategoricalFeature1g2 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
+        assert!(
+            !self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
+    }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature1g2> + Clone,
+    ) -> Result<CategoricalFeature1g2> {
+        let mut len = 1;
+
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba += &feat.probas_dirty;
+            len += 1;
         }
+        let average_feat = CategoricalFeature1g2::new(&(average_proba / (f64::from(len))))?;
+        Ok(average_feat)
     }
 }
 
@@ -220,20 +230,6 @@ impl Feature<(usize, usize)> for CategoricalFeature2 {
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
     }
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature2> + ExactSizeIterator + Clone,
-    ) -> Result<CategoricalFeature2> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba += &feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature2::new(&(average_proba / (len as f64)))
-    }
 }
 
 impl CategoricalFeature2 {
@@ -254,9 +250,25 @@ impl CategoricalFeature2 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
+        assert!(
+            self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
+    }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature2> + Clone,
+    ) -> Result<CategoricalFeature2> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba += &feat.probas_dirty;
+            len += 1;
         }
+        let average_feat = CategoricalFeature2::new(&(average_proba / (f64::from(len))))?;
+        Ok(average_feat)
     }
 }
 
@@ -279,20 +291,6 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature2g1 {
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
     }
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature2g1> + ExactSizeIterator + Clone,
-    ) -> Result<CategoricalFeature2g1> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature2g1::new(&(average_proba / (len as f64)))
-    }
 }
 
 impl CategoricalFeature2g1 {
@@ -310,9 +308,25 @@ impl CategoricalFeature2g1 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
+        assert!(
+            self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
+    }
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature2g1> + Clone,
+    ) -> Result<CategoricalFeature2g1> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
+        for feat in iter {
+            average_proba = average_proba + feat.probas_dirty;
+            len += 1;
         }
+        let average_feat = CategoricalFeature2g1::new(&(average_proba / (f64::from(len))))?;
+        Ok(average_feat)
     }
 }
 
@@ -335,21 +349,6 @@ impl Feature<(usize, usize, usize)> for CategoricalFeature3 {
     fn scale_dirty(&mut self, factor: f64) {
         self.probas_dirty *= factor;
     }
-
-    fn average(
-        mut iter: impl Iterator<Item = CategoricalFeature3> + ExactSizeIterator + Clone,
-    ) -> Result<CategoricalFeature3> {
-        let mut len = 1;
-        let mut average_proba = iter
-            .next()
-            .ok_or(anyhow!("Cannot average empty vector"))?
-            .probas_dirty;
-        for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
-            len += 1;
-        }
-        CategoricalFeature3::new(&(average_proba / (len as f64)))
-    }
 }
 
 impl CategoricalFeature3 {
@@ -370,106 +369,25 @@ impl CategoricalFeature3 {
     }
 
     pub fn check(&self) {
-        if self.probas.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
+        assert!(
+            !self.probas.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
-}
-
-// Most basic error model
-#[derive(Default, Clone, Debug)]
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-pub struct ErrorSingleNucleotide {
-    pub error_rate: f64,
-    logrs3: f64,
-    log1mr: f64,
-    // total_lengths: f64, // For each sequence, this saves Σ P(E) L(S(E))
-    // total_errors: f64,  // For each sequence, this saves Σ P(E) N_{err}(S(E))
-    // useful for dirty updating
-    total_lengths_dirty: f64,
-    total_errors_dirty: f64,
-    total_probas_dirty: f64, // For each sequence, this saves Σ P(E)
-}
-
-impl ErrorSingleNucleotide {
-    pub fn new(error_rate: f64) -> Result<ErrorSingleNucleotide> {
-        if !(0. ..1.).contains(&error_rate) || (error_rate.is_nan()) || (error_rate.is_infinite()) {
-            return Err(anyhow!(
-                "Error in ErrorSingleNucleotide Feature creation. Negative/NaN/infinite error rate."
-            ));
-        }
-        Ok(ErrorSingleNucleotide {
-            error_rate,
-            logrs3: (error_rate / 3.).log2(),
-            log1mr: (1. - error_rate).log2(),
-            total_lengths_dirty: 0.,
-            total_errors_dirty: 0.,
-            total_probas_dirty: 0.,
-        })
-    }
-}
-
-impl Feature<(usize, usize)> for ErrorSingleNucleotide {
-    /// Arguments
-    /// - observation: "(nb of error, length of the sequence without insertion)"
-    /// - likelihood: measured likelihood of the event
-    fn dirty_update(&mut self, observation: (usize, usize), likelihood: f64) {
-        self.total_lengths_dirty += likelihood * (observation.1 as f64);
-        self.total_errors_dirty += likelihood * (observation.0 as f64);
-        self.total_probas_dirty += likelihood;
-    }
-
-    /// Arguments
-    /// - observation: "(nb of error, length of the sequence without insertion)"
-    /// The complete formula is likelihood = (r/3)^(nb error) * (1-r)^(length - nb error)
-    fn likelihood(&self, observation: (usize, usize)) -> f64 {
-        if observation.0 == 0 {
-            return (observation.1 as f64 * self.log1mr).exp2();
-        }
-        ((observation.0 as f64) * self.logrs3
-            + ((observation.1 - observation.0) as f64) * self.log1mr)
-            .exp2()
-    }
-
-    fn scale_dirty(&mut self, factor: f64) {
-        self.total_errors_dirty *= factor;
-        self.total_lengths_dirty *= factor;
-    }
-
-    // fn cleanup(&self) -> Result<ErrorSingleNucleotide> {
-    //     // estimate the error_rate of the sequence from the dirty
-    //     // estimate.
-    //     let error_rate = if self.total_lengths_dirty == 0. {
-    //         return ErrorSingleNucleotide::new(0.);
-    //     } else {
-    //         self.total_errors_dirty / self.total_lengths_dirty
-    //     };
-
-    //     Ok(ErrorSingleNucleotide {
-    //         error_rate,
-    //         logrs3: (error_rate / 3.).log2(),
-    //         log1mr: (1. - error_rate).log2(),
-    //         total_lengths: self.total_lengths_dirty / self.total_probas_dirty,
-    //         total_errors: self.total_errors_dirty / self.total_probas_dirty,
-    //         total_probas_dirty: 0.,
-    //         total_lengths_dirty: 0.,
-    //         total_errors_dirty: 0.,
-    //     })
-    // }
-    fn average(
-        mut iter: impl Iterator<Item = ErrorSingleNucleotide> + ExactSizeIterator + Clone,
-    ) -> Result<ErrorSingleNucleotide> {
-        let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
-        let mut sum_err = first_feat.total_errors_dirty;
-        let mut sum_length = first_feat.total_lengths_dirty;
+    pub fn average(
+        mut iter: impl Iterator<Item = CategoricalFeature3> + Clone,
+    ) -> Result<CategoricalFeature3> {
+        let mut len = 1;
+        let mut average_proba = iter
+            .next()
+            .ok_or(anyhow!("Cannot average empty vector"))?
+            .probas_dirty;
         for feat in iter {
-            sum_err += feat.total_errors_dirty;
-            sum_length += feat.total_lengths_dirty;
+            average_proba = average_proba + feat.probas_dirty;
+            len += 1;
         }
-        if sum_length == 0. {
-            return ErrorSingleNucleotide::new(0.);
-        }
-        ErrorSingleNucleotide::new(sum_err / sum_length)
+        let average_feat = CategoricalFeature3::new(&(average_proba / (f64::from(len))))?;
+        Ok(average_feat)
     }
 }
 
@@ -478,82 +396,130 @@ impl Feature<(usize, usize)> for ErrorSingleNucleotide {
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 pub struct InsertionFeature {
     pub length_distribution: Array1<f64>,
-    //pub initial_distribution: Array1<f64>, // This should not be here anymore, rm
-    pub transition_matrix: Array2<f64>,
 
-    // include non-standard nucleotides
-    transition_matrix_internal: Array2<f64>,
+    // give the likelihood of a given sequence
+    pub transition: Arc<DNAMarkovChain>,
 
     // for updating
     pub transition_matrix_dirty: Array2<f64>,
     pub length_distribution_dirty: Array1<f64>,
-    //  initial_distribution_dirty: Array1<f64>,
 }
 
-impl Feature<&Dna> for InsertionFeature {
-    /// Observation plus one contains the sequence of interest with the nucleotide
-    /// preceding it, so if we're interested in the insertion CTGGC that pops up
-    /// in the sequence CAACTGGCAC we would send ACTGGC.
-    fn dirty_update(&mut self, observation_plus_one: &Dna, likelihood: f64) {
-        if observation_plus_one.len() == 1 {
+impl InsertionFeature {
+    /// - observation: sequence of interest
+    /// - `first_nucleotide`: the nucleotide preceding the sequence of interest
+    /// - `likelihood`: likelihood value to be updated
+    pub fn dirty_update(
+        &mut self,
+        observation: &DnaLike,
+        first_nucleotide: usize,
+        likelihood: f64,
+    ) {
+        if observation.is_empty() {
             self.length_distribution_dirty[0] += likelihood;
             return;
         }
-        self.length_distribution_dirty[observation_plus_one.len() - 1] += likelihood;
+        self.length_distribution_dirty[observation.len()] += likelihood;
 
-        for ii in 1..observation_plus_one.len() {
-            // TODO: The way I deal with N is not quite exact, need to fix that (not a big deal though)
-            // if (likelihood != 0.) {
-            //     println!("{}\t{}", observation_plus_one.get_string(), likelihood);
-            // }
-            if (observation_plus_one.seq[ii - 1] != b'N') && (observation_plus_one.seq[ii] != b'N')
-            {
-                self.transition_matrix_dirty[[
-                    nucleotides_inv(observation_plus_one.seq[ii - 1]),
-                    nucleotides_inv(observation_plus_one.seq[ii]),
-                ]] += likelihood
+        self.transition_matrix_dirty =
+            self.transition
+                .update(observation, first_nucleotide, likelihood);
+    }
+
+    /// - observation: sequence of interest
+    /// - `first_nucleotide`: the nucleotide preceding the sequence of interest
+    pub fn likelihood(&self, observation: &DnaLike, first_nucleotide: usize) -> Likelihood {
+        if observation.len() >= self.length_distribution.len() {
+            return Likelihood::zero(observation);
+        }
+        if observation.is_empty() {
+            return Likelihood::identity(observation) * self.length_distribution[0];
+        }
+        let len = observation.len();
+        self.transition.likelihood(observation, first_nucleotide) * self.length_distribution[len]
+    }
+
+    pub fn scale_dirty(&mut self, factor: f64) {
+        self.length_distribution_dirty *= factor;
+        self.transition_matrix_dirty *= factor;
+    }
+}
+
+impl InsertionFeature {
+    pub fn correct_for_error(&self, err: &FeatureError) -> InsertionFeature {
+        // The error rate make the inferred value of the transition rate wrong
+        // we correct it using the current error rate estimate.
+
+        match err {
+            FeatureError::ConstantRate(f) => {
+                let rho = 4. * f.error_rate / 3.;
+                let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
+                let mut insfeat = self.clone();
+                // we just modify the "dirty" matrix (no choice ...)
+                insfeat.transition_matrix_dirty =
+                    matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
+                insfeat
+            }
+            FeatureError::UniformRate(f) => {
+                let mut insfeat = self.clone();
+                let rho = 4. * f.get_error_rate() / 3.;
+                let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
+                insfeat.transition_matrix_dirty =
+                    matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
+                insfeat
             }
         }
     }
 
-    /// Observation plus one contains the sequence of interest with the nucleotide
-    /// preceding it, so if we're interested in the insertion CTGGC that pops up
-    /// in the sequence CAACTGGCAC we would send ACTGGC.
-    fn likelihood(&self, observation_plus_one: &Dna) -> f64 {
-        if observation_plus_one.len() > self.length_distribution.len() {
-            return 0.;
-        }
-        if observation_plus_one.len() == 1 {
-            return self.length_distribution[0];
-        }
-        let len = observation_plus_one.len() - 1;
-        let mut proba = 1.;
-        for ii in 1..len + 1 {
-            proba *= self.transition_matrix_internal[[
-                nucleotides_inv(observation_plus_one.seq[ii - 1]),
-                nucleotides_inv(observation_plus_one.seq[ii]),
-            ]];
-        }
-        // println!(
-        //     "likelihood: {}\t{}",
-        //     observation_plus_one.get_string(),
-        //     proba * self.length_distribution[len]
-        // );
-        proba * self.length_distribution[len]
+    pub fn check(&self) {
+        assert!(
+            !self.transition.transition_matrix.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
+        assert!(
+            !self.length_distribution.iter().any(|&x| x > 1.),
+            "Probabilities larger than one !"
+        );
     }
 
-    fn scale_dirty(&mut self, factor: f64) {
-        self.length_distribution_dirty *= factor;
-        self.transition_matrix_dirty *= factor;
+    pub fn new(
+        length_distribution: &Array1<f64>,
+        transition: Arc<DNAMarkovChain>,
+    ) -> Result<InsertionFeature> {
+        let dim = transition.transition_matrix.dim();
+        let m = InsertionFeature {
+            length_distribution: length_distribution.normalize_distribution()?,
+            transition,
+            transition_matrix_dirty: Array2::<f64>::zeros(dim),
+            length_distribution_dirty: Array1::<f64>::zeros(length_distribution.dim()),
+        };
+
+        Ok(m)
     }
 
-    fn average(
-        mut iter: impl Iterator<Item = InsertionFeature> + ExactSizeIterator + Clone,
+    pub fn normalize(&self) -> Result<Self> {
+        Self::new(&self.length_distribution, self.transition.clone())
+    }
+
+    pub fn get_parameters(&self) -> (Array1<f64>, Array2<f64>) {
+        (
+            self.length_distribution.clone(),
+            self.transition.transition_matrix.clone(),
+        )
+    }
+
+    pub fn max_nb_insertions(&self) -> usize {
+        self.length_distribution.len()
+    }
+
+    pub fn average(
+        mut iter: impl Iterator<Item = InsertionFeature> + Clone,
     ) -> Result<InsertionFeature> {
         let mut len = 1;
         let first_feat = iter.next().ok_or(anyhow!("Cannot average empty vector"))?;
         let mut average_length = first_feat.length_distribution_dirty;
         let mut average_mat = first_feat.transition_matrix_dirty;
+        let direction = first_feat.transition.reverse;
         for feat in iter {
             average_mat = average_mat + feat.transition_matrix_dirty;
             average_length = average_length + feat.length_distribution_dirty;
@@ -567,79 +533,13 @@ impl Feature<&Dna> for InsertionFeature {
         let sum = average_mat.clone().sum();
         average_mat.mapv_inplace(|a| if a < 0.0 { 1e-4 * sum } else { a });
 
-        InsertionFeature::new(
-            &(average_length / (len as f64)),
-            &(average_mat / (len as f64)),
-        )
-    }
-}
+        let transition = Arc::new(DNAMarkovChain::new(
+            &(average_mat / (f64::from(len))),
+            direction,
+        )?);
 
-impl InsertionFeature {
-    pub fn correct_for_uniform_error_rate(&self, r: f64) -> InsertionFeature {
-        // The error rate make the inferred value of the transition rate wrong
-        // we correct it using the current error rate estimate.
-
-        let rho = 4. * r / 3.;
-        let matrix = 1. / (1. - rho) * (Array2::eye(4) - rho / 4. * Array2::ones((4, 4)));
-        let mut insfeat = self.clone();
-        insfeat.transition_matrix_dirty = matrix.dot(&insfeat.transition_matrix_dirty.dot(&matrix));
-        insfeat
-    }
-
-    pub fn check(&self) {
-        if self.transition_matrix_internal.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
-        if self.length_distribution.iter().any(|&x| x > 1.) {
-            panic!("Probabilities larger than one !");
-        }
-    }
-
-    pub fn new(
-        length_distribution: &Array1<f64>,
-        transition_matrix: &Array2<f64>,
-    ) -> Result<InsertionFeature> {
-        let mut m = InsertionFeature {
-            length_distribution: length_distribution.normalize_distribution()?,
-            transition_matrix: normalize_transition_matrix(transition_matrix)?,
-            transition_matrix_dirty: Array2::<f64>::zeros(transition_matrix.dim()),
-            length_distribution_dirty: Array1::<f64>::zeros(length_distribution.dim()),
-            transition_matrix_internal: Array2::<f64>::zeros((5, 5)),
-        };
-
-        m.define_internal();
-        Ok(m)
-    }
-
-    pub fn normalize(&self) -> Result<Self> {
-        Self::new(&self.length_distribution, &self.transition_matrix)
-    }
-
-    pub fn get_parameters(&self) -> (Array1<f64>, Array2<f64>) {
-        (
-            self.length_distribution.clone(),
-            self.transition_matrix.clone(),
-        )
-    }
-
-    pub fn max_nb_insertions(&self) -> usize {
-        self.length_distribution.len()
-    }
-
-    /// deal with undefined (N) nucleotides
-    fn define_internal(&mut self) {
-        for ii in 0..4 {
-            for jj in 0..4 {
-                self.transition_matrix_internal[[ii, jj]] = self.transition_matrix[[ii, jj]];
-            }
-        }
-        for ii in 0..5 {
-            self.transition_matrix_internal[[ii, 4]] = 1.;
-            if ii < 4 {
-                self.transition_matrix_internal[[4, ii]] =
-                    self.transition_matrix.sum_axis(Axis(0))[[ii]];
-            }
-        }
+        let average_feat = InsertionFeature::new(&(average_length / (f64::from(len))), transition)?;
+        Ok(average_feat)
     }
 }
 
@@ -649,31 +549,38 @@ pub struct InfEvent {
     pub v_index: usize,
     pub v_start_gene: usize, // start of the sequence in the V gene
     pub j_index: usize,
-    pub j_start_seq: usize, // start of the palindromic J gene (with all dels) in the sequence
+    pub j_start_seq: i64, // start of the palindromic J gene (with all dels) in the sequence
     pub d_index: usize,
     // position of the v,d,j genes in the sequence
     pub end_v: i64,
     pub start_d: i64,
     pub end_d: i64,
     pub start_j: i64,
+    pub pos_d: i64,
 
     // sequences (only added after the inference is over)
-    pub ins_vd: Option<Dna>,
-    pub ins_dj: Option<Dna>,
-    pub d_segment: Option<Dna>,
-    pub sequence: Option<Dna>,
-    pub cdr3: Option<Dna>,
+    // need DnaLike container because : they can be aa sequence
+    // & DnaLike is not a type that can work with pypi
+    pub ins_vd: Option<DnaLike>,
+    pub ins_dj: Option<DnaLike>,
+    pub d_segment: Option<DnaLike>,
+    pub sequence: Option<DnaLike>,
+    pub cdr3: Option<DnaLike>,
     pub full_sequence: Option<Dna>,
     pub reconstructed_sequence: Option<Dna>,
-
     // likelihood (pgen + perror)
     pub likelihood: f64,
 }
 
-#[derive(Clone, Debug)]
-pub enum FeaturesGeneric {
-    VDJ(vdj::Features),
-    VxDJ(v_dj::Features),
+impl InfEvent {
+    pub fn get_reconstructed_cdr3(self, model: &ModelVDJ) -> Result<Dna> {
+        let seq = self.reconstructed_sequence.unwrap();
+        let jgene = model.seg_js[self.j_index].clone();
+        Ok(seq.extract_subsequence(
+            model.seg_vs[self.v_index].cdr3_pos.unwrap(),
+            seq.len() - jgene.seq.len() + jgene.cdr3_pos.unwrap() + 3,
+        ))
+    }
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
@@ -682,21 +589,14 @@ pub struct ResultInference {
     pub likelihood: f64,
     pub pgen: f64,
     pub best_event: Option<InfEvent>,
+    // best_likelihood is more an useful tool during inference
+    // than an actual likelihood of the best event
+    // (the definition of "event" vary between model
+    // best_event.likelihood is the way to go
     pub best_likelihood: f64,
-    pub features: Option<Box<dyn FeaturesTrait>>,
+    pub features: Option<Features>,
+    pub human_readable: Option<ResultHuman>,
 }
-
-// impl fmt::Debug for ResultInference {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         f.debug_struct("Point")
-//             .field("likelihood", &self.likelihood)
-//             .field("pgen", &self.pgen)
-// 	    .field("best_event", &self.best_event)
-// 	    .field("best_likelihood", &self.best_likelihood)
-// 	    .field("features", &self.features)
-//          .finish()
-//     }
-// }
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
@@ -715,8 +615,11 @@ impl ResultInference {
         self.get_best_event()
     }
     #[getter]
-    pub fn get_likelihood_best_event(&self) -> f64 {
-        self.best_likelihood
+    pub fn get_likelihood_best_event(&self) -> Option<f64> {
+        match self.get_best_event() {
+            Some(x) => Some(x.likelihood),
+            None => None,
+        }
     }
 }
 
@@ -736,11 +639,37 @@ pub struct ResultHuman {
     pub aligned_j: String,
     pub v_name: String,
     pub j_name: String,
+    pub d_name: String,
+}
+
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+#[pymethods]
+impl ResultInference {
+    fn __repr__(&self) -> String {
+        self.display().unwrap()
+    }
+    #[getter]
+    pub fn get_best_v_gene(&self) -> String {
+        self.human_readable.clone().unwrap().v_name
+    }
+    #[getter]
+    pub fn get_best_j_gene(&self) -> String {
+        self.human_readable.clone().unwrap().j_name
+    }
+    #[getter]
+    pub fn get_best_d_gene(&self) -> String {
+        self.human_readable.clone().unwrap().d_name
+    }
+    #[getter]
+    pub fn get_reconstructed_sequence(&self) -> String {
+        self.human_readable.clone().unwrap().reconstructed_seq
+    }
 }
 
 impl ResultInference {
-    pub fn display(&self, model: &vdj::Model) -> Result<String> {
-        if self.best_event.is_none() {
+    pub fn display(&self) -> Result<String> {
+        let rh = self.human_readable.clone();
+        if self.best_event.is_none() || rh.is_none() {
             return Ok(format!(
                 "Result:\n\
 		 - Likelihood: {}\n\
@@ -748,8 +677,7 @@ impl ResultInference {
                 self.likelihood, self.pgen
             ));
         }
-
-        let rh = self.to_human(model)?;
+        let rh = rh.unwrap();
         Ok(format!(
             "Result:\n\
 	     \tLikelihood: {:.2e}, pgen: {:.2e}\n\
@@ -770,7 +698,7 @@ impl ResultInference {
     }
 
     /// Translate the result to an easier to read/print version
-    pub fn to_human(&self, model: &vdj::Model) -> Result<ResultHuman> {
+    pub fn load_human(&mut self, model: &vdj::Model) -> Result<()> {
         let best_event = self.get_best_event().ok_or(anyhow!("No event"))?;
 
         let translated_cdr3 = if best_event.cdr3.clone().unwrap().len() % 3 == 0 {
@@ -803,7 +731,7 @@ impl ResultInference {
             width = width
         );
 
-        Ok(ResultHuman {
+        self.human_readable = Some(ResultHuman {
             n_cdr3: best_event.cdr3.clone().unwrap().get_string(),
             aa_cdr3: translated_cdr3,
             likelihood: self.likelihood,
@@ -815,8 +743,10 @@ impl ResultInference {
             aligned_v,
             aligned_j,
             v_name: model.get_v_gene(&best_event),
+            d_name: model.get_d_gene(&best_event),
             j_name: model.get_j_gene(&best_event),
-        })
+        });
+        Ok(())
     }
 
     pub fn impossible() -> ResultInference {
@@ -826,6 +756,7 @@ impl ResultInference {
             best_event: None,
             best_likelihood: 0.,
             features: None,
+            human_readable: None,
         }
     }
     pub fn set_best_event(&mut self, ev: InfEvent, ip: &InferenceParameters) {
@@ -846,12 +777,12 @@ impl ResultInference {
                     .sequence
                     .extract_padded_subsequence(event.end_v, event.start_d),
             );
+
             event.ins_dj = Some(
                 sequence
                     .sequence
                     .extract_padded_subsequence(event.end_d, event.start_j),
             );
-
             event.d_segment = Some(
                 sequence
                     .sequence
@@ -871,7 +802,7 @@ impl ResultInference {
 
             // careful, cdr3_pos_j does not! include the palindromic insertions
             // or the last nucleotide
-            let end_cdr3 = event.j_start_seq as i64 + cdr3_pos_j as i64 - model.range_del_j.0 + 3;
+            let end_cdr3 = event.j_start_seq + cdr3_pos_j as i64 - model.range_del_j.0 + 3;
 
             event.cdr3 = Some(
                 sequence
@@ -889,56 +820,118 @@ impl ResultInference {
                 .seq_with_pal
                 .ok_or(anyhow!("Model not loaded correctly"))?;
 
-            let mut full_seq = gene_v.extract_subsequence(0, event.v_start_gene);
-            full_seq.extend(&sequence.sequence);
-            full_seq.extend(
-                &gene_j
-                    .extract_subsequence(sequence.sequence.len() - event.j_start_seq, gene_j.len()),
-            );
-            event.full_sequence = Some(full_seq);
+            let gene_d = model.seg_ds[event.d_index]
+                .clone()
+                .seq_with_pal
+                .ok_or(anyhow!("Model not loaded correctly"))?;
+
+            let gene_v_cut = DnaLike::from_dna(gene_v.extract_subsequence(0, event.v_start_gene));
+
+            let mut full_seq = gene_v_cut.extended(&sequence.sequence);
+
+            full_seq = full_seq.extended_with_dna(&gene_j.extract_subsequence(
+                (sequence.sequence.len() as i64 - event.j_start_seq) as usize,
+                gene_j.len(),
+            ));
+
+            event.full_sequence = Some(full_seq.to_dna());
 
             let mut reconstructed_seq =
                 gene_v.extract_subsequence(0, (event.end_v + event.v_start_gene as i64) as usize);
-            reconstructed_seq.extend(&event.ins_vd.clone().unwrap());
-            reconstructed_seq.extend(&event.d_segment.clone().unwrap());
-            reconstructed_seq.extend(&event.ins_dj.clone().unwrap());
+            reconstructed_seq.extend(&event.ins_vd.clone().unwrap().to_dna());
+
+            reconstructed_seq.extend(&gene_d.extract_subsequence(
+                (-event.pos_d + event.start_d) as usize,
+                (-event.pos_d + event.end_d) as usize,
+            ));
+            //            reconstructed_seq.extend(&event.d_segment.clone().unwrap());
+            reconstructed_seq.extend(&event.ins_dj.clone().unwrap().to_dna());
             reconstructed_seq.extend(&gene_j.extract_padded_subsequence(
-                event.start_j - event.j_start_seq as i64,
+                event.start_j - event.j_start_seq,
                 gene_j.len() as i64,
             ));
             event.reconstructed_sequence = Some(reconstructed_seq);
             self.best_event = Some(event);
+            self.load_human(model)?;
         }
         Ok(())
     }
 }
 
-pub trait FeaturesTrait: Send + Sync + DynClone + Debug {
-    fn delv(&self) -> &CategoricalFeature1g1;
-    fn delj(&self) -> &CategoricalFeature1g1;
-    fn deld(&self) -> &CategoricalFeature2g1;
-    fn insvd(&self) -> &InsertionFeature;
-    fn insdj(&self) -> &InsertionFeature;
-    fn error(&self) -> &ErrorSingleNucleotide;
-    fn delv_mut(&mut self) -> &mut CategoricalFeature1g1;
-    fn delj_mut(&mut self) -> &mut CategoricalFeature1g1;
-    fn deld_mut(&mut self) -> &mut CategoricalFeature2g1;
-    fn insvd_mut(&mut self) -> &mut InsertionFeature;
-    fn insdj_mut(&mut self) -> &mut InsertionFeature;
-    fn error_mut(&mut self) -> &mut ErrorSingleNucleotide;
-    fn generic(&self) -> FeaturesGeneric;
-    fn new(model: &vdj::Model) -> Result<Self>
-    where
-        Self: Sized;
-    fn infer(
+#[derive(Clone, Debug)]
+/// Generic "features" object that contains all the features of
+/// the model
+pub enum Features {
+    VDJ(vdj::Features),
+    VxDJ(v_dj::Features),
+}
+
+impl Features {
+    pub fn infer(
         &mut self,
         sequence: &vdj::Sequence,
         ip: &InferenceParameters,
-    ) -> Result<ResultInference>;
-    fn update_model(&self, model: &mut vdj::Model) -> Result<()>;
-    fn average(features: Vec<Self>) -> Result<Self>
-    where
-        Self: Sized;
-}
+    ) -> Result<ResultInference> {
+        match self {
+            Features::VDJ(x) => x.infer(sequence, ip),
+            Features::VxDJ(x) => x.infer(sequence, ip),
+        }
+    }
 
-dyn_clone::clone_trait_object!(FeaturesTrait);
+    pub fn normalize(&mut self) -> Result<()> {
+        match self {
+            Features::VDJ(x) => x.normalize(),
+            Features::VxDJ(x) => x.normalize(),
+        }
+    }
+
+    pub fn error(&self) -> &FeatureError {
+        match self {
+            Features::VDJ(x) => &x.error,
+            Features::VxDJ(x) => &x.error,
+        }
+    }
+    pub fn error_mut(&mut self) -> &mut FeatureError {
+        match self {
+            Features::VDJ(x) => &mut x.error,
+            Features::VxDJ(x) => &mut x.error,
+        }
+    }
+
+    pub fn update(features: Vec<Features>, model: &mut ModelVDJ) -> Result<(Vec<Features>, f64)> {
+        Ok(match model.model_type {
+            ModelStructure::VDJ => {
+                let feats = vdj::Features::update(
+                    features
+                        .into_iter()
+                        .filter_map(|x| {
+                            if let Features::VDJ(f) = x {
+                                Some(f)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                    model,
+                )?;
+                (feats.0.into_iter().map(Features::VDJ).collect(), feats.1)
+            }
+            ModelStructure::VxDJ => {
+                let feats = v_dj::Features::update(
+                    features
+                        .into_iter()
+                        .filter_map(|x| {
+                            if let Features::VxDJ(f) = x {
+                                Some(f)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                    model,
+                )?;
+                (feats.0.into_iter().map(Features::VxDJ).collect(), feats.1)
+            }
+        })
+    }
+}

@@ -2,14 +2,16 @@ use anyhow::{anyhow, Result};
 
 use ndarray::{s, Array, Array1, Array2, Array3, Dimension};
 
-use rayon;
 use serde::{Deserialize, Serialize};
 
-pub fn fix_number_threads(nb_threads: usize) {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(nb_threads)
-        .build_global()
-        .unwrap();
+#[cfg(all(feature = "py_binds", feature = "pyo3"))]
+use log::warn;
+
+/// Sends a warning: uses Python warnings in pyo3 mode, otherwise logs to stderr.
+pub fn send_warning(message: &str) {
+    #[cfg(all(feature = "py_binds", feature = "pyo3"))]
+    warn!("Warning: {}", message);
+    eprintln!("Warning: {message}");
 }
 
 pub fn count_differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> usize {
@@ -17,6 +19,15 @@ pub fn count_differences<T: PartialEq>(vec1: &[T], vec2: &[T]) -> usize {
         .zip(vec2.iter())
         .filter(|&(a, b)| a != b)
         .count()
+}
+
+/// euclidian modulo (it's nightly)
+pub fn mod_euclid(a: i64, b: u64) -> u64 {
+    const UPPER: u64 = i64::MAX as u64;
+    match b {
+        1..=UPPER => a.rem_euclid(b as i64) as u64,
+        _ => a as u64 - u64::from(a < 0),
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -287,7 +298,7 @@ impl Normalize for Array3<f64> {
     }
 }
 
-pub fn sorted_and_complete(arr: Vec<i64>) -> bool {
+pub fn sorted_and_complete(arr: &[i64]) -> bool {
     // check that the array is sorted and equal to
     // arr[0]..arr.last()
     if arr.is_empty() {
@@ -303,7 +314,7 @@ pub fn sorted_and_complete(arr: Vec<i64>) -> bool {
     true
 }
 
-pub fn sorted_and_complete_0start(arr: Vec<i64>) -> bool {
+pub fn sorted_and_complete_0start(arr: &[i64]) -> bool {
     // check that the array is sorted and equal to
     // 0..arr.last()
     if arr.is_empty() {
@@ -323,7 +334,7 @@ pub fn sorted_and_complete_0start(arr: Vec<i64>) -> bool {
 /// * `v` – The original *decreasing* vector (which is going to be cloned and modified)
 /// * `elem` – The element to be inserted
 /// # Returns the vector v with elem inserted such that v.map(|x| x.0) is decreasing.
-pub fn insert_in_order<T>(v: Vec<(f64, T)>, elem: (f64, T)) -> Vec<(f64, T)>
+pub fn insert_in_order<T>(v: &[(f64, T)], elem: (f64, T)) -> Vec<(f64, T)>
 where
     T: Clone,
 {
@@ -334,7 +345,7 @@ where
     let index = match pos {
         Ok(i) | Err(i) => i,
     };
-    let mut vcloned: Vec<(f64, T)> = v.to_vec();
+    let mut vcloned: Vec<(f64, T)> = v.to_vec().clone();
     vcloned.insert(index, elem);
     vcloned
 }
@@ -348,7 +359,7 @@ where
     }
     arr.into_iter()
         .max_by(|a, b| a.partial_cmp(b).unwrap())
-        .cloned()
+        .copied()
         .unwrap()
 }
 
