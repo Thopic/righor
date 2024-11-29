@@ -140,7 +140,7 @@ impl AggregatedFeatureEndV {
 
             if ll > ip.min_likelihood {
                 let dirty_proba = self.dirty_likelihood.get(v_end); // P(ev)
-                if dirty_proba > 0. {
+                if dirty_proba > 0. && ip.infer_features.del_v {
                     // here we want to compute P(delV | V)
                     // at that point the V gene proba should be already updated
                     feat_delv.dirty_update((delv, v.index), dirty_proba);
@@ -225,7 +225,7 @@ impl AggregatedFeatureStartJ {
                 feat_delj.likelihood((delj, j.index)) * feat_error.likelihood(j.errors(0, delj));
             if ll > ip.min_likelihood {
                 let dirty_proba = self.dirty_likelihood.get(j_start);
-                if dirty_proba > 0. && ip.infer_features {
+                if dirty_proba > 0. && ip.infer_features.del_j {
                     feat_delj.dirty_update((delj, j.index), dirty_proba);
 
                     feat_error.dirty_update_j_fragment(
@@ -357,10 +357,10 @@ impl AggregatedFeatureSpanD {
                     let dirty_proba = self.dirty_likelihood.get((d_start, d_end));
                     let corrected_proba =
                         dirty_proba * likelihood / self.likelihood(d_start, d_end).max();
-                    if dirty_proba <= 0. && ip.infer_features {
+                    if dirty_proba <= 0. && ip.infer_features.del_d {
                         continue;
                     }
-                    if ip.infer_features {
+                    if ip.infer_features.del_d {
                         feat_deld.dirty_update((deld5, deld3, d.index), corrected_proba);
 
                         feat_error.dirty_update_d_fragment(
@@ -524,7 +524,7 @@ impl FeatureVD {
         feat_insvd: &mut InsertionFeature,
         ip: &InferenceParameters,
     ) {
-        if !ip.infer_features {
+        if !ip.infer_features.ins_vd {
             return;
         }
         // disaggregate only works with scalar
@@ -719,7 +719,7 @@ impl FeatureDJ {
         feat_insdj: &mut InsertionFeature,
         ip: &InferenceParameters,
     ) {
-        if !ip.infer_features {
+        if !ip.infer_features.ins_dj {
             return;
         }
         for ed in self.likelihood.min().0..self.likelihood.max().0 {

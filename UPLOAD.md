@@ -10,6 +10,7 @@ First, righor:
 - cargo publish
 
 Then righor-py:
+- Change the righor call in Cargo.toml (put version nb)
 - Change the version number in Cargo.toml **and pyproject.toml**, they need to be the exact same.
 - commit and push.
 - create a new tag with the version number `vX.X.X`

@@ -317,15 +317,18 @@ impl ParserParams {
 
     fn parse_error_rate(&mut self, str_data: &[String]) -> Result<()> {
         //
-        if str_data.len() != 3 {
-            return Err(anyhow!("Invalid format (error rate)"))?;
-        }
         if str_data[1].starts_with("#SingleErrorRate") {
+            if str_data.len() != 3 {
+                return Err(anyhow!("Invalid format (error rate)"))?;
+            }
             let error_rate = str_data[2]
                 .parse::<f64>()
                 .map_err(|_| anyhow!(format!("Failed to parse '{}'", str_data[2])))?;
             self.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(error_rate));
         } else if str_data[1].starts_with("#IndividualErrorRate") {
+            if str_data.len() < 2 {
+                return Err(anyhow!("Invalid format (error rate)"))?;
+            }
             self.error = ErrorParameters::UniformRate(ErrorUniformRate::load(str_data)?);
         } else {
             return Err(anyhow!("Invalid format (error rate)"))?;

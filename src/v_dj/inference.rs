@@ -29,7 +29,11 @@ pub struct Features {
 
 impl Features {
     /// Update the model from a vector of features and return an updated vector of features
-    pub fn update(features: Vec<Features>, model: &mut Model) -> Result<(Vec<Features>, f64)> {
+    pub fn update(
+        features: Vec<Features>,
+        model: &mut Model,
+        ip: &InferenceParameters,
+    ) -> Result<(Vec<Features>, f64)> {
         let errors = &mut ErrorParameters::update_error(
             features.iter().map(|a| a.error.clone()).collect(),
             &mut model.error,
@@ -55,17 +59,29 @@ impl Features {
         let p_vdj =
             vj.clone().probas.insert_axis(Axis(1)) * d_given_j.clone().probas.insert_axis(Axis(0));
 
-        model.set_p_vdj(&p_vdj)?;
-        model.p_del_v_given_v = delv.clone().probas;
-        model.p_del_j_given_j = delj.clone().probas;
-        model.p_del_d5_del_d3 = deld.clone().probas;
+        if ip.infer_features.genes {
+            model.set_p_vdj(&p_vdj)?;
+        }
+        if ip.infer_features.del_v {
+            model.p_del_v_given_v = delv.clone().probas;
+        }
+        if ip.infer_features.del_j {
+            model.p_del_j_given_j = delj.clone().probas;
+        }
+        if ip.infer_features.del_d {
+            model.p_del_d5_del_d3 = deld.clone().probas;
+        }
 
         let (p_vd, mc_vd) = insvd.get_parameters();
-        model.p_ins_vd = p_vd;
-        model.markov_chain_vd = Arc::new(DNAMarkovChain::new(&mc_vd, false)?);
+        if ip.infer_features.ins_vd {
+            model.p_ins_vd = p_vd;
+            model.markov_chain_vd = Arc::new(DNAMarkovChain::new(&mc_vd, false)?);
+        }
         let (p_dj, mc_dj) = insdj.get_parameters();
-        model.p_ins_dj = p_dj;
-        model.markov_chain_dj = Arc::new(DNAMarkovChain::new(&mc_dj, true)?);
+        if ip.infer_features.ins_dj {
+            model.p_ins_dj = p_dj;
+            model.markov_chain_dj = Arc::new(DNAMarkovChain::new(&mc_dj, true)?);
+        }
 
         let sum_log_likelihood = features.iter().map(|x| x.log_likelihood.unwrap()).sum();
 
@@ -281,8 +297,14 @@ impl Features {
                             current_result.set_best_event(event, ip);
                         }
                     }
-                    if ip.infer_features {
+                    if ip.infer_features.del_v {
                         feature_v.dirty_update(ev, likelihood);
+                    }
+                    if ip.infer_features.ins_dj
+                        || ip.infer_features.del_d
+                        || ip.infer_features.del_j
+                        || ip.infer_features.genes
+                    {
                         feature_dj.dirty_update(sd, likelihood);
                         ins_vd.dirty_update(
                             ev,
@@ -292,6 +314,8 @@ impl Features {
                                 .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
                             likelihood,
                         );
+                    }
+                    if ip.infer_features.genes {
                         self.vj
                             .dirty_update((feature_v.index, feature_dj.j_index()), likelihood);
                     }

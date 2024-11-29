@@ -45,7 +45,11 @@ impl Features {
 
     /// Update the model from a vector of features and "average" the features.
     /// Return the new features and the total log likelihood
-    pub fn update(features: Vec<Features>, model: &mut Model) -> Result<(Vec<Features>, f64)> {
+    pub fn update(
+        features: Vec<Features>,
+        model: &mut Model,
+        ip: &InferenceParameters,
+    ) -> Result<(Vec<Features>, f64)> {
         let errors = &mut ErrorParameters::update_error(
             features.iter().map(|a| a.error.clone()).collect(),
             &mut model.error,
@@ -69,18 +73,29 @@ impl Features {
         let deld = CategoricalFeature2g1::average(features.iter().map(|a| a.deld.clone()))?;
         let vdj = CategoricalFeature3::average(features.iter().map(|a| a.vdj.clone()))?;
 
-        model.set_p_vdj(&vdj.clone().probas)?;
-        model.p_del_v_given_v = delv.clone().probas;
-        model.p_del_j_given_j = delj.clone().probas;
-        model.p_del_d5_del_d3 = deld.clone().probas;
+        if ip.infer_features.genes {
+            model.set_p_vdj(&vdj.clone().probas)?;
+        }
+        if ip.infer_features.del_v {
+            model.p_del_v_given_v = delv.clone().probas;
+        }
+        if ip.infer_features.del_j {
+            model.p_del_j_given_j = delj.clone().probas;
+        }
+        if ip.infer_features.del_d {
+            model.p_del_d5_del_d3 = deld.clone().probas;
+        }
 
         let (p_vd, mc_vd) = insvd.get_parameters();
-        model.p_ins_vd = p_vd;
-        model.markov_chain_vd = Arc::new(DNAMarkovChain::new(&mc_vd, false)?);
+        if ip.infer_features.ins_vd {
+            model.p_ins_vd = p_vd;
+            model.markov_chain_vd = Arc::new(DNAMarkovChain::new(&mc_vd, false)?);
+        }
         let (p_dj, mc_dj) = insdj.get_parameters();
-        model.p_ins_dj = p_dj;
-        model.markov_chain_dj = Arc::new(DNAMarkovChain::new(&mc_dj, true)?);
-
+        if ip.infer_features.ins_dj {
+            model.p_ins_dj = p_dj;
+            model.markov_chain_dj = Arc::new(DNAMarkovChain::new(&mc_dj, true)?);
+        }
         let sum_log_likelihood = features.iter().map(|x| x.log_likelihood.unwrap()).sum();
 
         // Now update the features vector
@@ -465,10 +480,16 @@ impl Features {
                                     current_result.set_best_event(event, ip);
                                 }
                             }
-                            if ip.infer_features {
+                            if ip.infer_features.del_v {
                                 feature_v.dirty_update(ev, likelihood.to_scalar()?);
+                            }
+                            if ip.infer_features.del_d {
                                 feature_j.dirty_update(sj, likelihood.to_scalar()?);
+                            }
+                            if ip.infer_features.del_j {
                                 feature_d.dirty_update(sd, ed, likelihood.to_scalar()?);
+                            }
+                            if ip.infer_features.ins_vd {
                                 ins_vd.dirty_update(
                                     ev,
                                     sd,
@@ -477,6 +498,8 @@ impl Features {
                                         .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
                                     likelihood.to_scalar()?,
                                 );
+                            }
+                            if ip.infer_features.ins_dj {
                                 ins_dj.dirty_update(
                                     ed,
                                     sj,
@@ -485,6 +508,8 @@ impl Features {
                                         .get_first_nucleotide((sj - feature_j.start_j5) as usize),
                                     likelihood.to_scalar()?,
                                 );
+                            }
+                            if ip.infer_features.genes {
                                 self.vdj.dirty_update(
                                     (feature_v.index, feature_d.index, feature_j.index),
                                     likelihood.to_scalar()?,

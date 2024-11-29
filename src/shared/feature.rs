@@ -565,7 +565,7 @@ pub struct InfEvent {
     pub ins_dj: Option<DnaLike>,
     pub d_segment: Option<DnaLike>,
     pub sequence: Option<DnaLike>,
-    pub cdr3: Option<DnaLike>,
+    pub junction: Option<DnaLike>,
     pub full_sequence: Option<Dna>,
     pub reconstructed_sequence: Option<Dna>,
     // likelihood (pgen + perror)
@@ -627,8 +627,8 @@ impl ResultInference {
 #[derive(Default, Clone, Debug)]
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all))]
 pub struct ResultHuman {
-    pub n_cdr3: String,
-    pub aa_cdr3: String,
+    pub n_junction: String,
+    pub aa_junction: String,
     pub likelihood: f64,
     pub pgen: f64,
     pub likelihood_ratio_best: f64,
@@ -682,15 +682,15 @@ impl ResultInference {
             "Result:\n\
 	     \tLikelihood: {:.2e}, pgen: {:.2e}\n\
 	     \tMost likely event:\n\
-	     \t- CDR3 (nucleotides): {} \n\
-	     \t- CDR3 (amino acids): {} \n\
+	     \t- Junction (nucleotides): {} \n\
+	     \t- Junction (amino acids): {} \n\
 	     \t- V name: {} \n\
 	     \t- J name: {} \n\
 	     \t- likelihood ratio: {} \n ",
             self.likelihood,
             self.pgen,
-            rh.n_cdr3,
-            rh.aa_cdr3,
+            rh.n_junction,
+            rh.aa_junction,
             rh.v_name,
             rh.j_name,
             rh.likelihood_ratio_best
@@ -701,9 +701,9 @@ impl ResultInference {
     pub fn load_human(&mut self, model: &vdj::Model) -> Result<()> {
         let best_event = self.get_best_event().ok_or(anyhow!("No event"))?;
 
-        let translated_cdr3 = if best_event.cdr3.clone().unwrap().len() % 3 == 0 {
+        let translated_cdr3 = if best_event.junction.clone().unwrap().len() % 3 == 0 {
             best_event
-                .cdr3
+                .junction
                 .clone()
                 .unwrap()
                 .translate()
@@ -732,8 +732,8 @@ impl ResultInference {
         );
 
         self.human_readable = Some(ResultHuman {
-            n_cdr3: best_event.cdr3.clone().unwrap().get_string(),
-            aa_cdr3: translated_cdr3,
+            n_junction: best_event.junction.clone().unwrap().get_string(),
+            aa_junction: translated_cdr3,
             likelihood: self.likelihood,
             pgen: self.pgen,
             likelihood_ratio_best: best_event.likelihood / self.likelihood,
@@ -804,7 +804,7 @@ impl ResultInference {
             // or the last nucleotide
             let end_cdr3 = event.j_start_seq + cdr3_pos_j as i64 - model.range_del_j.0 + 3;
 
-            event.cdr3 = Some(
+            event.junction = Some(
                 sequence
                     .sequence
                     .extract_padded_subsequence(start_cdr3, end_cdr3),
@@ -898,7 +898,11 @@ impl Features {
         }
     }
 
-    pub fn update(features: Vec<Features>, model: &mut ModelVDJ) -> Result<(Vec<Features>, f64)> {
+    pub fn update(
+        features: Vec<Features>,
+        model: &mut ModelVDJ,
+        ip: &InferenceParameters,
+    ) -> Result<(Vec<Features>, f64)> {
         Ok(match model.model_type {
             ModelStructure::VDJ => {
                 let feats = vdj::Features::update(
@@ -913,6 +917,7 @@ impl Features {
                         })
                         .collect(),
                     model,
+                    ip,
                 )?;
                 (feats.0.into_iter().map(Features::VDJ).collect(), feats.1)
             }
@@ -929,6 +934,7 @@ impl Features {
                         })
                         .collect(),
                     model,
+                    ip,
                 )?;
                 (feats.0.into_iter().map(Features::VxDJ).collect(), feats.1)
             }

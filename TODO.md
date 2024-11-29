@@ -14,3 +14,9 @@
 ## Before version change checklist:
 - is righor-py using the cargo package or the local version ?
 - did you change the version number everywhere ?
+
+
+
+## Other
+- check if there's a problem with tqdm notebook
+- merge with the python github

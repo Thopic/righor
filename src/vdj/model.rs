@@ -27,6 +27,8 @@ use ndarray::{s, Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
+use kdam::TqdmParallelIterator;
+
 use crate::{v_dj, vdj};
 use rand::rngs::SmallRng;
 use rand::Rng;
@@ -317,8 +319,8 @@ impl Modelable for Model {
             j_gene: self.seg_js[event.j_index].name.clone(),
             recombination_event: generic_event,
             full_seq: full_seq.get_string(),
-            cdr3_nt: cdr3_nt.get_string(),
-            cdr3_aa: cdr3_aa.map(|x| x.to_string()),
+            junction_nt: cdr3_nt.get_string(),
+            junction_aa: cdr3_aa.map(|x| x.to_string()),
         })
     }
 
@@ -335,8 +337,8 @@ impl Modelable for Model {
             j_gene: self.seg_js[event.j_index].name.clone(),
             recombination_event: generic_event,
             full_seq: full_seq.get_string(),
-            cdr3_nt: cdr3_nt.get_string(),
-            cdr3_aa: cdr3_aa.map(|x| x.to_string()),
+            junction_nt: cdr3_nt.get_string(),
+            junction_aa: cdr3_aa.map(|x| x.to_string()),
         }
     }
 
@@ -437,6 +439,7 @@ impl Modelable for Model {
 
         let new_features = (&features, sequences)
             .into_par_iter()
+            .tqdm()
             .map(|(feat, sequence)| {
                 let aligned = sequence.align(self, alignment_params)?;
                 let mut new_feat = feat.clone();
@@ -446,7 +449,7 @@ impl Modelable for Model {
             .collect::<Result<Vec<_>>>()?;
 
         // update the model and clean up the features
-        Features::update(new_features, self)
+        Features::update(new_features, self, &ip)
     }
 
     /// Evaluate a sequence and return the result of the inference
@@ -458,7 +461,7 @@ impl Modelable for Model {
     ) -> Result<ResultInference> {
         let mut ip = inference_params.clone();
         if sequence.is_protein() {
-            ip.infer_features = false;
+            ip.do_not_infer_features();
         }
 
         let mut features = match self.model_type {
@@ -857,7 +860,7 @@ impl Model {
                 Ok(Features::VDJ(feat_vdj))
             })
             .collect::<Result<Vec<_>>>()?;
-        Features::update(new_features, self)
+        Features::update(new_features, self, inference_params)
     }
 
     pub fn evaluate_brute_force(

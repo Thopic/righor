@@ -224,8 +224,8 @@ impl Modelable for Model {
     fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> Result<GenerationResult> {
         let gen_result = self.inner.generate(functional, rng)?;
         Ok(GenerationResult {
-            cdr3_nt: gen_result.cdr3_nt,
-            cdr3_aa: gen_result.cdr3_aa,
+            junction_nt: gen_result.junction_nt,
+            junction_aa: gen_result.junction_aa,
             full_seq: gen_result.full_seq,
             v_gene: gen_result.v_gene,
             j_gene: gen_result.j_gene,
@@ -240,8 +240,8 @@ impl Modelable for Model {
     ) -> GenerationResult {
         let gen_result = self.inner.generate_without_errors(functional, rng);
         GenerationResult {
-            cdr3_nt: gen_result.cdr3_nt,
-            cdr3_aa: gen_result.cdr3_aa,
+            junction_nt: gen_result.junction_nt,
+            junction_aa: gen_result.junction_aa,
             full_seq: gen_result.full_seq,
             v_gene: gen_result.v_gene,
             j_gene: gen_result.j_gene,

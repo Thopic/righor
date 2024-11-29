@@ -10,6 +10,7 @@ use crate::shared::{AlignmentParameters, ErrorParameters, Features, InferencePar
 use crate::vdj::model::EntrySequence;
 use crate::vdj::Sequence;
 use crate::vdj::{display_j_alignment, display_v_alignment};
+
 use ndarray::{Array1, Array2, Array3};
 use std::sync::Arc;
 
@@ -27,8 +28,8 @@ use std::path::Path;
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct GenerationResult {
-    pub cdr3_nt: String,
-    pub cdr3_aa: Option<String>,
+    pub junction_nt: String,
+    pub junction_aa: Option<String>,
     pub full_seq: String,
     pub v_gene: String,
     pub j_gene: String,
@@ -41,14 +42,16 @@ impl GenerationResult {
     fn __repr__(&self) -> String {
         format!(
             "GenerationResult(\n\
-		 CDR3 (nucletides): {},\n\
-		 CDR3 (amino-acids): {},\n\
+		 Junction (nucletides): {},\n\
+		 Junction (amino-acids): {},\n\
 		 Full sequence (nucleotides): {}...,\n\
 		 V gene: {},\n\
 		 J gene: {})
 		 ",
-            self.cdr3_nt,
-            self.cdr3_aa.clone().unwrap_or("Out-of-frame".to_string()),
+            self.junction_nt,
+            self.junction_aa
+                .clone()
+                .unwrap_or("Out-of-frame".to_string()),
             &self.full_seq[0..30],
             self.v_gene,
             self.j_gene
@@ -64,11 +67,11 @@ impl GenerationResult {
 
     #[getter]
     fn get_cdr3_nt(&self) -> PyResult<String> {
-        Ok(self.cdr3_nt.clone())
+        Ok(self.junction_nt.clone())
     }
     #[getter]
     fn get_cdr3_aa(&self) -> PyResult<Option<String>> {
-        Ok(self.cdr3_aa.clone())
+        Ok(self.junction_aa.clone())
     }
     #[getter]
     fn get_full_seq(&self) -> PyResult<String> {

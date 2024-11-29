@@ -115,6 +115,11 @@ impl AggregatedFeatureStartDAndJ {
     ) {
         // disaggregate should only work with the scalar version
 
+        let infer_features = ip.infer_features.ins_dj
+            || ip.infer_features.del_d
+            || ip.infer_features.del_j
+            || ip.infer_features.genes;
+
         let (min_sj, max_sj) = (
             cmp::max(self.feature_j.start_j5, feat_insdj.min_sj()),
             cmp::min(self.feature_j.end_j5, feat_insdj.max_sj()),
@@ -130,12 +135,12 @@ impl AggregatedFeatureStartDAndJ {
             let ll_dj = feat.d.likelihood((agg_deld.index, self.feature_j.index));
 
             for d_start in agg_deld.start_d5..agg_deld.end_d5 {
-                let dirty_proba = if ip.infer_features {
+                let dirty_proba = if infer_features {
                     self.dirty_likelihood.get(d_start)
                 } else {
                     0.
                 };
-                if dirty_proba == 0. && ip.infer_features {
+                if dirty_proba == 0. && infer_features {
                     continue;
                 }
                 let ratio_old_new = dirty_proba / self.likelihood(d_start).max();
@@ -158,23 +163,31 @@ impl AggregatedFeatureStartDAndJ {
 
                         if ll.max() > ip.min_likelihood {
                             let corrected_proba = ratio_old_new * ll.max();
-                            if ip.infer_features {
-                                feat.d.dirty_update(
-                                    (agg_deld.index, self.feature_j.index),
-                                    corrected_proba,
-                                );
+                            if infer_features {
+                                if ip.infer_features.genes {
+                                    feat.d.dirty_update(
+                                        (agg_deld.index, self.feature_j.index),
+                                        corrected_proba,
+                                    );
+                                }
 
-                                feat_insdj.dirty_update(
-                                    d_end,
-                                    j_start,
-                                    j_alignment.get_first_nucleotide(
-                                        (j_start - self.feature_j.start_j5) as usize,
-                                    ),
-                                    corrected_proba,
-                                );
+                                if ip.infer_features.ins_dj {
+                                    feat_insdj.dirty_update(
+                                        d_end,
+                                        j_start,
+                                        j_alignment.get_first_nucleotide(
+                                            (j_start - self.feature_j.start_j5) as usize,
+                                        ),
+                                        corrected_proba,
+                                    );
+                                }
 
-                                self.feature_j.dirty_update(j_start, corrected_proba);
-                                agg_deld.dirty_update(d_start, d_end, corrected_proba);
+                                if ip.infer_features.del_j {
+                                    self.feature_j.dirty_update(j_start, corrected_proba);
+                                }
+                                if ip.infer_features.del_d {
+                                    agg_deld.dirty_update(d_start, d_end, corrected_proba);
+                                }
                             }
 
                             if ip.store_best_event && ll.max() > best_likelihood {

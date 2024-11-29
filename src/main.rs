@@ -59,7 +59,7 @@ fn main() -> Result<()> {
     for _ in 0..100 {
         let sequence = generator.generate_without_errors(true);
         println!("{:?}", sequence.clone());
-        let cdr3_aa = sequence.cdr3_aa.unwrap();
+        let cdr3_aa = sequence.junction_aa.unwrap();
         //let cdr3_nt = sequence.cdr3_nt;
         let vname = sequence.v_gene;
         let jname = sequence.j_gene;

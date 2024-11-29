@@ -19,12 +19,44 @@ pub struct AlignmentParameters {
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
 #[derive(Clone, Debug)]
+/// Store a boolean for each features that can be updated
+///  / inferred in the model
+pub struct InferredFeatures {
+    pub genes: bool,
+    pub del_d: bool,
+    pub del_v: bool,
+    pub del_j: bool,
+    pub ins_vd: bool,
+    pub ins_dj: bool,
+}
+
+impl Default for InferredFeatures {
+    fn default() -> Self {
+        InferredFeatures {
+            genes: true,
+            del_d: true,
+            del_v: true,
+            del_j: true,
+            ins_vd: true,
+            ins_dj: true,
+        }
+    }
+}
+
+impl InferredFeatures {
+    pub fn any(&self) -> bool {
+        self.genes || self.del_d || self.del_v || self.del_j || self.ins_vd || self.ins_dj
+    }
+}
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Clone, Debug)]
 pub struct InferenceParameters {
     /// The evaluation/inference algorithm will cut branches
     /// with likelihood < `min_likelihood`
     pub min_likelihood: f64,
     /// Needed during inference, but can slow down evaluation
-    pub infer_features: bool,
+    pub infer_features: InferredFeatures,
     /// The evaluation/inference algorithm will cut branches with
     /// likelihood < `best current likelihood * min_ratio_likelihood`
     pub min_ratio_likelihood: f64,
@@ -152,7 +184,7 @@ impl InferenceParameters {
         InferenceParameters::default()
     }
     fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features, self.store_best_event, self.compute_pgen))
+        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features.any(), self.store_best_event, self.compute_pgen))
     }
     fn __str__(&self) -> PyResult<String> {
         // This is what will be shown when you use print() in Python
@@ -165,14 +197,23 @@ impl Default for InferenceParameters {
         InferenceParameters {
             min_likelihood: (-400.0f64).exp2(),
             min_ratio_likelihood: (-100.0f64).exp2(),
-            infer_features: true,
             store_best_event: true,
             compute_pgen: true,
+            infer_features: InferredFeatures::default(),
         }
     }
 }
 
 impl InferenceParameters {
+    pub fn do_not_infer_features(&mut self) {
+        self.infer_features.del_d = false;
+        self.infer_features.del_v = false;
+        self.infer_features.del_j = false;
+        self.infer_features.ins_vd = false;
+        self.infer_features.ins_dj = false;
+        self.infer_features.genes = false;
+    }
+
     pub fn new(min_likelihood: f64) -> Self {
         Self {
             min_likelihood,
