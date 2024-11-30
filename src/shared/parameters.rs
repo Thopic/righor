@@ -184,7 +184,7 @@ impl InferenceParameters {
         InferenceParameters::default()
     }
     fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("InferenceParameters(min_likelihood={}, min_ratio_likelihood={}, infer={}, store_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features.any(), self.store_best_event, self.compute_pgen))
+        Ok(format!("InferenceParameters(min_likelihood={:.3e}, min_ratio_likelihood={:.3e}, infer={}, store_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features.any(), self.store_best_event, self.compute_pgen))
     }
     fn __str__(&self) -> PyResult<String> {
         // This is what will be shown when you use print() in Python
