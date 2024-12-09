@@ -19,6 +19,14 @@ use std::hash::{Hash, Hasher};
 // Not the same thing as N, N means everything is possible,
 // while BLANK means "there was only one but unknown".
 // important when computing probabilities
+// For example, if we want to compute the likelihood of the CDR3
+// CAGACNCTA, then we want to have 'N', because the expected end result
+// is the sum over the proba of all CAGAC*CTA.
+// But if in the inference we miss a bit of the sequence and end up with
+// an insertion like "...CA", we don't want to compute the likelihood of
+// this insertion by summing over all probabilities of AAACA up to TTTCA
+// at best this insertion has a probability max(***CA).
+// I'm not dealing well with this now. TODO.
 pub const BLANK: usize = 4;
 pub const BLANKN: u8 = b'N';
 
@@ -83,8 +91,11 @@ fn amino_to_dna_lossy(x: u8) -> [u8; 3] {
 // Structures
 /////////////////////////////////////
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
-#[derive(Clone, Debug, Copy, Default)]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "pyo3"),
+    pyclass(get_all, set_all, eq, eq_int)
+)]
+#[derive(Clone, Debug, Copy, Default, PartialEq)]
 pub enum SequenceType {
     #[default]
     Dna,

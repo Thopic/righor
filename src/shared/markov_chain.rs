@@ -181,13 +181,22 @@ impl DNAMarkovChain {
         let mut transition_mat = Array2::zeros((4, 4));
         // Just ignore degenerate nucleotides (valid for N, which is the most common case).
         // For the other degenerate nucleotides, less important
-        if !is_degenerate(s.seq[0]) {
-            transition_mat[[first, nucleotides_inv(s.seq[0])]] += likelihood;
+
+        let mut new_s = s.clone();
+        if self.reverse {
+            new_s.reverse();
         }
+
+        if !is_degenerate(new_s.seq[0]) {
+            transition_mat[[first, nucleotides_inv(new_s.seq[0])]] += likelihood;
+        }
+
         for ii in 1..s.len() {
-            if !is_degenerate(s.seq[ii - 1]) && !is_degenerate(s.seq[ii]) {
-                transition_mat[[nucleotides_inv(s.seq[ii - 1]), nucleotides_inv(s.seq[ii])]] +=
-                    likelihood;
+            if !is_degenerate(new_s.seq[ii - 1]) && !is_degenerate(new_s.seq[ii]) {
+                transition_mat[[
+                    nucleotides_inv(new_s.seq[ii - 1]),
+                    nucleotides_inv(new_s.seq[ii]),
+                ]] += likelihood;
             }
         }
         transition_mat

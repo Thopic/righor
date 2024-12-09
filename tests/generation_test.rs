@@ -28,7 +28,7 @@ fn test_generation_simple_model() -> Result<()> {
     // Note: this rely on the presence of data files, so it may
     // fail if the data files are not present
     let model = common::simple_model_vdj();
-    let mut gen = righor::vdj::Generator::new(model, Some(0), None, None)?;
+    let mut gen = righor::vdj::Generator::new(&model, Some(0), None, None)?;
     for _ in 0..100 {
         println!("{}", gen.generate(false)?.full_seq);
     }

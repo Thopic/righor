@@ -145,3 +145,11 @@ Programming stuff:
 - python version is in a different crate now.
 - to add a model permanently, add it to "models.json". First model in a category is the default model. Each field is one independant model. The elements in chain and species should always be lower-case.
 - ambiguous nucleotide with "errors", the pgen won't work very well probably.
+
+
+New thing this version:
+-----------------------
+- can set the number of threads [DONE]
+- progress bars [DONE]
+- mutual info [TODO]
+- entropy [TODO]

@@ -588,12 +588,18 @@ impl Feature<ErrorAlignment> for FeatureErrorConstant {
     ///
     /// The complete formula is likelihood = (r/3)^(nb error) * (1-r)^(length - nb error)
     fn likelihood(&self, observation: ErrorAlignment) -> f64 {
+        // no error rate is a specific case
+        if self.error_rate == 0. {
+            return if observation.nb_errors != 0 { 0. } else { 1. };
+        }
+
         if observation.nb_errors == 0 {
             return (observation.sequence_length as f64 * self.log1mr).exp2();
         }
         if observation.nb_errors == MAX_NB_ERRORS {
             return 0.;
         }
+
         ((observation.nb_errors as f64) * self.logrs3
             + ((observation.sequence_length - observation.nb_errors) as f64) * self.log1mr)
             .exp2()
@@ -673,6 +679,11 @@ impl Feature<ErrorAlignment> for FeatureErrorUniform {
         }
         if observation.nb_errors == MAX_NB_ERRORS {
             return 0.;
+        }
+
+        // no error rate is a specific case
+        if self.error_rate == 0. {
+            return if observation.nb_errors != 0 { 0. } else { 1. };
         }
 
         // println!(

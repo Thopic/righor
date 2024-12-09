@@ -1,5 +1,10 @@
 How to send off a new release, cause it's hell.
 
+- change the version number in Cargo.toml
+- create a new tag `git tag v#version_number`
+- commit, push, push tag
+
+
 First, righor:
 - change the version number in Cargo.toml
 - commit and push.

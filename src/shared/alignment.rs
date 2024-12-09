@@ -247,13 +247,9 @@ impl DAlignment {
         self.sequence
             .extract_subsequence(
                 (self.pos + deld5 as i64) as usize,
-                (self.pos + self.len_d as i64 - deld3 as i64) as usize,
+                (self.pos + self.len() as i64 - deld3 as i64) as usize,
             )
-            .count_differences(
-                &self
-                    .dseq
-                    .extract_subsequence(deld5, self.dseq.len() - deld3),
-            )
+            .count_differences(&self.dseq.extract_subsequence(deld5, self.len() - deld3))
     }
     pub fn length_with_deletion(&self, deld5: usize, deld3: usize) -> usize {
         self.len() - deld5 - deld3
@@ -292,6 +288,7 @@ impl DAlignment {
         }
     }
 
+    /// Length of the V gene with palindromic inserts
     pub fn len(&self) -> usize {
         self.len_d
     }

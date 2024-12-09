@@ -1,11 +1,13 @@
 use anyhow::{anyhow, Result};
-
 use ndarray::{s, Array, Array1, Array2, Array3, Dimension};
+use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use log::warn;
+
+pub static IN_NOTEBOOK: AtomicBool = AtomicBool::new(false);
 
 /// Sends a warning: uses Python warnings in pyo3 mode, otherwise logs to stderr.
 pub fn send_warning(message: &str) {

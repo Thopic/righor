@@ -10,10 +10,12 @@ use crate::shared::{AlignmentParameters, ErrorParameters, Features, InferencePar
 use crate::vdj::model::EntrySequence;
 use crate::vdj::Sequence;
 use crate::vdj::{display_j_alignment, display_v_alignment};
+use ndarray::array;
 
 use ndarray::{Array1, Array2, Array3};
 use std::sync::Arc;
 
+use crate::shared::errors::ErrorConstantRate;
 use anyhow::{anyhow, Result};
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -432,6 +434,33 @@ impl Model {
         Ok(())
     }
 
+    pub fn set_p_ins_vd(&mut self, value: Array1<f64>) -> Result<()> {
+        match self {
+            Model::VDJ(x) => x.p_ins_vd = value,
+            Model::VJ(_) => Err(anyhow!("VJ Model don't have VD inserts"))?,
+        }
+        self.initialize()?;
+        Ok(())
+    }
+
+    pub fn set_p_ins_dj(&mut self, value: Array1<f64>) -> Result<()> {
+        match self {
+            Model::VDJ(x) => x.p_ins_dj = value,
+            Model::VJ(_) => Err(anyhow!("VJ Model don't have DJ inserts"))?,
+        }
+        self.initialize()?;
+        Ok(())
+    }
+
+    pub fn set_p_ins_vj(&mut self, value: Array1<f64>) -> Result<()> {
+        match self {
+            Model::VDJ(_) => Err(anyhow!("VDJ Model don't have VJ inserts"))?,
+            Model::VJ(x) => x.p_ins_vj = value,
+        }
+        self.initialize()?;
+        Ok(())
+    }
+
     pub fn get_p_ins_vd(&self) -> Result<Array1<f64>> {
         Ok(match self {
             Model::VDJ(x) => x.p_ins_vd.clone(),
@@ -556,9 +585,9 @@ impl Model {
         }
     }
 
-    pub fn set_p_del_d5_del_d3(&mut self, value: Array2<f64>) -> Result<()> {
+    pub fn set_p_del_d5_del_d3(&mut self, value: Array3<f64>) -> Result<()> {
         match self {
-            Model::VDJ(x) => x.p_del_j_given_j = value,
+            Model::VDJ(x) => x.p_del_d5_del_d3 = value,
             Model::VJ(_) => Err(anyhow!("VJ model does not have a D fragment."))?,
         }
         self.initialize()?;
@@ -691,7 +720,7 @@ impl Generator {
     }
 }
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(eq, eq_int))]
 #[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelStructure {
     VDJ,
@@ -884,4 +913,128 @@ pub fn sanitize_j(genes: Vec<Gene>, max_del_j: usize) -> Result<Vec<Dna>> {
         cut_genes.push(cut_gene);
     }
     Ok(cut_genes)
+}
+
+pub fn simple_model() -> crate::vdj::Model {
+    let gv1 = Gene {
+        name: "V1".to_string(),
+        seq: Dna::from_string("ATCTACTACTACTGCTCATGCAAAAAAAAA").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        is_functional: true,
+        cdr3_pos: Some(18),
+    };
+    // TGCTCATGCAAAAAAGGAGGCTTTTCTCCCTGTAGTGGGAGGGAGTTAGGTGAGACACAAGGACCTCT
+    // TGCTCATGCAAAAAAAAA   TTTTTCGCTTTT   GGGGGGCAGTCAGAGGAGAAACAAAGACTTAT
+    let gj1 = Gene {
+        name: "J1".to_string(),
+        seq: Dna::from_string("GGGGGGCAGTCTTCGGAGAAACAAAGACTTAT").unwrap(),
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        is_functional: true,
+        cdr3_pos: Some(11),
+    };
+    let gd1 = Gene {
+        name: "D1".to_string(),
+        seq: Dna::from_string("GGGACAGGGGGC").unwrap(), // "TTCGCTTT"
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        is_functional: true,
+        cdr3_pos: None,
+    };
+
+    let gd2 = Gene {
+        name: "D2".to_string(),
+        seq: Dna::from_string("GGGACTAGCGGGGGGG").unwrap(), // TTAAAACGCAATT
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        is_functional: true,
+        cdr3_pos: None,
+    };
+    let gd3 = Gene {
+        name: "D2".to_string(),
+        seq: Dna::from_string("GGGACTAGCGGGAGGG").unwrap(), // TAAAAACGCAATT
+        seq_with_pal: None,
+        functional: "(F)".to_string(),
+        is_functional: true,
+        cdr3_pos: None,
+    };
+
+    let mut model = crate::vdj::Model {
+        seg_vs: vec![gv1],
+        seg_js: vec![gj1],
+        seg_ds: vec![gd1, gd2, gd3],
+        p_vdj: array![[[0.6], [0.3], [0.1]]],
+        p_ins_vd: array![1., 0.4, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.05, 0.05],
+        p_ins_dj: array![1., 0.6, 0.4, 0.402, 0.2, 0.1, 0.1, 0.1, 0.05, 0.05],
+        p_del_v_given_v: array![[1.]],
+        //     [0.1005],
+        //     [0.2],
+        //     [0.1],
+        //     [0.1],
+        //     [0.05],
+        //     [0.1],
+        //     [0.35],
+        //     [0.01],
+        //     [0.01],
+        //     [0.01]
+        // ],
+        p_del_j_given_j: array![[1.]], //0.1], [0.2], [0.1], [0.1], [0.35], [0.1], [0.05],],
+        p_del_d5_del_d3: array![
+            [
+                [0.05, 0.4, 0.2],
+                [0.1, 0.1, 0.2],
+                [0.05, 0.05, 0.2],
+                [0.324, 0.124, 0.2],
+                [0.02, 0.02, 0.2]
+            ],
+            [
+                [0.0508, 0.2508, 0.2],
+                [0.1, 0.01, 0.2],
+                [0.0512, 0.0512, 0.2],
+                [0.3, 0.1, 0.2],
+                [0.02, 0.02, 0.2]
+            ],
+            [
+                [0.05, 0.05, 0.2],
+                [0.35, 0.15, 0.2],
+                [0.05, 0.05, 0.2],
+                [0.3, 0.7, 0.2],
+                [0.02, 0.02, 0.2]
+            ],
+        ],
+        markov_chain_vd: Arc::new(
+            DNAMarkovChain::new(
+                &array![
+                    [0.25, 0.25, 0.25, 0.25],
+                    [0.25, 0.1, 0.25, 0.4],
+                    [0.4, 0.25, 0.1, 0.25],
+                    [0.25, 0.25, 0.25, 0.25]
+                ],
+                false,
+            )
+            .unwrap(),
+        ),
+        markov_chain_dj: Arc::new(
+            DNAMarkovChain::new(
+                &array![
+                    [0.25, 0.25, 0.25, 0.25],
+                    [0.2, 0.3, 0.25, 0.25],
+                    [0.3, 0.2, 0.25, 0.25],
+                    [0.25, 0.25, 0.25, 0.25]
+                ],
+                true,
+            )
+            .unwrap(),
+        ),
+        range_del_v: (0, 0), //(-2, 7)),
+        range_del_j: (0, 0), //(-2, 4)),
+        range_del_d3: (-1, 3),
+        range_del_d5: (-1, 1),
+        error: crate::shared::ErrorParameters::ConstantRate(ErrorConstantRate::new(0.)),
+        ..Default::default()
+    };
+
+    model.initialize().unwrap();
+    model
 }

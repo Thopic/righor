@@ -1,4 +1,5 @@
 use crate::shared::utils::difference_as_i64;
+use crate::shared::Modelable;
 use crate::shared::{errors::FeatureError, ErrorParameters, InferenceParameters};
 use crate::shared::{
     feature::{
@@ -96,6 +97,7 @@ impl Features {
             model.p_ins_dj = p_dj;
             model.markov_chain_dj = Arc::new(DNAMarkovChain::new(&mc_dj, true)?);
         }
+
         let sum_log_likelihood = features.iter().map(|x| x.log_likelihood.unwrap()).sum();
 
         // Now update the features vector
@@ -112,6 +114,7 @@ impl Features {
                 log_likelihood: None,
             });
         }
+        model.initialize()?;
         Ok((new_features, sum_log_likelihood))
     }
 
@@ -124,6 +127,9 @@ impl Features {
     ) -> Result<ResultInference> {
         // println!("VAL {:?}", sequence.v_genes[0]);
         // println!("JAL {:?}", sequence.j_genes[0]);
+
+        // small positive likelihood, in case the inference stops early
+        self.log_likelihood = Some((ip.min_likelihood).log2());
 
         // Estimate the likelihood of all possible insertions
         let Some(mut ins_vd) = FeatureVD::new(
@@ -214,6 +220,8 @@ impl Features {
         // Divide all the proba by P(R) (the probability of the sequence)
         if result.likelihood > 0. {
             self.scale(result.likelihood)?;
+        } else {
+            return Ok(ResultInference::impossible());
         }
 
         // add a small positive likelihood to deal with the case where result.likelihood is 0.
@@ -260,7 +268,6 @@ impl Features {
                                     }
 
                                     let ins_dj = sequence.get_subsequence(d_end, j_start);
-                                    //ins_dj.reverse();
                                     let ins_vd = sequence.get_subsequence(v_end, d_start);
 
                                     let last_v_nucleotide = val.get_last_nucleotide(delv);
@@ -326,8 +333,8 @@ impl Features {
                                         self.error.dirty_update_d_fragment(
                                             &ErrorDAlignment {
                                                 dal: &dal,
-                                                deld5,
                                                 deld3,
+                                                deld5,
                                             },
                                             ll,
                                         );

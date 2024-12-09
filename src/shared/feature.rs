@@ -87,7 +87,7 @@ impl CategoricalFeature1 {
             .ok_or(anyhow!("Cannot average empty vector"))?
             .probas_dirty;
         for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
+            average_proba += &feat.probas_dirty;
             len += 1;
         }
         let new_feat = CategoricalFeature1::new(&(average_proba / (len as f64)))?;
@@ -316,16 +316,14 @@ impl CategoricalFeature2g1 {
     pub fn average(
         mut iter: impl Iterator<Item = CategoricalFeature2g1> + Clone,
     ) -> Result<CategoricalFeature2g1> {
-        let mut len = 1;
         let mut average_proba = iter
             .next()
             .ok_or(anyhow!("Cannot average empty vector"))?
             .probas_dirty;
         for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
-            len += 1;
+            average_proba += &feat.probas_dirty;
         }
-        let average_feat = CategoricalFeature2g1::new(&(average_proba / (f64::from(len))))?;
+        let average_feat = CategoricalFeature2g1::new(&(average_proba))?;
         Ok(average_feat)
     }
 }
@@ -383,7 +381,7 @@ impl CategoricalFeature3 {
             .ok_or(anyhow!("Cannot average empty vector"))?
             .probas_dirty;
         for feat in iter {
-            average_proba = average_proba + feat.probas_dirty;
+            average_proba += &feat.probas_dirty;
             len += 1;
         }
         let average_feat = CategoricalFeature3::new(&(average_proba / (f64::from(len))))?;
@@ -421,8 +419,9 @@ impl InsertionFeature {
         }
         self.length_distribution_dirty[observation.len()] += likelihood;
 
-        self.transition_matrix_dirty =
-            self.transition
+        self.transition_matrix_dirty +=
+            &self
+                .transition
                 .update(observation, first_nucleotide, likelihood);
     }
 
@@ -521,11 +520,10 @@ impl InsertionFeature {
         let mut average_mat = first_feat.transition_matrix_dirty;
         let direction = first_feat.transition.reverse;
         for feat in iter {
-            average_mat = average_mat + feat.transition_matrix_dirty;
-            average_length = average_length + feat.length_distribution_dirty;
+            average_mat += &feat.transition_matrix_dirty;
+            average_length += &feat.length_distribution_dirty;
             len += 1;
         }
-
         // the error rate correction can make some value of the transition matrix negative
         // (shouldn't happen in theory, but that's life)
         // we fix those to 1e-4 (not 0, so that they are not blocked)

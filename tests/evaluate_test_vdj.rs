@@ -35,8 +35,7 @@ fn evaluate_cdr3() -> Result<()> {
         model.clone().seg_vs,
         model.clone().seg_js,
     ));
-    let mut ip = InferenceParameters::default();
-    ip.infer_features = false;
+    let ip = InferenceParameters::default();
 
     let result = model.evaluate(es, &AlignmentParameters::default(), &ip);
     println!("{:?}\n", result);
@@ -81,8 +80,7 @@ fn evaluate_cdr3() -> Result<()> {
         model.clone().seg_vs,
         model.clone().seg_js,
     ));
-    let mut ip = InferenceParameters::default();
-    ip.infer_features = true;
+    let ip = InferenceParameters::default();
 
     model.model_type = righor::shared::ModelStructure::VDJ;
     let result = model.evaluate(es.clone(), &AlignmentParameters::default(), &ip);
@@ -337,13 +335,6 @@ fn evaluate_markov_amino_acid() -> Result<()> {
         [0.5, 0.8, 0.4, 0.002]
     ];
 
-    let array = array![
-        [0.25, 0.25, 0.25, 0.25],
-        [0.25, 0.25, 0.25, 0.25],
-        [0.25, 0.25, 0.25, 0.25],
-        [0.25, 0.25, 0.3, 0.2],
-    ];
-
     let mkc = DNAMarkovChain::new(&array, false)?;
 
     let aa = AminoAcid::from_string("WMM")?;
@@ -438,7 +429,7 @@ fn evaluate_simple_model_vdj() -> Result<()> {
     model.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(0.2));
     model2.error = ErrorParameters::ConstantRate(ErrorConstantRate::new(0.2));
 
-    let mut generator = righor::vdj::Generator::new(model.clone(), Some(42), None, None)?;
+    let mut generator = righor::vdj::Generator::new(&model.clone(), Some(42), None, None)?;
     let mut ifp = InferenceParameters::default();
 
     ifp.min_likelihood = 0.;
@@ -450,7 +441,7 @@ fn evaluate_simple_model_vdj() -> Result<()> {
         let als = EntrySequence::Aligned(model.align_sequence(DnaLike::from_dna(s.clone()), &alp)?);
         let result_model_vdj = model.evaluate(als.clone(), &alp, &ifp)?;
         let result_model_v_dj = model2.evaluate(als.clone(), &alp, &ifp)?;
-        let result_model_brute_force = model.evaluate_brute_force(als.clone(), &alp, &ifp)?;
+        let result_model_brute_force = model.evaluate_brute_force(&als.clone(), &alp, &ifp)?;
 
         println!("VDJ\t{:?}", result_model_vdj.best_event);
         println!("VxDJ\t {:?}", result_model_v_dj.best_event);

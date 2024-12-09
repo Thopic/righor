@@ -27,7 +27,9 @@ use ndarray::{s, Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
 
-use kdam::TqdmParallelIterator;
+use kdam::{tqdm, BarExt, TqdmParallelIterator};
+
+use std::sync::atomic::Ordering;
 
 use crate::{v_dj, vdj};
 use rand::rngs::SmallRng;
@@ -437,19 +439,37 @@ impl Modelable for Model {
             Some(feats) => feats,
         };
 
-        let new_features = (&features, sequences)
-            .into_par_iter()
-            .tqdm()
-            .map(|(feat, sequence)| {
-                let aligned = sequence.align(self, alignment_params)?;
-                let mut new_feat = feat.clone();
-                let _ = new_feat.infer(&aligned, &ip)?;
-                Ok(new_feat)
-            })
-            .collect::<Result<Vec<_>>>()?;
+        // error bar for the notebook, we need to chunk
+        let new_features: Result<Vec<_>> =
+            if crate::shared::utils::IN_NOTEBOOK.load(Ordering::SeqCst) {
+                let mut pb = tqdm!(total = sequences.len(), force_refresh = true);
+                let mut new_features: Vec<Result<_>> = vec![];
+                for (feat_c, seq_c) in features.chunks(100).zip(sequences.chunks(100)) {
+                    pb.update(100)?;
+                    new_features.extend(feat_c.iter().zip(seq_c.iter()).map(|(feat, sequence)| {
+                        let aligned = sequence.align(self, alignment_params)?;
+                        let mut new_feat = feat.clone();
+                        let _ = new_feat.infer(&aligned, &ip)?;
+                        Ok(new_feat)
+                    }));
+                }
+                new_features.into_iter().collect()
+            } else {
+                // not in a notebook, we can just use par_tqdm.
+                (&features, sequences)
+                    .into_par_iter()
+                    .tqdm()
+                    .map(|(feat, sequence)| {
+                        let aligned = sequence.align(self, alignment_params)?;
+                        let mut new_feat = feat.clone();
+                        let _ = new_feat.infer(&aligned, &ip)?;
+                        Ok(new_feat)
+                    })
+                    .collect()
+            };
 
         // update the model and clean up the features
-        Features::update(new_features, self, &ip)
+        Features::update(new_features?, self, &ip)
     }
 
     /// Evaluate a sequence and return the result of the inference

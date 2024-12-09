@@ -196,7 +196,7 @@ pub fn align_all_dgenes(
             }
             if seq
                 .extract_padded_subsequence(pos, pos + dpal.len() as i64)
-                .count_differences(&dpal.extract_subsequence(0, dpal.len()))
+                .count_differences(&dpal)
                 > align_params.max_error_d
             {
                 continue;

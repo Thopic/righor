@@ -1,4 +1,5 @@
 use crate::shared::feature::Feature;
+use crate::shared::model::Modelable;
 use crate::shared::{errors::FeatureError, InferenceParameters, ResultInference};
 use crate::shared::{
     CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1, ErrorParameters,
@@ -100,6 +101,8 @@ impl Features {
                 log_likelihood: None,
             });
         }
+        // just in case re-initialize the model
+        model.initialize()?;
 
         Ok((new_features, sum_log_likelihood))
     }
@@ -125,6 +128,9 @@ impl Features {
         sequence: &Sequence,
         ip: &InferenceParameters,
     ) -> Result<ResultInference> {
+        // small positive likelihood, in case the inference stops early
+        self.log_likelihood = Some((ip.min_likelihood).log2());
+
         // Estimate the likelihood of all possible insertions
         let Some(mut agg_ins_vd) = FeatureVD::new(
             sequence,

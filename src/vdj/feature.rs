@@ -362,7 +362,6 @@ impl AggregatedFeatureSpanD {
                     }
                     if ip.infer_features.del_d {
                         feat_deld.dirty_update((deld5, deld3, d.index), corrected_proba);
-
                         feat_error.dirty_update_d_fragment(
                             &ErrorDAlignment {
                                 dal: d,
@@ -437,26 +436,7 @@ impl FeatureVD {
 
                     for first_nucleotide in 0..4 {
                         let likelihood = feat_insvd.likelihood(&ins_vd, first_nucleotide);
-
-                        // let likelihood = match ip.likelihood_type {
-                        //     SequenceType::Protein => Likelihood::from_insertions(&ins_vd) * ll,
-                        //     SequenceType::Dna => Likelihood::Scalar(ll),
-                        // };
-                        // if ev == 4 && sd == 5 {
-                        //     println!("AAH {:?}", likelihood.max());
-                        // }
-
                         if likelihood.max() > ip.min_likelihood {
-                            // if ev == 23 && sd == 24 {
-                            //     if likelihood.to_matrix().is_ok() {
-                            //         println!(
-                            //             "{:?} {:.2e} {}\n----------------------",
-                            //             ins_vd.clone().to_dnas(),
-                            //             likelihood.to_matrix().unwrap(),
-                            //             sequence.get_subsequence(ev - 2, sd).to_dna()
-                            //         );
-                            //     }
-                            // }
                             likelihoods.add_to((ev, sd), first_nucleotide, likelihood);
                         }
                     }
@@ -473,25 +453,6 @@ impl FeatureVD {
             likelihood: likelihoods,
         })
     }
-
-    // /// sequence is the inserted sequence
-    // fn precompute_likelihood(
-    //     insfeat: &InsertionFeature,
-    //     sequence: &DnaLike,
-    //     first_nucleotide: usize,
-    //     ip: &InferenceParameters,
-    // ) -> Likelihood {
-    //     return match ip.likelihood_type {
-    //         Matrix => {
-    //             let matrix = Matrix16::zeros();
-    //             for (left, right, seq) in sequence.fix_extremities() {
-    //                 matrix[[left, right]] = insfeat.likelihood(seq, first_nucleotide);
-    //             }
-    //             Likelihood::Matrix(matrix)
-    //         }
-    //         Float => Likelihood::Scalar(insfeat.likelihood(sequence, first_nucleotide)),
-    //     };
-    // }
 
     pub fn max_ev(&self) -> i64 {
         self.likelihood.max().0
@@ -527,6 +488,28 @@ impl FeatureVD {
         if !ip.infer_features.ins_vd {
             return;
         }
+
+        // let mut updated_proba_first_nuc = [0.; 4];
+        // // first we need to fix the normalization for P(first_nuc)
+        // for previous_nucleotide in 0..4 {
+        //     for ev in self.likelihood.min().0..self.likelihood.max().0 {
+        //         for sd in self.likelihood.min().1..self.likelihood.max().1 {
+        //             if sd >= 0
+        //                 && sd < sequence.len() as i64
+        //                 && sd >= ev
+        //                 && ((sd - ev) as usize) < feat_insvd.max_nb_insertions()
+        //             {
+        //                 let updated_ll = self
+        //                     .dirty_likelihood
+        //                     .get((ev, sd), previous_nucleotide)
+        //                     .to_scalar()
+        //                     .unwrap();
+        //                 updated_proba_first_nuc[previous_nucleotide] += updated_ll;
+        //             }
+        //         }
+        //     }
+        // }
+
         // disaggregate only works with scalar
         for ev in self.likelihood.min().0..self.likelihood.max().0 {
             for sd in self.likelihood.min().1..self.likelihood.max().1 {
@@ -535,8 +518,6 @@ impl FeatureVD {
                     && sd >= ev
                     && ((sd - ev) as usize) < feat_insvd.max_nb_insertions()
                 {
-                    //let ins_vd_plus_first = &sequence.extract_padded_subsequence(ev - 1, sd);
-                    // let ins_vd_plus_first = &sequence.extract_padded_subsequence(ev - 1, sd);
                     let ins_vd = &sequence.extract_padded_subsequence(ev, sd);
                     for previous_nucleotide in 0..4 {
                         let ll = self
@@ -548,6 +529,8 @@ impl FeatureVD {
                             .get((ev, sd), previous_nucleotide)
                             .to_scalar()
                             .unwrap();
+                        //                            / updated_proba_first_nuc[previous_nucleotide];
+
                         if ll > ip.min_likelihood && updated_ll > 0. {
                             feat_insvd.dirty_update(ins_vd, previous_nucleotide, updated_ll);
                         }
@@ -730,7 +713,6 @@ impl FeatureDJ {
                     && ((sj - ed) as usize) < feat_insdj.max_nb_insertions()
                 {
                     let ins_dj = sequence.extract_padded_subsequence(ed, sj);
-                    //ins_dj.reverse();
                     for next_nucleotide in 0..4 {
                         let ll = self
                             .likelihood(ed, sj, next_nucleotide)

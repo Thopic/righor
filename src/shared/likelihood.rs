@@ -32,7 +32,10 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 
-#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[cfg_attr(
+    all(feature = "py_binds", feature = "pyo3"),
+    pyclass(get_all, set_all, eq, eq_int)
+)]
 #[derive(Clone, Debug, Copy, Default, PartialEq)]
 pub enum LikelihoodType {
     #[default]
