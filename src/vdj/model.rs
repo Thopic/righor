@@ -1339,7 +1339,7 @@ impl Model {
                 .unwrap()
                 .probabilities
                 .clone()
-                .to_shape((4, 4))
+                .into_shape_with_order((4, 4))
                 .map_err(|_e| anyhow!("Wrong size for vd_dinucl"))?,
             false,
         )?);
@@ -1349,7 +1349,7 @@ impl Model {
                 .unwrap()
                 .probabilities
                 .clone()
-                .to_shape((4, 4))
+                .into_shape_with_order((4, 4))
                 .map_err(|_e| anyhow!("Wrong size for dj_dinucl"))?,
             true,
         )?);
