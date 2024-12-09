@@ -42,10 +42,7 @@ use rayon::{prelude::*, ThreadPoolBuilder};
 use std::{fs, path::Path};
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use std::sync::{atomic::Ordering, Arc};
-
-#[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use ndarray::array;
+use std::sync::atomic::Ordering;
 
 /// Set the number of threads (if not run: all of them)
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]

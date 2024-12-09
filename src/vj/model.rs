@@ -574,7 +574,7 @@ impl Model {
             .unwrap()
             .probabilities
             .clone()
-            .into_shape((4, 4))
+            .to_shape((4, 4))
             .map_err(|_e| anyhow!("Wrong size for vj_dinucl"))?;
 
         // TODO: Need to deal with potential first nt bias
