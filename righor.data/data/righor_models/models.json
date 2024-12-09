@@ -1,0 +1,72 @@
+[
+    {
+	"species": ["homo sapiens", "homo", "human"],
+	"chain": ["a", "alpha", "tra", "t alpha", "talpha", "ta"],
+	"id": "tmp1",
+	"filename_params": "human/t_alpha/tmp1/model_params.txt",
+	"filename_marginals": "human/t_alpha/tmp1/model_marginals.txt",
+	"filename_v_gene_cdr3_anchors": "human/t_alpha/V_gene_CDR3_anchors.csv",
+	"filename_j_gene_cdr3_anchors": "human/t_alpha/J_gene_CDR3_anchors.csv",
+	"description": "Temporary model for human TRA taken from Igor, probably a bit wrong."
+    },
+    {
+	"species": ["homo sapiens", "homo", "human"],
+	    "chain": ["b", "beta", "trb", "t beta", "tbeta", "t_beta", "tbeta", "tb"],
+	"id": "tmp1",
+	"filename_params": "human/t_beta/tmp1/model_params.txt",
+	"filename_marginals": "human/t_beta/tmp1/model_marginals.txt",
+	"filename_v_gene_cdr3_anchors": "human/t_beta/V_gene_CDR3_anchors.csv",
+	"filename_j_gene_cdr3_anchors": "human/t_beta/J_gene_CDR3_anchors.csv",
+	"description": "Temporary model for human TRB taken from Igor, probably a bit wrong."
+    },
+    {
+	"species": ["homo sapiens", "homo", "human"],
+	    "chain": ["h", "heavy", "igh", "immunoglobulin heavy", "igheavy", "heavy_chain", "heavy chain"],
+	"id": "tmp1",
+	"filename_params": "human/b_heavy/tmp1/model_params.txt",
+	"filename_marginals": "human/b_heavy/tmp1/model_marginals.txt",
+	"filename_v_gene_cdr3_anchors": "human/b_heavy/V_gene_CDR3_anchors.csv",
+	"filename_j_gene_cdr3_anchors": "human/b_heavy/J_gene_CDR3_anchors.csv",
+	"description": "Temporary model for human IGH taken from Olga, probably a bit wrong."
+    },
+    {
+	"species": ["homo sapiens", "homo", "human"],
+	"chain": ["l", "light lambda", "igl", "immunoglobulin lambda", "lambda", "light_chain_lambda", "light chain lambda", "igλ"],
+	"id": "tmp1",
+	"filename_params": "human/b_lambda/tmp1/model_params.txt",
+	"filename_marginals": "human/b_lambda/tmp1/model_marginals.txt",
+	"filename_v_gene_cdr3_anchors": "human/b_lambda/V_gene_CDR3_anchors.csv",
+	"filename_j_gene_cdr3_anchors": "human/b_lambda/J_gene_CDR3_anchors.csv",
+	"description": "Temporary model for human IGλ taken from Olga, probably a bit wrong."
+    },
+    {
+	"species": ["homo sapiens", "homo", "human"],
+	"chain": ["l", "light kappa", "igk", "immunoglobulin kappa", "kappa", "light_chain_kappa", "light chain kappa", "igκ"],
+	"id": "tmp1",
+	"filename_params": "human/b_kappa/tmp1/model_params.txt",
+	"filename_marginals": "human/b_kappa/tmp1/model_marginals.txt",
+	"filename_v_gene_cdr3_anchors": "human/b_kappa/V_gene_CDR3_anchors.csv",
+	"filename_j_gene_cdr3_anchors": "human/b_kappa/J_gene_CDR3_anchors.csv",
+	"description": "Temporary model for human IGκ taken from Olga, probably a bit wrong."
+    },
+    {
+	"species": ["mus musculus", "mus", "mouse"],
+	"chain": ["b", "beta", "trb", "t beta", "tbeta", "t_beta", "tbeta", "tb"],
+	"id": "tmp1",
+	"filename_params": "mouse/t_beta/tmp1/model_params.txt",
+	"filename_marginals": "mouse/t_beta/tmp1/model_marginals.txt",
+	"filename_v_gene_cdr3_anchors": "mouse/t_beta/V_gene_CDR3_anchors.csv",
+	"filename_j_gene_cdr3_anchors": "mouse/t_beta/J_gene_CDR3_anchors.csv",
+	"description": "Temporary model for mouse TRB taken from Igor, probably a bit wrong."
+    },
+    {
+	"species": ["mus musculus", "mus", "mouse"],
+	"chain": ["a", "alpha", "tra", "t alpha", "talpha", "ta"],
+	"id": "tmp1",
+	"filename_params": "mouse/t_alpha/tmp1/model_params.txt",
+	"filename_marginals": "mouse/t_alpha/tmp1/model_marginals.txt",
+	"filename_v_gene_cdr3_anchors": "mouse/t_alpha/V_gene_CDR3_anchors.csv",
+	"filename_j_gene_cdr3_anchors": "mouse/t_alpha/J_gene_CDR3_anchors.csv",
+	"description": "Temporary model for mouse TRA taken from Olga, probably a bit wrong."
+    }
+]
