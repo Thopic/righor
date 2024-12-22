@@ -6,6 +6,7 @@ import itertools
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+#from sklearn.metrics import mutual_info_score
 import os
 
 
@@ -535,14 +536,32 @@ def airr_dataframe(results):
         'd2_frame',
         'productive',
         'stop_codon'}
-
-
     pass
+
+
+# def to_dict(result):
+#     return {
+#         'cdr3_aa': result.cdr3_aa,
+#         'cdr3': result.cdr3_nt,
+#         'sequence_inferred': result.full_seq,
+#         'v_call': v_gene,
+#         'j_call': j_gene,
+#         'd_call': d_gene, deld3, deld5, delv, delj, insvd, insdj, insvj, errors
+
+
 
 def get_mutual_information_model(model, variables=[], n=10000):
     """ Generate `n` sequences through the model and measure the mutual information
     between the variables in `variables`
     """
+    generator = model.generator(seed=None)
+    sequences = [generator.generate(False) for _ in range(n)]
+
+
+    mutual_info_score()
+
+
+
     pass
 
 
