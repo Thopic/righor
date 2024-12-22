@@ -6,7 +6,7 @@ build-backend = "maturin"
 [project]
 name = "righor"
 # version = "0.2.9" ## Also need to update the cargo.toml version (not needed anymore ?)
-require-python = ">=3.7,<=3.12"
+require-python = ">=3.9,<=3.12"
 dependencies = [
     "seaborn",
     "matplotlib",
