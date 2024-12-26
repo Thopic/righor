@@ -18,6 +18,8 @@ pub type Matrix4x16 = nalgebra::SMatrix<f64, 4, 16>;
 pub type Matrix16x4 = nalgebra::SMatrix<f64, 16, 4>;
 pub type Matrix4 = nalgebra::SMatrix<f64, 4, 4>;
 
+use ahash::RandomState;
+
 use crate::shared::alignment::DAlignment;
 use crate::shared::alignment::VJAlignment;
 use crate::shared::sequence::DnaLike;
@@ -239,7 +241,7 @@ impl Likelihood {
 
 #[derive(Clone, Debug)]
 pub enum Likelihood1DContainer {
-    Scalar(RangeArray1), // for the normal nucleotides sequences
+    Scalar(RangeArray1<f64>), // for the normal nucleotides sequences
     Matrix(HashMap<i64, Vector16, nohash_hasher::BuildNoHashHasher<i64>>), // for the amino-acids
 }
 
@@ -251,7 +253,7 @@ impl Likelihood1DContainer {
     /// Get the value at position `pos`
     pub fn get(&self, pos: i64) -> Likelihood {
         match &self {
-            Likelihood1DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos)),
+            Likelihood1DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos).clone()),
             Likelihood1DContainer::Matrix(x) => {
                 //debug_assert!(pos >= self.min() && pos <= self.max());
                 if !x.contains_key(&pos) {
@@ -280,9 +282,10 @@ impl Likelihood1DContainer {
         match dt {
             SequenceType::Dna => Likelihood1DContainer::Scalar(RangeArray1::zeros((start, end))),
             SequenceType::Protein => {
-                Likelihood1DContainer::Matrix(HashMap::with_hasher(BuildHasherDefault::<
-                    NoHashHasher<i64>,
-                >::default()))
+                Likelihood1DContainer::Matrix(HashMap::with_capacity_and_hasher(
+                    1000,
+                    BuildHasherDefault::<NoHashHasher<i64>>::default(),
+                ))
             }
         }
     }
@@ -329,7 +332,7 @@ impl Likelihood1DContainer {
 #[derive(Clone, Debug)]
 pub enum Likelihood2DContainer {
     Scalar(RangeArray2),
-    Matrix(HashMap<(i64, i64), Matrix16>),
+    Matrix(HashMap<(i64, i64), Matrix16, RandomState>),
     // nohash_hasher::BuildNoHashHasher<(i64, i64)>>),
 }
 
@@ -373,7 +376,9 @@ impl Likelihood2DContainer {
     pub fn zeros(starts: (i64, i64), ends: (i64, i64), dt: SequenceType) -> Likelihood2DContainer {
         match dt {
             SequenceType::Dna => Likelihood2DContainer::Scalar(RangeArray2::zeros((starts, ends))),
-            SequenceType::Protein => Likelihood2DContainer::Matrix(HashMap::new()),
+            SequenceType::Protein => Likelihood2DContainer::Matrix(
+                HashMap::with_capacity_and_hasher(1000, RandomState::with_seed(42)),
+            ),
         }
     }
 

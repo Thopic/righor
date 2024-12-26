@@ -60,11 +60,13 @@ pub struct InferenceParameters {
     /// The evaluation/inference algorithm will cut branches with
     /// likelihood < `best current likelihood * min_ratio_likelihood`
     pub min_ratio_likelihood: f64,
-    /// If true store the highest likelihood event
-    pub store_best_event: bool,
-    /// If true and `store_best_event` is true, compute the pgen of the sequence
+    // /// If true store the highest likelihood event
+    // pub store_best_event: bool,
+    /// If true compute the pgen of the sequence
     /// (pgen is computed by default if the model error rate is 0)
     pub compute_pgen: bool,
+    /// If this & infer_features are false does not disaggregate the object
+    pub infer_best_event: bool,
 }
 
 impl Default for AlignmentParameters {
@@ -184,7 +186,7 @@ impl InferenceParameters {
         InferenceParameters::default()
     }
     fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("InferenceParameters(min_likelihood={:.3e}, min_ratio_likelihood={:.3e}, infer={}, store_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features.any(), self.store_best_event, self.compute_pgen))
+        Ok(format!("InferenceParameters(min_likelihood={:.3e}, min_ratio_likelihood={:.3e}, infer={}, infer_best_event={}, compute_pgen={})", self.min_likelihood, self.min_ratio_likelihood, self.infer_features.any(), self.infer_best_event, self.compute_pgen))
     }
     fn __str__(&self) -> PyResult<String> {
         // This is what will be shown when you use print() in Python
@@ -197,9 +199,9 @@ impl Default for InferenceParameters {
         InferenceParameters {
             min_likelihood: (-400.0f64).exp2(),
             min_ratio_likelihood: (-100.0f64).exp2(),
-            store_best_event: true,
             compute_pgen: true,
             infer_features: InferredFeatures::default(),
+            infer_best_event: true,
         }
     }
 }
@@ -212,6 +214,21 @@ impl InferenceParameters {
         self.infer_features.ins_vd = false;
         self.infer_features.ins_dj = false;
         self.infer_features.genes = false;
+    }
+
+    pub fn pgen_only(&mut self) {
+        self.do_not_infer_features();
+        self.infer_best_event = false;
+    }
+
+    pub fn need_disaggregate(&self) -> bool {
+        return self.infer_features.del_d
+            || self.infer_features.del_v
+            || self.infer_features.del_j
+            || self.infer_features.ins_vd
+            || self.infer_features.ins_dj
+            || self.infer_features.genes
+            || self.infer_best_event;
     }
 
     pub fn new(min_likelihood: f64) -> Self {

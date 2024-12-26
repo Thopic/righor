@@ -6,21 +6,15 @@ fn max_vector(arr: &[f64]) -> Option<f64> {
     arr.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied()
 }
 
-/// Implement an array structure containing f64, indexed by min..max where min/max are i64
 #[derive(Default, Clone, Debug)]
-pub struct RangeArray1 {
-    pub array: Vec<f64>,
+pub struct RangeArray1<T> {
+    pub array: Vec<T>,
     pub min: i64,
-    pub max: i64, // other extremity of the range (min + array.len())
+    pub max: i64,
 }
 
-impl RangeArray1 {
-    // iterate over index & value
-    pub fn iter(&self) -> impl Iterator<Item = (i64, &f64)> + '_ {
-        (self.min..self.max).zip(self.array.iter())
-    }
-
-    pub fn new(values: &Vec<(i64, f64)>) -> RangeArray1 {
+impl<T: Default + Clone> RangeArray1<T> {
+    pub fn new(values: &Vec<(i64, T)>) -> RangeArray1<T> {
         if values.is_empty() {
             return RangeArray1 {
                 min: 0,
@@ -31,25 +25,27 @@ impl RangeArray1 {
 
         let min = values.iter().map(|x| x.0).min().unwrap();
         let max = values.iter().map(|x| x.0).max().unwrap() + 1;
-        let mut array = vec![0.; (max - min) as usize];
+        let mut array = vec![T::default(); (max - min) as usize];
 
         for (idx, value) in values {
-            array[(idx - min) as usize] += value;
+            array[(idx - min) as usize] = value.clone();
         }
 
         RangeArray1 { array, min, max }
     }
 
-    pub fn get(&self, idx: i64) -> f64 {
+    pub fn get(&self, idx: i64) -> &T {
         debug_assert!(idx >= self.min && idx < self.max);
-        //unsafe because improve perf
-        //        unsafe {
-        *self.array.get((idx - self.min) as usize).unwrap()
-        //}
+        self.array.get((idx - self.min) as usize).unwrap()
     }
 
-    pub fn max_value(&self) -> f64 {
-        max_vector(&self.array).unwrap()
+    pub fn get_mut(&mut self, idx: i64) -> &mut T {
+        debug_assert!(idx >= self.min && idx < self.max);
+        self.array.get_mut((idx - self.min) as usize).unwrap()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (i64, &T)> + '_ {
+        (self.min..self.max).zip(self.array.iter())
     }
 
     pub fn dim(&self) -> (i64, i64) {
@@ -61,40 +57,110 @@ impl RangeArray1 {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.max == self.min
+        self.array.is_empty()
     }
 
-    pub fn zeros(range: (i64, i64)) -> RangeArray1 {
-        RangeArray1 {
-            min: range.0,
-            max: range.1,
-            array: vec![0.; (range.1 - range.0) as usize],
-        }
-    }
-
-    pub fn constant(range: (i64, i64), cstt: f64) -> RangeArray1 {
-        RangeArray1 {
-            min: range.0,
-            max: range.1,
-            array: vec![cstt; (range.1 - range.0) as usize],
-        }
-    }
-
-    pub fn get_mut(&mut self, idx: i64) -> &mut f64 {
-        debug_assert!(idx >= self.min && idx < self.max);
-        //unsafe because improve perf
-        //        unsafe {
-        self.array.get_mut((idx - self.min) as usize).unwrap()
-        //}
-    }
-
-    pub fn mut_map<F>(&mut self, mut f: F)
+    pub fn zeros(range: (i64, i64)) -> RangeArray1<T>
     where
-        F: FnMut(f64) -> f64,
+        T: Default,
     {
-        self.array.iter_mut().for_each(|x| *x = f(*x));
+        RangeArray1 {
+            min: range.0,
+            max: range.1,
+            array: vec![T::default(); (range.1 - range.0) as usize],
+        }
     }
 }
+
+// /// Implement an array structure containing f64, indexed by min..max where min/max are i64
+// #[derive(Default, Clone, Debug)]
+// pub struct RangeArray1 {
+//     pub array: Vec<f64>,
+//     pub min: i64,
+//     pub max: i64, // other extremity of the range (min + array.len())
+// }
+
+// impl RangeArray1 {
+//     // iterate over index & value
+//     pub fn iter(&self) -> impl Iterator<Item = (i64, &f64)> + '_ {
+//         (self.min..self.max).zip(self.array.iter())
+//     }
+
+//     pub fn new(values: &Vec<(i64, f64)>) -> RangeArray1 {
+//         if values.is_empty() {
+//             return RangeArray1 {
+//                 min: 0,
+//                 max: 0,
+//                 array: Vec::new(),
+//             };
+//         }
+
+//         let min = values.iter().map(|x| x.0).min().unwrap();
+//         let max = values.iter().map(|x| x.0).max().unwrap() + 1;
+//         let mut array = vec![0.; (max - min) as usize];
+
+//         for (idx, value) in values {
+//             array[(idx - min) as usize] += value;
+//         }
+
+//         RangeArray1 { array, min, max }
+//     }
+
+//     pub fn get(&self, idx: i64) -> f64 {
+//         debug_assert!(idx >= self.min && idx < self.max);
+//         //unsafe because improve perf
+//         //        unsafe {
+//         *self.array.get((idx - self.min) as usize).unwrap()
+//         //}
+//     }
+
+//     pub fn max_value(&self) -> f64 {
+//         max_vector(&self.array).unwrap()
+//     }
+
+//     pub fn dim(&self) -> (i64, i64) {
+//         (self.min, self.max)
+//     }
+
+//     pub fn len(&self) -> usize {
+//         (self.max - self.min) as usize
+//     }
+
+//     pub fn is_empty(&self) -> bool {
+//         self.max == self.min
+//     }
+
+//     pub fn zeros(range: (i64, i64)) -> RangeArray1 {
+//         RangeArray1 {
+//             min: range.0,
+//             max: range.1,
+//             array: vec![0.; (range.1 - range.0) as usize],
+//         }
+//     }
+
+//     pub fn constant(range: (i64, i64), cstt: f64) -> RangeArray1 {
+//         RangeArray1 {
+//             min: range.0,
+//             max: range.1,
+//             array: vec![cstt; (range.1 - range.0) as usize],
+//         }
+//     }
+
+//     pub fn get_mut(&mut self, idx: i64) -> &mut f64 {
+//         debug_assert!(idx >= self.min && idx < self.max);
+//         //unsafe because improve perf
+//         //        unsafe {
+//         self.array.get_mut((idx - self.min) as usize).unwrap()
+//         //}
+//     }
+
+//     pub fn mut_map<F>(&mut self, mut f: F)
+//     where
+//         F: FnMut(f64) -> f64,
+//     {
+//         self.array.iter_mut().for_each(|x| *x = f(*x));
+//     }
+// }
 
 /// Implement an array structure containing f64, indexed by min..max where min/max are i64
 #[derive(Default, Clone, Debug)]

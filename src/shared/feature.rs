@@ -632,7 +632,7 @@ pub struct ResultHuman {
     pub likelihood_ratio_best: f64,
     pub seq: String,
     pub full_seq: String,
-    pub reconstructed_seq: String,
+    pub germline_seq: String,
     pub aligned_v: String,
     pub aligned_j: String,
     pub v_name: String,
@@ -659,8 +659,38 @@ impl ResultInference {
         self.human_readable.clone().unwrap().d_name
     }
     #[getter]
-    pub fn get_reconstructed_sequence(&self) -> String {
-        self.human_readable.clone().unwrap().reconstructed_seq
+    pub fn get_germline_sequence(&self) -> String {
+        self.human_readable.clone().unwrap().germline_seq
+    }
+
+    #[getter]
+    pub fn get_inferred_sequence(&self) -> String {
+        self.human_readable.clone().unwrap().full_seq
+    }
+
+    #[getter]
+    pub fn get_original_sequence(&self) -> String {
+        self.human_readable.clone().unwrap().seq
+    }
+
+    #[getter]
+    pub fn get_n_junction(&self) -> String {
+        return self.human_readable.clone().unwrap().n_junction;
+    }
+
+    #[getter]
+    pub fn get_aa_junction(&self) -> String {
+        return self.human_readable.clone().unwrap().aa_junction;
+    }
+
+    #[getter]
+    pub fn get_aligned_v(&self) -> String {
+        return self.human_readable.clone().unwrap().aligned_v;
+    }
+
+    #[getter]
+    pub fn get_aligned_j(&self) -> String {
+        return self.human_readable.clone().unwrap().aligned_j;
     }
 }
 
@@ -737,7 +767,7 @@ impl ResultInference {
             likelihood_ratio_best: best_event.likelihood / self.likelihood,
             seq: best_event.sequence.clone().unwrap().get_string(),
             full_seq: best_event.full_sequence.clone().unwrap().get_string(),
-            reconstructed_seq,
+            germline_seq: reconstructed_seq,
             aligned_v,
             aligned_j,
             v_name: model.get_v_gene(&best_event),
@@ -758,7 +788,7 @@ impl ResultInference {
         }
     }
     pub fn set_best_event(&mut self, ev: InfEvent, ip: &InferenceParameters) {
-        if ip.store_best_event {
+        if ip.infer_best_event {
             self.best_event = Some(ev);
         }
     }

@@ -423,7 +423,6 @@ impl Modelable for Model {
 
         // no need to compute pgen or store best event if we're infering
         ip.compute_pgen = false;
-        ip.store_best_event = false;
 
         let features = match features_opt {
             None => {
@@ -506,7 +505,7 @@ impl Modelable for Model {
         }
 
         // Otherwise, we need to compute the pgen of the reconstructed sequence
-        if ip.compute_pgen && ip.store_best_event {
+        if ip.compute_pgen {
             let event = result
                 .get_best_event()
                 .ok_or(anyhow!("Error with event extraction during pgen inference"))?;

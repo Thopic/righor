@@ -186,6 +186,13 @@ impl Features {
             }
         }
 
+        // add a small positive likelihood to deal with the case where result.likelihood is 0.
+        self.log_likelihood = Some((result.likelihood + ip.min_likelihood).log2());
+
+        if !ip.need_disaggregate() {
+            return Ok(result);
+        }
+
         // disaggregate the insertion features
         ins_vd.disaggregate(&sequence.sequence, &mut self.insvd, ip);
         ins_dj.disaggregate(&sequence.sequence, &mut self.insdj, ip);
@@ -223,9 +230,6 @@ impl Features {
         } else {
             return Ok(ResultInference::impossible());
         }
-
-        // add a small positive likelihood to deal with the case where result.likelihood is 0.
-        self.log_likelihood = Some((result.likelihood + ip.min_likelihood).log2());
 
         // Return the result
         Ok(result)
@@ -339,7 +343,7 @@ impl Features {
                                             ll,
                                         );
 
-                                        if ip.store_best_event && (ll > result.best_likelihood) {
+                                        if ip.infer_best_event && (ll > result.best_likelihood) {
                                             let event = InfEvent {
                                                 v_index: val.index,
                                                 v_start_gene: val.start_gene,
@@ -469,7 +473,7 @@ impl Features {
                                 current_result.best_likelihood = likelihood.to_scalar()?;
                                 cutoff = (ip.min_likelihood)
                                     .max(ip.min_ratio_likelihood * current_result.best_likelihood);
-                                if ip.store_best_event {
+                                if ip.infer_best_event {
                                     // pos_d is fixed when we disaggregate D
                                     let event = InfEvent {
                                         v_index: feature_v.index,

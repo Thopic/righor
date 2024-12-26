@@ -11,9 +11,5 @@
 - righor-py, better "load_model" function
 - problem in the CDR3 generation
 
-## Before version change checklist:
-- is righor-py using the cargo package or the local version ?
-- did you change the version number everywhere ?
-
-
 ## Other
+- add cargo publish to the CI.yml

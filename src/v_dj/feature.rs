@@ -20,7 +20,7 @@ pub struct AggregatedFeatureStartDAndJ {
     // Contains all the likelihood  P(d5, j)
     likelihood: Likelihood1DContainer,
     // Dirty likelihood, will be updated as we go through the inference
-    dirty_likelihood: RangeArray1,
+    dirty_likelihood: RangeArray1<f64>,
 
     // Store the associated J feature
     feature_j: AggregatedFeatureStartJ,
@@ -62,10 +62,10 @@ impl AggregatedFeatureStartDAndJ {
                             == j_alignment
                                 .get_first_nucleotide((j_start - feature_j.start_j5) as usize))
                     {
-                        let ll_d_and_j = ll_ins_dj * feature_j.likelihood(j_start);
+                        let ll_d_and_j = ll_dj * ll_ins_dj * feature_j.likelihood(j_start);
                         // iter_fixed_dend iter only on valid values of d_start
                         agg_d.iter_fixed_dend(d_end).for_each(|(d_start, ll_deld)| {
-                            let ll = ll_deld * ll_d_and_j.clone() * ll_dj;
+                            let ll = ll_deld * ll_d_and_j.clone();
                             if ll.max() > ip.min_likelihood {
                                 likelihoods.add_to(d_start, ll.clone());
                                 total_likelihood += ll;
@@ -136,7 +136,7 @@ impl AggregatedFeatureStartDAndJ {
 
             for d_start in agg_deld.start_d5..agg_deld.end_d5 {
                 let dirty_proba = if infer_features {
-                    self.dirty_likelihood.get(d_start)
+                    self.dirty_likelihood.get(d_start).clone()
                 } else {
                     0.
                 };
@@ -190,7 +190,7 @@ impl AggregatedFeatureStartDAndJ {
                                 }
                             }
 
-                            if ip.store_best_event && ll.max() > best_likelihood {
+                            if ip.infer_best_event && ll.max() > best_likelihood {
                                 if let Some(ev) = event {
                                     if ev.start_d == d_start && ev.j_index == j_alignment.index {
                                         ev.d_index = agg_deld.index;
@@ -206,7 +206,7 @@ impl AggregatedFeatureStartDAndJ {
             }
         }
 
-        if ip.store_best_event {
+        if ip.infer_best_event {
             if let Some(ev) = event {
                 ev.likelihood *= best_likelihood / self.likelihood(ev.start_d).max();
             }

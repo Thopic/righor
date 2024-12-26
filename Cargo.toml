@@ -17,7 +17,6 @@ path = "src/lib.rs"
 debug = true
 opt-level = 3
 
-
 [dependencies]
 rand = { version = "0.8.5", features = [ "small_rng" ] }
 rand_distr = "0.4.0"
@@ -47,6 +46,8 @@ cfg-if = "1.0"
 nalgebra = {version = "0.32.6"}
 nohash-hasher = "0.2"
 log = { version = "0.4", optional=true}
+ahash = { version = "0.8.11"}
+
 
 [features]
 default = ["kdam"]

@@ -29,7 +29,7 @@ pub struct AggregatedFeatureEndV {
     // Contains all the likelihood
     likelihood: Likelihood1DContainer,
     // Dirty likelihood (will be updated as we go through the inference)
-    dirty_likelihood: RangeArray1,
+    dirty_likelihood: RangeArray1<f64>,
 }
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub struct AggregatedFeatureStartJ {
     likelihood: Likelihood1DContainer,
 
     // Dirty likelihood (will be updated as we go through the inference)
-    dirty_likelihood: RangeArray1,
+    dirty_likelihood: RangeArray1<f64>,
 }
 
 /// Contains the probability of the D gene starting and ending position
@@ -139,7 +139,7 @@ impl AggregatedFeatureEndV {
                 feat_delv.likelihood((delv, v.index)) * feat_error.likelihood(v.errors(delv, 0));
 
             if ll > ip.min_likelihood {
-                let dirty_proba = self.dirty_likelihood.get(v_end); // P(ev)
+                let dirty_proba = self.dirty_likelihood.get(v_end).clone(); // P(ev)
                 if dirty_proba > 0. && ip.infer_features.del_v {
                     // here we want to compute P(delV | V)
                     // at that point the V gene proba should be already updated
@@ -224,7 +224,7 @@ impl AggregatedFeatureStartJ {
             let ll =
                 feat_delj.likelihood((delj, j.index)) * feat_error.likelihood(j.errors(0, delj));
             if ll > ip.min_likelihood {
-                let dirty_proba = self.dirty_likelihood.get(j_start);
+                let dirty_proba = self.dirty_likelihood.get(j_start).clone();
                 if dirty_proba > 0. && ip.infer_features.del_j {
                     feat_delj.dirty_update((delj, j.index), dirty_proba);
 
@@ -371,7 +371,7 @@ impl AggregatedFeatureSpanD {
                             corrected_proba,
                         );
                     }
-                    if ip.store_best_event {
+                    if ip.infer_best_event {
                         //if likelihood / self.likelihood(d_start, d_end) > best_proba {
 
                         if let Some(ev) = event {

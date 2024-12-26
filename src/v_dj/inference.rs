@@ -192,6 +192,10 @@ impl Features {
             }
         }
 
+        if !ip.need_disaggregate() {
+            return Ok(result);
+        }
+
         // disaggregate the v/dj features
         for (val, v) in sequence.v_genes.iter().zip(features_v.iter_mut()) {
             match v {
@@ -288,7 +292,7 @@ impl Features {
                         current_result.best_likelihood = likelihood;
                         cutoff = (ip.min_likelihood)
                             .max(ip.min_ratio_likelihood * current_result.best_likelihood);
-                        if ip.store_best_event {
+                        if ip.infer_best_event {
                             // We just set the ones we have right now
                             let event = InfEvent {
                                 v_index: feature_v.index,

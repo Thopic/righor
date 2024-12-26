@@ -4,6 +4,7 @@ use crate::shared::event::PyStaticEvent;
 use crate::shared::gene::Gene;
 use crate::shared::markov_chain::DNAMarkovChain;
 use crate::shared::sequence::Dna;
+use crate::shared::ModelGen;
 use crate::shared::ResultInference;
 use crate::shared::StaticEvent;
 use crate::shared::{AlignmentParameters, ErrorParameters, Features, InferenceParameters};
@@ -94,6 +95,21 @@ impl GenerationResult {
 pub enum Model {
     VDJ(crate::vdj::Model),
     VJ(crate::vj::Model),
+}
+
+impl ModelGen for Model {
+    fn get_v_segments(&self) -> Vec<Gene> {
+        match self {
+            Model::VDJ(x) => x.get_v_segments(),
+            Model::VJ(x) => x.get_v_segments(),
+        }
+    }
+    fn get_j_segments(&self) -> Vec<Gene> {
+        match self {
+            Model::VDJ(x) => x.get_j_segments(),
+            Model::VJ(x) => x.get_j_segments(),
+        }
+    }
 }
 
 impl Model {

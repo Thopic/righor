@@ -399,6 +399,26 @@ impl DnaLikeEnum {
     }
 
     /// Count the number of differences between the sequence and the template
+    /// on two different slices
+    pub fn count_differences_slices(
+        &self,
+        d: &Dna,
+        start_self: usize,
+        end_self: usize,
+        start_d: usize,
+        end_d: usize,
+    ) -> usize {
+        match self {
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => {
+                s.count_differences_slices(d, start_self, end_self, start_d, end_d)
+            }
+            DnaLikeEnum::Protein(s) => {
+                s.count_differences_slices(d, start_self, end_self, start_d, end_d)
+            }
+        }
+    }
+
+    /// Count the number of differences between the sequence and the template
     /// Assuming they both start at the same point
     pub fn count_differences(&self, template: &Dna) -> usize {
         match self {
@@ -775,6 +795,21 @@ impl Dna {
             .sum()
     }
 
+    pub fn count_differences_slices(
+        &self,
+        d: &Dna,
+        start_self: usize,
+        end_self: usize,
+        start_d: usize,
+        end_d: usize,
+    ) -> usize {
+        self.seq[start_self..end_self]
+            .iter()
+            .zip(&d.seq[start_d..end_d])
+            .map(|(&x, &y)| if compatible_nucleotides(x, y) { 0 } else { 1 })
+            .sum()
+    }
+
     pub fn count_differences(&self, template: &Dna) -> usize {
         self.hamming_distance(template)
     }
@@ -980,6 +1015,29 @@ impl AminoAcid {
             start: self.start,
             end: self.end,
         })
+    }
+
+    pub fn count_differences_slices(
+        &self,
+        d: &Dna,
+        start_self: usize,
+        end_self: usize,
+        start_d: usize,
+        end_d: usize,
+    ) -> usize {
+        let shift_start = start_self + self.start;
+        let shift_end = end_self + self.start;
+        let aa_start = shift_start / 3;
+        let aa_end = (shift_end + 3 - 1) / 3;
+        let new_codon_start = shift_start % 3;
+        let new_codon_end = 3 * (aa_end) - shift_end;
+
+        DegenerateCodonSequence::from_aminoacid_u8(
+            &self.seq[aa_start..aa_end],
+            new_codon_start,
+            new_codon_end,
+        )
+        .count_differences_slice(d, start_d, end_d)
     }
 
     pub fn count_differences(&self, template: &Dna) -> usize {
@@ -1372,5 +1430,17 @@ impl DnaLike {
 
     pub fn count_differences(&self, template: &Dna) -> usize {
         self.inner.count_differences(template)
+    }
+
+    pub fn count_differences_slices(
+        &self,
+        d: &Dna,
+        start_self: usize,
+        end_self: usize,
+        start_d: usize,
+        end_d: usize,
+    ) -> usize {
+        self.inner
+            .count_differences_slices(d, start_self, end_self, start_d, end_d)
     }
 }

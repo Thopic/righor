@@ -12,6 +12,8 @@ use anyhow::Result;
 use itertools::{iproduct, Itertools};
 use serde::{Deserialize, Serialize};
 
+use crate::shared::sequence::compatible_nucleotides;
+
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 /// Partially defined dna sequence created from an amino-acid sequence
 /// Example: NHLRH, 1, 2 corresponds to (among many others) .atcacctaagacat
@@ -780,12 +782,23 @@ impl DegenerateCodon {
 
     /// Return the hamming distance between the codon and a dna sequence
     /// of length 3 - start - end. start + end <= 2
-    pub fn hamming_distance(&self, seq: &Dna, start: usize, end: usize) -> usize {
+    pub fn hamming_distance(&self, seq: &[u8], start: usize, end: usize) -> usize {
         debug_assert!(seq.len() == 3 - start - end);
 
         self.triplets
             .iter()
-            .map(|x| seq.hamming_distance_index_slice(x, start, end))
+            .map(|x| {
+                seq.iter()
+                    .zip(&x[start..3 - end])
+                    .map(|(&u, &v)| {
+                        if compatible_nucleotides(u, NUCLEOTIDES[v]) {
+                            0
+                        } else {
+                            1
+                        }
+                    })
+                    .sum()
+            })
             .min()
             .unwrap()
     }
@@ -839,6 +852,15 @@ impl DegenerateCodonSequence {
                 .collect(),
             codon_start: aa.start,
             codon_end: aa.end,
+        }
+    }
+
+    /// Same but from a &u8
+    pub fn from_aminoacid_u8(aa: &[u8], start: usize, end: usize) -> DegenerateCodonSequence {
+        DegenerateCodonSequence {
+            codons: aa.iter().map(|&x| DegenerateCodon::from_amino(x)).collect(),
+            codon_start: start,
+            codon_end: end,
         }
     }
 
@@ -1030,6 +1052,32 @@ impl DegenerateCodonSequence {
         result.extract_subsequence((start + shift) as usize, (end + shift) as usize)
     }
 
+    /// Count the number of difference between a slice of the sequence
+    /// and a slice of the template
+    /// Hamming distance, choosing the most favorable codon each time
+    pub fn count_differences_slice(&self, d: &Dna, start_d: usize, end_d: usize) -> usize {
+        debug_assert!(end_d - start_d == self.codons.len() - self.codon_end - self.codon_start);
+        let mut distance = 0;
+        let mut current = 0;
+
+        for (ii, cs) in self.codons.iter().enumerate() {
+            let start = if ii == 0 { self.codon_start } else { 0 };
+            let end = if ii == self.codons.len() - 1 {
+                self.codon_end
+            } else {
+                0
+            };
+
+            distance += cs.hamming_distance(
+                &d.seq[current + start_d..current + start_d + 3 - start - end],
+                start,
+                end,
+            );
+            current += 3 - start - end;
+        }
+        distance
+    }
+
     /// Count the number of difference between the sequence and a template
     /// Hamming distance, choosing the most favorable codon each time
     pub fn count_differences(&self, template: &Dna) -> usize {
@@ -1045,9 +1093,7 @@ impl DegenerateCodonSequence {
             };
 
             distance += cs.hamming_distance(
-                &Dna {
-                    seq: template.seq[current..current + 3 - start - end].to_vec(),
-                },
+                &template.seq[current..current + 3 - start - end],
                 start,
                 end,
             );
