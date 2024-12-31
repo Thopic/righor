@@ -394,3 +394,11 @@ pub fn difference_as_i64(a: usize, b: usize) -> i64 {
         -((b - a) as i64)
     }
 }
+
+pub fn get_batches(n: usize, num_batches: usize) -> Vec<usize> {
+    let remainder: usize = n % num_batches;
+    let quotient: usize = n / num_batches;
+    let mut batches = vec![quotient; num_batches - remainder];
+    batches.extend_from_slice(&vec![quotient + 1; remainder]);
+    batches
+}

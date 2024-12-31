@@ -4,6 +4,7 @@ use crate::shared::event::PyStaticEvent;
 use crate::shared::gene::Gene;
 use crate::shared::markov_chain::DNAMarkovChain;
 use crate::shared::sequence::Dna;
+use crate::shared::utils::get_batches;
 use crate::shared::ResultInference;
 use crate::shared::StaticEvent;
 use crate::shared::{AlignmentParameters, ErrorParameters, Features, InferenceParameters};
@@ -23,7 +24,10 @@ use pyo3::prelude::*;
 
 use crate::shared::DnaLike;
 use rand::rngs::SmallRng;
+use rand::RngCore;
 use rand::{Rng, SeedableRng};
+use rayon::current_num_threads;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -717,6 +721,60 @@ impl Generator {
     pub fn generate_without_errors(&mut self, functional: bool) -> GenerationResult {
         self.model
             .generate_without_errors(functional, &mut self.rng)
+    }
+
+    pub fn generate_many(&mut self, num_monte_carlo: usize, functional: bool) -> Vec<[String; 5]> {
+        let num_threads = current_num_threads();
+        let batches: Vec<usize> = get_batches(num_monte_carlo, num_threads);
+        let seeds: Vec<u64> = (0..num_threads).map(|_| self.rng.next_u64()).collect();
+
+        seeds
+            .into_par_iter()
+            .enumerate()
+            .flat_map_iter(|(idx, s)| {
+                let mut child_rng = SmallRng::seed_from_u64(s);
+                let mut child_model = self.model.clone();
+                (0..batches[idx]).into_iter().map(move |_| {
+                    let gen_result = child_model.generate(functional, &mut child_rng).unwrap();
+                    [
+                        gen_result.junction_aa.unwrap_or("Out-of-frame".to_string()),
+                        gen_result.v_gene,
+                        gen_result.j_gene,
+                        gen_result.junction_nt,
+                        gen_result.full_seq,
+                    ]
+                })
+            })
+            .collect::<Vec<[String; 5]>>()
+    }
+
+    pub fn generate_many_without_errors(
+        &mut self,
+        num_monte_carlo: usize,
+        functional: bool,
+    ) -> Vec<[String; 4]> {
+        let num_threads = current_num_threads();
+        let batches: Vec<usize> = get_batches(num_monte_carlo, num_threads);
+        let seeds: Vec<u64> = (0..num_threads).map(|_| self.rng.next_u64()).collect();
+
+        seeds
+            .into_par_iter()
+            .enumerate()
+            .flat_map_iter(|(idx, s)| {
+                let mut child_rng = SmallRng::seed_from_u64(s);
+                let mut child_model = self.model.clone();
+                (0..batches[idx]).into_iter().map(move |_| {
+                    let gen_result =
+                        child_model.generate_without_errors(functional, &mut child_rng);
+                    [
+                        gen_result.junction_aa.unwrap_or("Out-of-frame".to_string()),
+                        gen_result.v_gene,
+                        gen_result.j_gene,
+                        gen_result.junction_nt,
+                    ]
+                })
+            })
+            .collect::<Vec<[String; 4]>>()
     }
 }
 
