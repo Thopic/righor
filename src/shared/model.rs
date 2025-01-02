@@ -14,6 +14,7 @@ use crate::vdj::{display_j_alignment, display_v_alignment};
 use ndarray::array;
 
 use ndarray::{Array1, Array2, Array3};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::shared::errors::ErrorConstantRate;
@@ -677,6 +678,100 @@ impl Model {
             Model::VDJ(x) => Ok(x.p_dj.clone()),
             Model::VJ(_) => Err(anyhow!("VJ model does not have DJ insertions.")),
         }
+    }
+
+    pub fn get_norm_productive(
+        &self,
+        num_monte_carlo: Option<usize>,
+        conserved_j_residues: Option<&str>,
+        seed: Option<u64>,
+    ) -> f64 {
+        let num_monte_carlo = match num_monte_carlo {
+            Some(num_monte_carlo) => num_monte_carlo,
+            None => 1e6 as usize,
+        };
+        let mut rng = match seed {
+            Some(s) => SmallRng::seed_from_u64(s),
+            None => SmallRng::from_entropy(),
+        };
+        let conserved_j_residues: HashSet<u8> = match conserved_j_residues {
+            Some(conserved_j_residues) => {
+                HashSet::from_iter(conserved_j_residues.bytes().into_iter())
+            }
+            None => HashSet::from_iter(b"FVW".into_iter().cloned()),
+        };
+
+        let num_threads = current_num_threads();
+        let batches: Vec<usize> = get_batches(num_monte_carlo, num_threads);
+        let seeds: Vec<u64> = (0..num_threads).map(|_| rng.next_u64()).collect();
+
+        let mut functional_vs: HashSet<String> = HashSet::new();
+        for gene in self.get_v_segments() {
+            if gene.functional == "F" || gene.functional == "(F)" {
+                functional_vs.insert(gene.name.to_string());
+            }
+        }
+        let mut functional_js: HashSet<String> = HashSet::new();
+        for gene in self.get_j_segments() {
+            if gene.functional == "F" || gene.functional == "(F)" {
+                functional_js.insert(gene.name.to_string());
+            }
+        }
+
+        let num_productive: usize = seeds
+            .into_par_iter()
+            .enumerate()
+            .map(|(idx, s)| {
+                let mut child_rng = SmallRng::seed_from_u64(s);
+                let mut child_model = self.clone();
+                let mut count = 0;
+
+                for _ in 0..batches[idx] {
+                    let gen_result = child_model.generate_without_errors(false, &mut child_rng);
+                    // Check V gene is functional.
+                    if !functional_vs.contains(&gen_result.v_gene) {
+                        continue;
+                    }
+                    // Check J gene is functional.
+                    if !functional_js.contains(&gen_result.j_gene) {
+                        continue;
+                    }
+
+                    let junction_aa = gen_result.junction_aa;
+                    match junction_aa {
+                        Some(junction_aa) => {
+                            let junction_aa = junction_aa.into_bytes();
+
+                            if junction_aa.is_empty() {
+                                continue;
+                            }
+
+                            // CDR3 should have no stop codons.
+                            if junction_aa.contains(&b'*') {
+                                continue;
+                            }
+
+                            // CDR3 begins with a cysteine.
+                            if junction_aa[0] != b'C' {
+                                continue;
+                            }
+
+                            // CDR3 ends with one of the allowed conserved residues.
+                            if !conserved_j_residues.contains(junction_aa.last().unwrap()) {
+                                continue;
+                            }
+                        }
+                        None => {
+                            // Do not count out-of-frame sequences.
+                            continue;
+                        }
+                    };
+                    count += 1;
+                }
+                count
+            })
+            .reduce(|| 0usize, |a, b| a + b);
+        (num_productive as f64) / (num_monte_carlo as f64)
     }
 }
 

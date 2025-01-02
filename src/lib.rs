@@ -738,6 +738,21 @@ impl PyModel {
             .into_pyarray_bound(py)
             .into())
     }
+
+    #[pyo3(signature = (num_monte_carlo=1_000_000, conserved_j_residues="ACDEFGHIKLMNPQRSTVWY", seed=None))]
+    pub fn get_norm_productive(
+        &self,
+        num_monte_carlo: Option<usize>,
+        conserved_j_residues: Option<&str>,
+        seed: Option<u64>,
+    ) -> Result<f64> {
+        Ok(Model::get_norm_productive(
+            &self.inner,
+            num_monte_carlo,
+            conserved_j_residues,
+            seed,
+        ))
+    }
 }
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
