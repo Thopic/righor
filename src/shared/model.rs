@@ -14,6 +14,7 @@ use crate::vdj::{display_j_alignment, display_v_alignment};
 use ndarray::array;
 
 use ndarray::{Array1, Array2, Array3};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::shared::errors::ErrorConstantRate;
@@ -678,6 +679,100 @@ impl Model {
             Model::VJ(_) => Err(anyhow!("VJ model does not have DJ insertions.")),
         }
     }
+
+    pub fn get_norm_productive(
+        &self,
+        num_monte_carlo: Option<usize>,
+        conserved_j_residues: Option<&str>,
+        seed: Option<u64>,
+    ) -> f64 {
+        let num_monte_carlo = match num_monte_carlo {
+            Some(num_monte_carlo) => num_monte_carlo,
+            None => 1e6 as usize,
+        };
+        let mut rng = match seed {
+            Some(s) => SmallRng::seed_from_u64(s),
+            None => SmallRng::from_entropy(),
+        };
+        let conserved_j_residues: HashSet<u8> = match conserved_j_residues {
+            Some(conserved_j_residues) => {
+                HashSet::from_iter(conserved_j_residues.bytes().into_iter())
+            }
+            None => HashSet::from_iter(b"FVW".into_iter().cloned()),
+        };
+
+        let num_threads = current_num_threads();
+        let batches: Vec<usize> = get_batches(num_monte_carlo, num_threads);
+        let seeds: Vec<u64> = (0..num_threads).map(|_| rng.next_u64()).collect();
+
+        let mut functional_vs: HashSet<String> = HashSet::new();
+        for gene in self.get_v_segments() {
+            if gene.functional == "F" || gene.functional == "(F)" {
+                functional_vs.insert(gene.name.to_string());
+            }
+        }
+        let mut functional_js: HashSet<String> = HashSet::new();
+        for gene in self.get_j_segments() {
+            if gene.functional == "F" || gene.functional == "(F)" {
+                functional_js.insert(gene.name.to_string());
+            }
+        }
+
+        let num_productive: usize = seeds
+            .into_par_iter()
+            .enumerate()
+            .map(|(idx, s)| {
+                let mut child_rng = SmallRng::seed_from_u64(s);
+                let mut child_model = self.clone();
+                let mut count = 0;
+
+                for _ in 0..batches[idx] {
+                    let gen_result = child_model.generate_without_errors(false, &mut child_rng);
+                    // Check V gene is functional.
+                    if !functional_vs.contains(&gen_result.v_gene) {
+                        continue;
+                    }
+                    // Check J gene is functional.
+                    if !functional_js.contains(&gen_result.j_gene) {
+                        continue;
+                    }
+
+                    let junction_aa = gen_result.junction_aa;
+                    match junction_aa {
+                        Some(junction_aa) => {
+                            let junction_aa = junction_aa.into_bytes();
+
+                            if junction_aa.is_empty() {
+                                continue;
+                            }
+
+                            // CDR3 should have no stop codons.
+                            if junction_aa.contains(&b'*') {
+                                continue;
+                            }
+
+                            // CDR3 begins with a cysteine.
+                            if junction_aa[0] != b'C' {
+                                continue;
+                            }
+
+                            // CDR3 ends with one of the allowed conserved residues.
+                            if !conserved_j_residues.contains(junction_aa.last().unwrap()) {
+                                continue;
+                            }
+                        }
+                        None => {
+                            // Do not count out-of-frame sequences.
+                            continue;
+                        }
+                    };
+                    count += 1;
+                }
+                count
+            })
+            .reduce(|| 0usize, |a, b| a + b);
+        (num_productive as f64) / (num_monte_carlo as f64)
+    }
 }
 
 #[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass)]
@@ -723,6 +818,17 @@ impl Generator {
             .generate_without_errors(functional, &mut self.rng)
     }
 
+    pub fn generate_without_and_with_errors(
+        &mut self,
+        functional: bool,
+    ) -> (GenerationResult, GenerationResult) {
+        let (res_without_err, res_with_error) = self
+            .model
+            .generate_without_and_with_errors(functional, &mut self.rng);
+        //let res_with_error = Some(res_with_error);
+        (res_without_err, res_with_error.unwrap())
+    }
+
     pub fn generate_many(&mut self, num_monte_carlo: usize, functional: bool) -> Vec<[String; 5]> {
         let num_threads = current_num_threads();
         let batches: Vec<usize> = get_batches(num_monte_carlo, num_threads);
@@ -732,10 +838,11 @@ impl Generator {
             .into_par_iter()
             .enumerate()
             .flat_map_iter(|(idx, s)| {
-                let mut child_rng = SmallRng::seed_from_u64(s);
-                let mut child_model = self.model.clone();
+                let mut child_generator =
+                    Generator::new(&self.model, Some(s), None::<Vec<Gene>>, None::<Vec<Gene>>)
+                        .unwrap();
                 (0..batches[idx]).into_iter().map(move |_| {
-                    let gen_result = child_model.generate(functional, &mut child_rng).unwrap();
+                    let gen_result = child_generator.generate(functional).unwrap();
                     [
                         gen_result.junction_aa.unwrap_or("Out-of-frame".to_string()),
                         gen_result.v_gene,
@@ -761,11 +868,11 @@ impl Generator {
             .into_par_iter()
             .enumerate()
             .flat_map_iter(|(idx, s)| {
-                let mut child_rng = SmallRng::seed_from_u64(s);
-                let mut child_model = self.model.clone();
+                let mut child_generator =
+                    Generator::new(&self.model, Some(s), None::<Vec<Gene>>, None::<Vec<Gene>>)
+                        .unwrap();
                 (0..batches[idx]).into_iter().map(move |_| {
-                    let gen_result =
-                        child_model.generate_without_errors(functional, &mut child_rng);
+                    let gen_result = child_generator.generate_without_errors(functional);
                     [
                         gen_result.junction_aa.unwrap_or("Out-of-frame".to_string()),
                         gen_result.v_gene,
@@ -775,6 +882,42 @@ impl Generator {
                 })
             })
             .collect::<Vec<[String; 4]>>()
+    }
+
+    pub fn generate_many_without_and_with_errors(
+        &mut self,
+        num_monte_carlo: usize,
+        functional: bool,
+    ) -> Vec<[String; 6]> {
+        let num_threads = current_num_threads();
+        let batches: Vec<usize> = get_batches(num_monte_carlo, num_threads);
+        let seeds: Vec<u64> = (0..num_threads).map(|_| self.rng.next_u64()).collect();
+
+        seeds
+            .into_par_iter()
+            .enumerate()
+            .flat_map_iter(|(idx, s)| {
+                let mut child_generator =
+                    Generator::new(&self.model, Some(s), None::<Vec<Gene>>, None::<Vec<Gene>>)
+                        .unwrap();
+                (0..batches[idx]).into_iter().map(move |_| {
+                    let (res_without_error, res_with_error) =
+                        child_generator.generate_without_and_with_errors(functional);
+                    [
+                        res_without_error
+                            .junction_aa
+                            .unwrap_or("Out-of-frame".to_string()),
+                        res_without_error.v_gene,
+                        res_without_error.j_gene,
+                        res_without_error.junction_nt,
+                        res_with_error
+                            .junction_aa
+                            .unwrap_or("Out-of-frame".to_string()),
+                        res_with_error.junction_nt,
+                    ]
+                })
+            })
+            .collect::<Vec<[String; 6]>>()
     }
 }
 
@@ -836,6 +979,13 @@ pub trait Modelable {
 
     /// Generate a sequence
     fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> Result<GenerationResult>;
+
+    /// Generate a sequence without and with errors
+    fn generate_without_and_with_errors<R: Rng>(
+        &mut self,
+        functional: bool,
+        rng: &mut R,
+    ) -> (GenerationResult, Result<GenerationResult>);
 
     /// Generate a sequence without taking into account the error rate
     fn generate_without_errors<R: Rng>(
@@ -926,6 +1076,17 @@ impl Model {
         match self {
             Model::VDJ(x) => x.generate(functional, rng),
             Model::VJ(x) => x.generate(functional, rng),
+        }
+    }
+
+    pub fn generate_without_and_with_errors<R: Rng>(
+        &mut self,
+        functional: bool,
+        rng: &mut R,
+    ) -> (GenerationResult, Result<GenerationResult>) {
+        match self {
+            Model::VDJ(x) => x.generate_without_and_with_errors(functional, rng),
+            Model::VJ(x) => x.generate_without_and_with_errors(functional, rng),
         }
     }
 }

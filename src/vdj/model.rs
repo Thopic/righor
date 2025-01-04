@@ -326,6 +326,46 @@ impl Modelable for Model {
         })
     }
 
+    fn generate_without_and_with_errors<R: Rng>(
+        &mut self,
+        functional: bool,
+        rng: &mut R,
+    ) -> (GenerationResult, Result<GenerationResult>) {
+        let (mut full_seq, cdr3_nt, cdr3_aa, mut event) = self.generate_no_error(functional, rng);
+        let generic_event = shared::StaticEvent::VDJ(event.clone());
+        let res_without_error = GenerationResult {
+            v_gene: self.seg_vs[event.v_index].name.clone(),
+            j_gene: self.seg_js[event.j_index].name.clone(),
+            recombination_event: generic_event,
+            full_seq: full_seq.get_string(),
+            junction_nt: cdr3_nt.get_string(),
+            junction_aa: cdr3_aa.map(|x| x.to_string()),
+        };
+
+        let mut generic_event = shared::StaticEvent::VDJ(event);
+        // add errors
+        self.error
+            .apply_to_sequence(&full_seq, &mut generic_event, rng);
+        event = match generic_event.clone() {
+            shared::StaticEvent::VDJ(x) => x,
+            _ => unreachable!(),
+        };
+        full_seq = event.to_sequence(self);
+
+        let cdr3_nt = event.extract_cdr3(&full_seq, self);
+        let cdr3_aa = cdr3_nt.translate().ok();
+
+        let res_with_error = Ok(GenerationResult {
+            v_gene: self.seg_vs[event.v_index].name.clone(),
+            j_gene: self.seg_js[event.j_index].name.clone(),
+            recombination_event: generic_event,
+            full_seq: full_seq.get_string(),
+            junction_nt: cdr3_nt.get_string(),
+            junction_aa: cdr3_aa.map(|x| x.to_string()),
+        });
+        (res_without_error, res_with_error)
+    }
+
     /// Return (`cdr3_nt`, `cdr3_aa`, `full_sequence`, `event`, `vname`, `jname`)
     fn generate_without_errors<R: Rng>(
         &mut self,
