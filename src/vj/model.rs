@@ -233,6 +233,14 @@ impl Modelable for Model {
         })
     }
 
+    fn generate_without_and_with_errors<R: Rng>(
+        &mut self,
+        functional: bool,
+        rng: &mut R,
+    ) -> (GenerationResult, Result<GenerationResult>) {
+        self.inner.generate_without_and_with_errors(functional, rng)
+    }
+
     fn generate_without_errors<R: Rng>(
         &mut self,
         functional: bool,
