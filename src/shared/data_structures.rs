@@ -2,10 +2,6 @@
 //! `RangeArray` are array structures (similar to `ndarray`)
 //! containing f64 indexed by i64, with fast access
 
-fn max_vector(arr: &[f64]) -> Option<f64> {
-    arr.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied()
-}
-
 #[derive(Default, Clone, Debug)]
 pub struct RangeArray1<T> {
     pub array: Vec<T>,
@@ -212,9 +208,9 @@ impl RangeArray3 {
         }
     }
 
-    pub fn max_value(&self) -> f64 {
-        max_vector(&self.array).unwrap()
-    }
+    // pub fn max_value(&self) -> f64 {
+    //     max_vector(&self.array).unwrap()
+    // }
 
     // return min
     pub fn lower(&self) -> (i64, i64, i64) {
@@ -318,37 +314,16 @@ impl RangeArray3 {
     }
 }
 
-/// Implement an array structure containing f64, indexed by min..max where min/max are i64
 #[derive(Default, Clone, Debug)]
-pub struct RangeArray2 {
-    pub array: Vec<f64>,
+pub struct RangeArray2<T> {
+    pub array: Vec<T>,
     pub min: (i64, i64),
     pub max: (i64, i64),
     nb0: i64,
 }
 
-impl RangeArray2 {
-    // iterate over indexes and values
-    pub fn iter(&self) -> impl Iterator<Item = (i64, i64, &f64)> + '_ {
-        self.array.iter().enumerate().map(|(idx, v)| {
-            (
-                (idx as i64) % self.nb0 + self.min.0,
-                (idx as i64) / self.nb0 + self.min.1,
-                v,
-            )
-        })
-    }
-
-    // iterate over indexes and values
-    pub fn iter_fixed_2nd(&self, v2: i64) -> impl Iterator<Item = (i64, &f64)> + '_ {
-        self.array
-            [((v2 - self.min.1) * self.nb0) as usize..((v2 - self.min.1 + 1) * self.nb0) as usize]
-            .iter()
-            .enumerate()
-            .map(|(idx, v)| ((idx as i64 + self.min.0), v))
-    }
-
-    pub fn new(values: &Vec<((i64, i64), f64)>, cstt: f64) -> RangeArray2 {
+impl<T: Default + Clone> RangeArray2<T> {
+    pub fn new(values: &Vec<((i64, i64), T)>, default: T) -> RangeArray2<T> {
         if values.is_empty() {
             return RangeArray2 {
                 min: (0, 0),
@@ -357,6 +332,7 @@ impl RangeArray2 {
                 array: Vec::new(),
             };
         }
+
         let min = (
             values.iter().map(|x| x.0 .0).min().unwrap(),
             values.iter().map(|x| x.0 .1).min().unwrap(),
@@ -367,10 +343,11 @@ impl RangeArray2 {
         );
         let nb0 = max.0 - min.0;
 
-        let mut array = vec![cstt; (nb0 * (max.1 - min.1)) as usize];
+        let mut array = vec![default.clone(); (nb0 * (max.1 - min.1)) as usize];
         for ((i0, i1), value) in values {
-            array[(i0 - min.0) as usize + ((i1 - min.1) * nb0) as usize] += value;
+            array[(i0 - min.0) as usize + ((i1 - min.1) * nb0) as usize] = value.clone();
         }
+
         RangeArray2 {
             array,
             min,
@@ -379,57 +356,79 @@ impl RangeArray2 {
         }
     }
 
-    pub fn max_value(&self) -> f64 {
-        max_vector(&self.array).unwrap()
+    pub fn iter(&self) -> impl Iterator<Item = (i64, i64, &T)> + '_ {
+        self.array.iter().enumerate().map(|(idx, v)| {
+            (
+                (idx as i64) % self.nb0 + self.min.0,
+                (idx as i64) / self.nb0 + self.min.1,
+                v,
+            )
+        })
     }
 
-    pub fn get(&self, idx: (i64, i64)) -> f64 {
+    pub fn iter_fixed_2nd(&self, v2: i64) -> impl Iterator<Item = (i64, &T)> + '_ {
+        self.array
+            [((v2 - self.min.1) * self.nb0) as usize..((v2 - self.min.1 + 1) * self.nb0) as usize]
+            .iter()
+            .enumerate()
+            .map(|(idx, v)| ((idx as i64 + self.min.0), v))
+    }
+
+    // pub fn max_value(&self) -> Option<&T>
+    // where
+    //     T: PartialOrd,
+    // {
+    //     self.array.iter().max_by(|a, b| a.partial_cmp(b).unwrap())
+    // }
+
+    pub fn get(&self, idx: (i64, i64)) -> &T {
         debug_assert!(
             idx.0 >= self.min.0 && idx.0 < self.max.0 && idx.1 >= self.min.1 && idx.1 < self.max.1
         );
-        //        unsafe {
-        *self
-            .array
+        self.array
             .get((idx.0 - self.min.0 + (idx.1 - self.min.1) * self.nb0) as usize)
             .unwrap()
-        //      }
     }
 
-    pub fn get_mut(&mut self, idx: (i64, i64)) -> &mut f64 {
+    pub fn get_mut(&mut self, idx: (i64, i64)) -> &mut T {
         debug_assert!(
             idx.0 >= self.min.0 && idx.0 < self.max.0 && idx.1 >= self.min.1 && idx.1 < self.max.1
         );
-        //    unsafe {
         self.array
             .get_mut((idx.0 - self.min.0 + (idx.1 - self.min.1) * self.nb0) as usize)
             .unwrap()
-        //  }
     }
 
     pub fn dim(&self) -> ((i64, i64), (i64, i64)) {
         (self.min, self.max)
     }
 
-    // return min
-    pub fn lower(&self) -> (i64, i64) {
-        self.min
-    }
-
-    // return max + 1
-    pub fn upper(&self) -> (i64, i64) {
-        self.max
-    }
-
-    pub fn zeros(range: ((i64, i64), (i64, i64))) -> RangeArray2 {
+    /// Create a RangeArray2 full of copies of T
+    pub fn create(value: T, range: ((i64, i64), (i64, i64))) -> RangeArray2<T> {
         RangeArray2 {
             min: range.0,
             max: range.1,
             nb0: range.1 .0 - range.0 .0,
-            array: vec![0.; ((range.1 .0 - range.0 .0) * (range.1 .1 - range.0 .1)) as usize],
+            array: vec![value; ((range.1 .0 - range.0 .0) * (range.1 .1 - range.0 .1)) as usize],
         }
     }
 
-    pub fn constant(range: ((i64, i64), (i64, i64)), cstt: f64) -> RangeArray2 {
+    pub fn zeros(range: ((i64, i64), (i64, i64))) -> RangeArray2<T>
+    where
+        T: Default,
+    {
+        RangeArray2 {
+            min: range.0,
+            max: range.1,
+            nb0: range.1 .0 - range.0 .0,
+            array: vec![
+                T::default();
+                ((range.1 .0 - range.0 .0) * (range.1 .1 - range.0 .1)) as usize
+            ],
+        }
+    }
+
+    pub fn constant(range: ((i64, i64), (i64, i64)), cstt: T) -> RangeArray2<T> {
         RangeArray2 {
             min: range.0,
             max: range.1,
@@ -440,17 +439,147 @@ impl RangeArray2 {
 
     pub fn mut_map<F>(&mut self, mut f: F)
     where
-        F: FnMut(f64) -> f64,
+        F: FnMut(T) -> T,
     {
-        self.array.iter_mut().for_each(|x| *x = f(*x));
+        self.array
+            .iter_mut()
+            .for_each(|x| *x = f(std::mem::replace(x, T::default())));
     }
 }
 
-// /// Specific structure for insertion
+// /// Implement an array structure containing f64, indexed by min..max where min/max are i64
 // #[derive(Default, Clone, Debug)]
-// pub struct InsertionArray {
+// pub struct RangeArray2 {
 //     pub array: Vec<f64>,
 //     pub min: (i64, i64),
 //     pub max: (i64, i64),
 //     nb0: i64,
 // }
+
+// impl RangeArray2 {
+//     // iterate over indexes and values
+//     pub fn iter(&self) -> impl Iterator<Item = (i64, i64, &f64)> + '_ {
+//         self.array.iter().enumerate().map(|(idx, v)| {
+//             (
+//                 (idx as i64) % self.nb0 + self.min.0,
+//                 (idx as i64) / self.nb0 + self.min.1,
+//                 v,
+//             )
+//         })
+//     }
+
+//     // iterate over indexes and values
+//     pub fn iter_fixed_2nd(&self, v2: i64) -> impl Iterator<Item = (i64, &f64)> + '_ {
+//         self.array
+//             [((v2 - self.min.1) * self.nb0) as usize..((v2 - self.min.1 + 1) * self.nb0) as usize]
+//             .iter()
+//             .enumerate()
+//             .map(|(idx, v)| ((idx as i64 + self.min.0), v))
+//     }
+
+//     pub fn new(values: &Vec<((i64, i64), f64)>, cstt: f64) -> RangeArray2 {
+//         if values.is_empty() {
+//             return RangeArray2 {
+//                 min: (0, 0),
+//                 max: (0, 0),
+//                 nb0: 0,
+//                 array: Vec::new(),
+//             };
+//         }
+//         let min = (
+//             values.iter().map(|x| x.0 .0).min().unwrap(),
+//             values.iter().map(|x| x.0 .1).min().unwrap(),
+//         );
+//         let max = (
+//             values.iter().map(|x| x.0 .0).max().unwrap() + 1,
+//             values.iter().map(|x| x.0 .1).max().unwrap() + 1,
+//         );
+//         let nb0 = max.0 - min.0;
+
+//         let mut array = vec![cstt; (nb0 * (max.1 - min.1)) as usize];
+//         for ((i0, i1), value) in values {
+//             array[(i0 - min.0) as usize + ((i1 - min.1) * nb0) as usize] += value;
+//         }
+//         RangeArray2 {
+//             array,
+//             min,
+//             max,
+//             nb0,
+//         }
+//     }
+
+//     pub fn max_value(&self) -> f64 {
+//         max_vector(&self.array).unwrap()
+//     }
+
+//     pub fn get(&self, idx: (i64, i64)) -> f64 {
+//         debug_assert!(
+//             idx.0 >= self.min.0 && idx.0 < self.max.0 && idx.1 >= self.min.1 && idx.1 < self.max.1
+//         );
+//         //        unsafe {
+//         *self
+//             .array
+//             .get((idx.0 - self.min.0 + (idx.1 - self.min.1) * self.nb0) as usize)
+//             .unwrap()
+//         //      }
+//     }
+
+//     pub fn get_mut(&mut self, idx: (i64, i64)) -> &mut f64 {
+//         debug_assert!(
+//             idx.0 >= self.min.0 && idx.0 < self.max.0 && idx.1 >= self.min.1 && idx.1 < self.max.1
+//         );
+//         //    unsafe {
+//         self.array
+//             .get_mut((idx.0 - self.min.0 + (idx.1 - self.min.1) * self.nb0) as usize)
+//             .unwrap()
+//         //  }
+//     }
+
+//     pub fn dim(&self) -> ((i64, i64), (i64, i64)) {
+//         (self.min, self.max)
+//     }
+
+//     // return min
+//     pub fn lower(&self) -> (i64, i64) {
+//         self.min
+//     }
+
+//     // return max + 1
+//     pub fn upper(&self) -> (i64, i64) {
+//         self.max
+//     }
+
+//     pub fn zeros(range: ((i64, i64), (i64, i64))) -> RangeArray2 {
+//         RangeArray2 {
+//             min: range.0,
+//             max: range.1,
+//             nb0: range.1 .0 - range.0 .0,
+//             array: vec![0.; ((range.1 .0 - range.0 .0) * (range.1 .1 - range.0 .1)) as usize],
+//         }
+//     }
+
+//     pub fn constant(range: ((i64, i64), (i64, i64)), cstt: f64) -> RangeArray2 {
+//         RangeArray2 {
+//             min: range.0,
+//             max: range.1,
+//             nb0: range.1 .0 - range.0 .0,
+//             array: vec![cstt; ((range.1 .0 - range.0 .0) * (range.1 .1 - range.0 .1)) as usize],
+//         }
+//     }
+
+//     pub fn mut_map<F>(&mut self, mut f: F)
+//     where
+//         F: FnMut(f64) -> f64,
+//     {
+//         self.array.iter_mut().for_each(|x| *x = f(*x));
+//     }
+// }
+
+// // /// Specific structure for insertion
+// // #[derive(Default, Clone, Debug)]
+// // pub struct InsertionArray {
+// //     pub array: Vec<f64>,
+// //     pub min: (i64, i64),
+// //     pub max: (i64, i64),
+// //     nb0: i64,
+// // }

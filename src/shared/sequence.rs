@@ -1025,6 +1025,7 @@ impl AminoAcid {
         start_d: usize,
         end_d: usize,
     ) -> usize {
+        debug_assert!(end_self - start_self == end_d - start_d);
         let shift_start = start_self + self.start;
         let shift_end = end_self + self.start;
         let aa_start = shift_start / 3;

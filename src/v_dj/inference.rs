@@ -284,7 +284,7 @@ impl Features {
                 let likelihood_dj = feature_dj.likelihood(sd);
                 let likelihood =
                     (likelihood_v.clone() * likelihood_ins_vd * likelihood_dj * likelihood_vj)
-                        .to_scalar()?;
+                        .to_scalar();
 
                 if likelihood > cutoff {
                     current_result.likelihood += likelihood;

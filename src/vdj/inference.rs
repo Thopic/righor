@@ -289,12 +289,10 @@ impl Features {
                                             .insdj
                                             .likelihood(&ins_dj, first_j_nucleotide)
                                             .to_scalar()
-                                            .unwrap()
                                         * self
                                             .insvd
                                             .likelihood(&ins_vd, last_v_nucleotide)
                                             .to_scalar()
-                                            .unwrap()
                                         * self.error.likelihood(val.errors(delv, 0))
                                         * self.error.likelihood(jal.errors(0, delj))
                                         * self.error.likelihood(dal.errors(deld5, deld3));
@@ -466,11 +464,11 @@ impl Features {
                             * likelihood_j
                             * likelihood_vdj;
 
-                        if likelihood.to_scalar()? > cutoff {
+                        if likelihood.to_scalar() > cutoff {
                             //                         println!("{} {} {} {} {:?}", ev, sd, ed, sj, likelihood.to_scalar());
-                            current_result.likelihood += likelihood.to_scalar()?;
+                            current_result.likelihood += likelihood.to_scalar();
                             if likelihood.max() > current_result.best_likelihood {
-                                current_result.best_likelihood = likelihood.to_scalar()?;
+                                current_result.best_likelihood = likelihood.to_scalar();
                                 cutoff = (ip.min_likelihood)
                                     .max(ip.min_ratio_likelihood * current_result.best_likelihood);
                                 if ip.infer_best_event {
@@ -485,20 +483,20 @@ impl Features {
                                         end_d: ed,
                                         end_v: ev,
                                         start_j: sj,
-                                        likelihood: likelihood.to_scalar()?,
+                                        likelihood: likelihood.to_scalar(),
                                         ..Default::default()
                                     };
                                     current_result.set_best_event(event, ip);
                                 }
                             }
                             if ip.infer_features.del_v {
-                                feature_v.dirty_update(ev, likelihood.to_scalar()?);
+                                feature_v.dirty_update(ev, likelihood.to_scalar());
                             }
                             if ip.infer_features.del_d {
-                                feature_j.dirty_update(sj, likelihood.to_scalar()?);
+                                feature_j.dirty_update(sj, likelihood.to_scalar());
                             }
                             if ip.infer_features.del_j {
-                                feature_d.dirty_update(sd, ed, likelihood.to_scalar()?);
+                                feature_d.dirty_update(sd, ed, likelihood.to_scalar());
                             }
                             if ip.infer_features.ins_vd {
                                 ins_vd.dirty_update(
@@ -507,7 +505,7 @@ impl Features {
                                     feature_v
                                         .alignment
                                         .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize),
-                                    likelihood.to_scalar()?,
+                                    likelihood.to_scalar(),
                                 );
                             }
                             if ip.infer_features.ins_dj {
@@ -517,13 +515,13 @@ impl Features {
                                     feature_j
                                         .alignment
                                         .get_first_nucleotide((sj - feature_j.start_j5) as usize),
-                                    likelihood.to_scalar()?,
+                                    likelihood.to_scalar(),
                                 );
                             }
                             if ip.infer_features.genes {
                                 self.vdj.dirty_update(
                                     (feature_v.index, feature_d.index, feature_j.index),
-                                    likelihood.to_scalar()?,
+                                    likelihood.to_scalar(),
                                 );
                             }
                         }

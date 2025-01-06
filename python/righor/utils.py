@@ -505,55 +505,55 @@ def stationary_distribution(markov_coefficients):
     return stationary.real
 
 
-def airr_dataframe(results, model):
-    """ Return a list of sequences (either generated or evaluated) in
-    AIRR format.
-    """
-    fields = {
-        'v_call', 'd_call', 'j_call', 'sequence_inferred', 'sequence_inferred_aa', 'germline_alignment', 'germline_alignment_aa',
-        'junction', 'junction_aa', 'cdr1', 'cdr1_aa', 'cdr2', 'cdr2_aa', 'cdr3', 'cdr3_aa', 'fwr1', 'fwr1_aa', 'fwr2', 'fwr2_aa',
-        'fwr3', 'fwr3_aa', 'fwr4', 'fwr4_aa', 'junction_length', 'junction_aa_length', 'd_frame', 'd2_frame', 'productive', 'stop_codon'}
+# def airr_dataframe(results, model):
+#     """ Return a list of sequences (either generated or evaluated) in
+#     AIRR format.
+#     """
+#     fields = {
+#         'v_call', 'd_call', 'j_call', 'sequence_inferred', 'sequence_inferred_aa', 'germline_alignment', 'germline_alignment_aa',
+#         'junction', 'junction_aa', 'cdr1', 'cdr1_aa', 'cdr2', 'cdr2_aa', 'cdr3', 'cdr3_aa', 'fwr1', 'fwr1_aa', 'fwr2', 'fwr2_aa',
+#         'fwr3', 'fwr3_aa', 'fwr4', 'fwr4_aa', 'junction_length', 'junction_aa_length', 'd_frame', 'd2_frame', 'productive', 'stop_codon'}
 
-    lst_dct = []
-    for r in results:
-        if hasattr(x, 'recombination_event'): #if generated sequences
-            dct['v_call'] = r.v_gene
-            dct['j_call'] = r.j_gene
-            dct['d_call'] = model.d_segments[r.recombination_event.d_index].name
-            dct['sequence_inferred'] = r.full_seq
-            dct['sequence_inferred_aa'] = n_to_aa(dct['sequence_inferred'])
-            dct['germline_alignment'] = True # sequence without error
-            dct['germline_alignment_aa'] = n_to_aa(dct['germline_alignment'])
-            dct['junction'] = r.junction_nt
-            dct['junction_aa'] = r.junction_aa
-            dct['cdr3_nt'] = r.junction_nt[3:-3]
-            dct['cdr3_aa'] = r.junction_aa[1:-1] if r.junction_aa is not None else None
-            dct['productive'] = (r.junction_nt % 3 == 0 &&
-                                 "*" not in r.junction_aa &&
-                                 "C" == r.junction_aa[0] &&
-                                 r.junction_aa[-1] in ['F', 'W'])
-            dct['stop_codon'] = "*" in dct['sequence_inferred_aa']
-        else:
-            dct['v_call'] = r.best_v_gene
-            dct['j_call'] = r.best_j_gene
-            dct['d_call'] = r.best_d_gene if r.best_d_gene != "Empty_D_gene'" else None
-            dct['sequence_inferred'] = r.d_sequence
-            dct['sequence_inferred'] = n_to_aa(cut_mod3(r.d_sequence))\
-                                               if len(r.best_event.junction) % 3 == 0 else None
-            dct['germline_alignment'] = r.germline_sequence
-            dct['germline_alignment_aa'] = n_to_aa(cut_mod3(r.germline_sequence))\
-                if len(r.best_event.junction) % 3 == 0 else None
+#     lst_dct = []
+#     for r in results:
+#         if hasattr(x, 'recombination_event'): #if generated sequences
+#             dct['v_call'] = r.v_gene
+#             dct['j_call'] = r.j_gene
+#             dct['d_call'] = model.d_segments[r.recombination_event.d_index].name
+#             dct['sequence_inferred'] = r.full_seq
+#             dct['sequence_inferred_aa'] = n_to_aa(dct['sequence_inferred'])
+#             dct['germline_alignment'] = True # sequence without error
+#             dct['germline_alignment_aa'] = n_to_aa(dct['germline_alignment'])
+#             dct['junction'] = r.junction_nt
+#             dct['junction_aa'] = r.junction_aa
+#             dct['cdr3_nt'] = r.junction_nt[3:-3]
+#             dct['cdr3_aa'] = r.junction_aa[1:-1] if r.junction_aa is not None else None
+#             dct['productive'] = (r.junction_nt % 3 == 0 &&
+#                                  "*" not in r.junction_aa &&
+#                                  "C" == r.junction_aa[0] &&
+#                                  r.junction_aa[-1] in ['F', 'W'])
+#             dct['stop_codon'] = "*" in dct['sequence_inferred_aa']
+#         else:
+#             dct['v_call'] = r.best_v_gene
+#             dct['j_call'] = r.best_j_gene
+#             dct['d_call'] = r.best_d_gene if r.best_d_gene != "Empty_D_gene'" else None
+#             dct['sequence_inferred'] = r.d_sequence
+#             dct['sequence_inferred'] = n_to_aa(cut_mod3(r.d_sequence))\
+#                                                if len(r.best_event.junction) % 3 == 0 else None
+#             dct['germline_alignment'] = r.germline_sequence
+#             dct['germline_alignment_aa'] = n_to_aa(cut_mod3(r.germline_sequence))\
+#                 if len(r.best_event.junction) % 3 == 0 else None
 
-            dct['junction'] = r.best_event.junction
-            dct['junction_aa'] = n_to_aa(r.best_event.junction) if len(r.best_event.junction) % 3 == 0 else None
-            dct['cdr3_nt'] = dct['junction'][3:-3]
-            dct['cdr3_aa'] = dct['junction_aa'][1:-1] if dct['junction_aa'] is not None else None
+#             dct['junction'] = r.best_event.junction
+#             dct['junction_aa'] = n_to_aa(r.best_event.junction) if len(r.best_event.junction) % 3 == 0 else None
+#             dct['cdr3_nt'] = dct['junction'][3:-3]
+#             dct['cdr3_aa'] = dct['junction_aa'][1:-1] if dct['junction_aa'] is not None else None
 
-        lst_dct += [dct]
+#         lst_dct += [dct]
 
-    df = pl.DataFrame(dct)
-    df = df.drop(df.columns[pl.col("*").is_null().all()])
-    return df
+#     df = pl.DataFrame(dct)
+#     df = df.drop(df.columns[pl.col("*").is_null().all()])
+#     return df
 
 
 

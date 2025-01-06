@@ -114,7 +114,7 @@ impl DNAMarkovChain {
 impl DNAMarkovChain {
     pub fn likelihood_dna(&self, s: &Dna, first: usize) -> Likelihood {
         if s.is_empty() {
-            return Likelihood::Scalar(1.);
+            return Likelihood::new_scalar(1.);
         }
 
         let mut new_s = s.clone();
@@ -129,7 +129,7 @@ impl DNAMarkovChain {
                 nucleotides_inv(new_s.seq[ii]),
             ]];
         }
-        Likelihood::Scalar(proba)
+        Likelihood::new_scalar(proba)
     }
 
     pub fn update_dna(&self, s: &Dna, first: usize, likelihood: f64) -> Array2<f64> {
@@ -153,7 +153,7 @@ impl DNAMarkovChain {
 impl DNAMarkovChain {
     pub fn likelihood_degenerate(&self, s: &Dna, first: usize) -> Likelihood {
         if s.is_empty() {
-            return Likelihood::Scalar(1.);
+            return Likelihood::new_scalar(1.);
         }
 
         let mut new_s = s.clone();
@@ -171,7 +171,7 @@ impl DNAMarkovChain {
                 nucleotides_inv(new_s.seq[ii]),
             );
         }
-        Likelihood::Scalar(
+        Likelihood::new_scalar(
             (vector_proba * self.get_degenerate_end(nucleotides_inv(*new_s.seq.last().unwrap())))
                 [(0, 0)],
         )
@@ -250,17 +250,17 @@ impl DNAMarkovChain {
 /// functions specific to "amino-acid" dna sequences
 impl DNAMarkovChain {
     pub fn likelihood_aminoacid(&self, s: &AminoAcid, start_chain: usize) -> Likelihood {
-        Likelihood::Matrix(
+        Likelihood::new_matrix(
             // if empty sequence
             if s.seq.is_empty() || (s.seq.len() == 1 && s.start + s.end == 3) {
-                Box::new(Matrix16::identity())
+                Matrix16::identity()
             }
             // weird case #1, only one codon
             else if s.seq.len() == 1 {
                 if self.reverse {
-                    Box::new(self.aa_lone_rev[&(s.seq[0], s.start, s.end, start_chain)])
+                    self.aa_lone_rev[&(s.seq[0], s.start, s.end, start_chain)]
                 } else {
-                    Box::new(self.aa_lone[&(s.seq[0], s.start, s.end, start_chain)])
+                    self.aa_lone[&(s.seq[0], s.start, s.end, start_chain)]
                 }
             } else {
                 // standard case
@@ -273,7 +273,7 @@ impl DNAMarkovChain {
                     let m_16_4 =
                         self.aa_start_rev[&(s.seq[s.seq.len() - 1], s.end, start_chain)] * m_4_4;
                     let mf = m_16_4 * self.aa_end_rev[&(s.seq[0], s.start)];
-                    Box::new(mf.transpose())
+                    mf.transpose()
                 } else {
                     let mut m_4_4 = Matrix4::identity();
                     for ii in 1..s.seq.len() - 1 {
@@ -281,7 +281,7 @@ impl DNAMarkovChain {
                     }
                     let m0 = self.aa_start[&(s.seq[0], s.start, start_chain)];
                     let mf = m0 * m_4_4 * self.aa_end[&(s.seq[s.seq.len() - 1], s.end)];
-                    Box::new(mf)
+                    mf
                 }
             },
         )

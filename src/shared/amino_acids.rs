@@ -1056,7 +1056,7 @@ impl DegenerateCodonSequence {
     /// and a slice of the template
     /// Hamming distance, choosing the most favorable codon each time
     pub fn count_differences_slice(&self, d: &Dna, start_d: usize, end_d: usize) -> usize {
-        debug_assert!(end_d - start_d == self.codons.len() - self.codon_end - self.codon_start);
+        debug_assert!(end_d - start_d == 3 * self.codons.len() - self.codon_end - self.codon_start);
         let mut distance = 0;
         let mut current = 0;
 

@@ -66,7 +66,7 @@ pub struct AggregatedFeatureSpanD {
     // Contains all the likelihood  P(startD, endD | D)
     likelihood: Likelihood2DContainer,
     // Dirty likelihood, will be updated as we go through the inference
-    dirty_likelihood: RangeArray2,
+    dirty_likelihood: RangeArray2<f64>,
 }
 
 impl AggregatedFeatureEndV {
@@ -90,7 +90,7 @@ impl AggregatedFeatureEndV {
             let ll = ll_delv * ll_v_err;
             if ll > ip.min_likelihood {
                 let likelihood = match v.sequence_type {
-                    SequenceType::Dna => Likelihood::Scalar(ll),
+                    SequenceType::Dna => Likelihood::new_scalar(ll),
                     SequenceType::Protein => Likelihood::from_v_side(v, delv) * ll,
                 };
                 likelihoods.add_to(v_end, likelihood);
@@ -176,7 +176,7 @@ impl AggregatedFeatureStartJ {
             let ll = ll_delj * ll_errj;
             if ll > ip.min_likelihood {
                 let likelihood = match j.sequence_type {
-                    SequenceType::Dna => Likelihood::Scalar(ll),
+                    SequenceType::Dna => Likelihood::new_scalar(ll),
                     SequenceType::Protein => Likelihood::from_j_side(j, delj) * ll,
                 };
                 likelihoods.add_to(j_start, likelihood);
@@ -281,7 +281,7 @@ impl AggregatedFeatureSpanD {
                 if ll > ip.min_likelihood {
                     let likelihood = match ds.first().unwrap().sequence_type {
                         SequenceType::Protein => Likelihood::from_d_sides(d, deld5, deld3) * ll,
-                        SequenceType::Dna => Likelihood::Scalar(ll),
+                        SequenceType::Dna => Likelihood::new_scalar(ll),
                     };
 
                     likelihoods.add_to((d_start, d_end), likelihood);
@@ -354,7 +354,7 @@ impl AggregatedFeatureSpanD {
                 let likelihood = feat_deld.likelihood((deld5, deld3, d.index))
                     * feat_error.likelihood(d.errors(deld5, deld3));
                 if likelihood > ip.min_likelihood {
-                    let dirty_proba = self.dirty_likelihood.get((d_start, d_end));
+                    let dirty_proba = self.dirty_likelihood.get((d_start, d_end)).clone();
                     let corrected_proba =
                         dirty_proba * likelihood / self.likelihood(d_start, d_end).max();
                     if dirty_proba <= 0. && ip.infer_features.del_d {
@@ -476,7 +476,7 @@ impl FeatureVD {
 
     pub fn dirty_update(&mut self, ev: i64, sd: i64, previous_nuc: usize, likelihood: f64) {
         self.dirty_likelihood
-            .add_to((ev, sd), previous_nuc, Likelihood::Scalar(likelihood));
+            .add_to((ev, sd), previous_nuc, Likelihood::new_scalar(likelihood));
     }
 
     pub fn disaggregate(
@@ -520,15 +520,11 @@ impl FeatureVD {
                 {
                     let ins_vd = &sequence.extract_padded_subsequence(ev, sd);
                     for previous_nucleotide in 0..4 {
-                        let ll = self
-                            .likelihood(ev, sd, previous_nucleotide)
-                            .to_scalar()
-                            .unwrap();
+                        let ll = self.likelihood(ev, sd, previous_nucleotide).to_scalar();
                         let updated_ll = self
                             .dirty_likelihood
                             .get((ev, sd), previous_nucleotide)
-                            .to_scalar()
-                            .unwrap();
+                            .to_scalar();
                         //                            / updated_proba_first_nuc[previous_nucleotide];
 
                         if ll > ip.min_likelihood && updated_ll > 0. {
@@ -693,7 +689,7 @@ impl FeatureDJ {
 
     pub fn dirty_update(&mut self, ed: i64, sj: i64, previous_nuc: usize, likelihood: f64) {
         self.dirty_likelihood
-            .add_to((ed, sj), previous_nuc, Likelihood::Scalar(likelihood));
+            .add_to((ed, sj), previous_nuc, Likelihood::new_scalar(likelihood));
     }
 
     pub fn disaggregate(
@@ -714,15 +710,11 @@ impl FeatureDJ {
                 {
                     let ins_dj = sequence.extract_padded_subsequence(ed, sj);
                     for next_nucleotide in 0..4 {
-                        let ll = self
-                            .likelihood(ed, sj, next_nucleotide)
-                            .to_scalar()
-                            .unwrap();
+                        let ll = self.likelihood(ed, sj, next_nucleotide).to_scalar();
                         let updated_ll = self
                             .dirty_likelihood
                             .get((ed, sj), next_nucleotide)
-                            .to_scalar()
-                            .unwrap();
+                            .to_scalar();
                         if ll > ip.min_likelihood && updated_ll > 0. {
                             feat_insdj.dirty_update(&ins_dj, next_nucleotide, updated_ll);
                         }

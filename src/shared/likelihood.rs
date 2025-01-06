@@ -18,14 +18,10 @@ pub type Matrix4x16 = nalgebra::SMatrix<f64, 4, 16>;
 pub type Matrix16x4 = nalgebra::SMatrix<f64, 16, 4>;
 pub type Matrix4 = nalgebra::SMatrix<f64, 4, 4>;
 
-use ahash::RandomState;
-
 use crate::shared::alignment::DAlignment;
 use crate::shared::alignment::VJAlignment;
 use crate::shared::sequence::DnaLike;
 use crate::shared::sequence::SequenceType;
-use anyhow::{anyhow, Result};
-use core::ops;
 use itertools::Either;
 use nohash_hasher::NoHashHasher;
 
@@ -46,132 +42,90 @@ pub enum LikelihoodType {
     Matrix,
 }
 
-#[derive(Clone, Debug)]
-pub enum Likelihood {
-    Scalar(f64),
-    Vector(Box<Vector16>),
-    Matrix(Box<Matrix16>),
+#[derive(Debug)]
+pub struct Likelihood {
+    scalar: Option<f64>,
+    vector: Option<Vector16>,
+    matrix: Option<Matrix16>,
 }
 
-// Implement Add for Likelihood + Likelihood
-impl ops::Add for Likelihood {
-    type Output = Likelihood;
-
-    fn add(self, rhs: Likelihood) -> Likelihood {
-        match (self, rhs) {
-            (Likelihood::Scalar(lhs), Likelihood::Scalar(rhs)) => Likelihood::Scalar(lhs + rhs),
-            (Likelihood::Vector(lhs), Likelihood::Vector(rhs)) => {
-                Likelihood::Vector(Box::new(*lhs + *rhs))
+impl Clone for Likelihood {
+    fn clone(&self) -> Self {
+        if let Some(scalar) = self.scalar {
+            Self {
+                scalar: Some(scalar),
+                vector: None,
+                matrix: None,
             }
-            (Likelihood::Matrix(lhs), Likelihood::Matrix(rhs)) => {
-                Likelihood::Matrix(Box::new(*lhs + *rhs))
+        } else {
+            Self {
+                scalar: None,
+                vector: self.vector.clone(),
+                matrix: self.matrix.clone(),
             }
-            _ => panic!("Incompatible types for addition"),
         }
-    }
-}
-
-// Implement AddAssign for Likelihood += Likelihood
-impl ops::AddAssign for Likelihood {
-    fn add_assign(&mut self, rhs: Likelihood) {
-        match (self, rhs) {
-            (Likelihood::Scalar(ref mut lhs), Likelihood::Scalar(rhs)) => *lhs += rhs,
-            (Likelihood::Vector(ref mut lhs), Likelihood::Vector(rhs)) => **lhs += *rhs,
-            (Likelihood::Matrix(ref mut lhs), Likelihood::Matrix(rhs)) => **lhs += *rhs,
-            _ => panic!("Incompatible types for addition assignment"),
-        }
-    }
-}
-
-impl ops::Mul<Likelihood> for Likelihood {
-    type Output = Likelihood;
-    fn mul(self, rhs: Likelihood) -> Likelihood {
-        match (self, rhs) {
-            (Likelihood::Scalar(u), Likelihood::Scalar(v)) => Likelihood::Scalar(u * v),
-            (Likelihood::Vector(u), Likelihood::Vector(v)) => {
-                Likelihood::Scalar(((*u).transpose() * *v)[(0, 0)])
-            }
-            (Likelihood::Matrix(u), Likelihood::Matrix(v)) => Likelihood::Matrix(Box::new(*u * *v)),
-            (Likelihood::Vector(u), Likelihood::Matrix(v)) => {
-                Likelihood::Vector(Box::new(((*u).transpose() * *v).transpose()))
-            }
-            (Likelihood::Matrix(u), Likelihood::Vector(v)) => Likelihood::Vector(Box::new(*u * *v)),
-            (_, _) => panic!("Incompatible types for vector multiplications"),
-        }
-    }
-}
-
-impl ops::Mul<f64> for Likelihood {
-    type Output = Likelihood;
-    fn mul(self, rhs: f64) -> Likelihood {
-        match (self, rhs) {
-            (Likelihood::Scalar(u), x) => Likelihood::Scalar(u * x),
-            (Likelihood::Vector(u), x) => Likelihood::Vector(Box::new(*u * x)),
-            (Likelihood::Matrix(u), x) => Likelihood::Matrix(Box::new(*u * x)),
-        }
-    }
-}
-
-// Implement Mul<f64> for the reverse case (f64 * Likelihood)
-impl ops::Mul<Likelihood> for f64 {
-    type Output = Likelihood;
-    fn mul(self, rhs: Likelihood) -> Likelihood {
-        rhs * self // Reuse the implementation
     }
 }
 
 impl Likelihood {
-    // /// Return a matrix set to 1. for positions that match
-    // /// the two nucleotides before / the two last nucleotides of the D gene.
-    // /// Also deal with the situation where d is too short.
-    // pub fn from_insertions(insvd: &DnaLike) -> Likelihood {
-    //     let mut m = Matrix16::zeros();
-    //     for (i1, i2) in insvd.valid_extremities() {
-    //         m[(i1, i2)] = 1.;
-    //     }
-    //     Likelihood::Matrix(m)
-    // }
-
-    pub fn zero(dna: &DnaLike) -> Likelihood {
-        if dna.is_protein() {
-            Likelihood::Matrix(Box::new(Matrix16::zeros()))
-        } else {
-            Likelihood::Scalar(0.)
+    pub fn new_scalar(value: f64) -> Self {
+        Self {
+            scalar: Some(value),
+            vector: None,
+            matrix: None,
         }
     }
 
-    pub fn identity(dna: &DnaLike) -> Likelihood {
-        if dna.is_protein() {
-            Likelihood::Matrix(Box::new(Matrix16::identity()))
-        } else {
-            Likelihood::Scalar(1.)
+    pub fn new_vector(vector: Vector16) -> Self {
+        Self {
+            scalar: None,
+            vector: Some(vector),
+            matrix: None,
         }
     }
 
-    /// Return a matrix set to 1. for positions that match
-    /// the two nucleotides before / the two last nucleotides of the D gene.
-    /// Also deal with the situation where d is too short.
+    pub fn new_matrix(matrix: Matrix16) -> Self {
+        Self {
+            scalar: None,
+            vector: None,
+            matrix: Some(matrix),
+        }
+    }
+
+    pub fn zero(dna: &DnaLike) -> Self {
+        if dna.is_protein() {
+            Self::new_matrix(Matrix16::zeros())
+        } else {
+            Self::new_scalar(0.0)
+        }
+    }
+
+    pub fn identity(dna: &DnaLike) -> Self {
+        if dna.is_protein() {
+            Self::new_matrix(Matrix16::identity())
+        } else {
+            Self::new_scalar(1.0)
+        }
+    }
+}
+
+impl Likelihood {
     pub fn from_d_sides(d: &DAlignment, deld5: usize, deld3: usize) -> Likelihood {
         let mut m = Matrix16::zeros();
         for (idx1, idx2) in d.valid_extremities(deld5, deld3) {
-            m[(idx1, idx2)] = 1.;
+            m[(idx1, idx2)] = 1.0;
         }
-        Likelihood::Matrix(Box::new(m))
+        Likelihood::new_matrix(m)
     }
 
-    /// Return a vector set to 1. for positions that match
-    /// the two nucleotides before the J gene
     pub fn from_j_side(j: &VJAlignment, del: usize) -> Likelihood {
         let mut vec = Vector16::zeros();
         for idx in j.valid_extended_j(del) {
-            vec[idx] = 1.;
+            vec[idx] = 1.0;
         }
-        Likelihood::Vector(Box::new(vec))
+        Likelihood::new_vector(vec)
     }
 
-    /// Return a vector set to 1 for position that match
-    /// the last two nucleotides of the V gene.
-    /// Only one coefficient of the vector is non-zero
     pub fn from_v_side(v: &VJAlignment, del: usize) -> Likelihood {
         let mut vec = Vector16::zeros();
         let end_v = v.gene_sequence.len() as i64 - del as i64;
@@ -180,64 +134,358 @@ impl Likelihood {
             .extract_padded_subsequence(end_v - 2, end_v)
             .to_matrix_idx()
         {
-            vec[idx] = 1.;
+            vec[idx] = 1.0;
         }
-        Likelihood::Vector(Box::new(vec))
+        Likelihood::new_vector(vec)
     }
 
     pub fn max(&self) -> f64 {
-        match self {
-            Likelihood::Scalar(x) => *x,
-            Likelihood::Vector(x) => x.max(),
-            Likelihood::Matrix(x) => x.max(),
+        if let Some(scalar) = self.scalar {
+            scalar
+        } else if let Some(vector) = &self.vector {
+            vector.max()
+        } else if let Some(matrix) = &self.matrix {
+            matrix.max()
+        } else {
+            panic!("Invalid Likelihood state");
         }
     }
+
     pub fn is_zero(&self) -> bool {
-        self.max() == 0.
+        self.max() == 0.0
     }
 
-    pub fn to_scalar(&self) -> Result<f64> {
-        match self {
-            Likelihood::Scalar(x) => Ok(*x),
-            _ => Err(anyhow!("This likelihood is not a scalar")),
-        }
-    }
-    pub fn to_matrix(&self) -> Result<Matrix16> {
-        match self {
-            Likelihood::Matrix(x) => Ok(**x),
-            _ => Err(anyhow!("This likelihood is not a matrix")),
-        }
+    pub fn to_scalar(&self) -> f64 {
+        self.scalar.unwrap()
     }
 
-    pub fn to_vector(&self) -> Result<Vector16> {
-        match self {
-            Likelihood::Vector(x) => Ok(**x),
-            _ => Err(anyhow!("This likelihood is not a matrix")),
-        }
+    pub fn to_matrix(&self) -> Matrix16 {
+        self.matrix.unwrap()
     }
 
-    pub fn zero_from_type(lt: LikelihoodType) -> Likelihood {
+    pub fn to_vector(&self) -> Vector16 {
+        self.vector.unwrap()
+    }
+
+    pub fn zero_from_type(lt: LikelihoodType) -> Self {
         match lt {
-            LikelihoodType::Scalar => Likelihood::Scalar(0.),
-            LikelihoodType::Vector => Likelihood::Vector(Box::new(Vector16::zeros())),
-            LikelihoodType::Matrix => Likelihood::Matrix(Box::new(Matrix16::zeros())),
+            LikelihoodType::Scalar => Likelihood::new_scalar(0.0),
+            LikelihoodType::Vector => Likelihood::new_vector(Vector16::zeros()),
+            LikelihoodType::Matrix => Likelihood::new_matrix(Matrix16::zeros()),
         }
     }
 
-    /// Element-wise division
-    pub fn divide(&self, rhs: Likelihood) -> Likelihood {
-        match (self, rhs) {
-            (Likelihood::Scalar(lhs), Likelihood::Scalar(rhs)) => Likelihood::Scalar(lhs / rhs),
-            (Likelihood::Vector(lhs), Likelihood::Vector(rhs)) => {
-                Likelihood::Vector(Box::new(lhs.component_div(&rhs)))
+    pub fn divide(&self, rhs: &Likelihood) -> Likelihood {
+        match (
+            self.scalar,
+            &self.vector,
+            &self.matrix,
+            rhs.scalar,
+            &rhs.vector,
+            &rhs.matrix,
+        ) {
+            (Some(lhs), None, None, Some(rhs), None, None) => Likelihood::new_scalar(lhs / rhs),
+            (None, Some(lhs), None, None, Some(rhs), None) => {
+                Likelihood::new_vector(lhs.component_div(rhs))
             }
-            (Likelihood::Matrix(lhs), Likelihood::Matrix(rhs)) => {
-                Likelihood::Matrix(Box::new(lhs.component_div(&rhs)))
+            (None, None, Some(lhs), None, None, Some(rhs)) => {
+                Likelihood::new_matrix(lhs.component_div(rhs))
             }
+            _ => panic!("Incompatible types for division"),
+        }
+    }
+}
+
+impl std::ops::Add for Likelihood {
+    type Output = Likelihood;
+
+    fn add(self, rhs: Likelihood) -> Likelihood {
+        match (
+            self.scalar,
+            self.vector,
+            self.matrix,
+            rhs.scalar,
+            rhs.vector,
+            rhs.matrix,
+        ) {
+            (Some(lhs), None, None, Some(rhs), None, None) => Likelihood::new_scalar(lhs + rhs),
+            (None, Some(lhs), None, None, Some(rhs), None) => Likelihood::new_vector(lhs + rhs),
+            (None, None, Some(lhs), None, None, Some(rhs)) => Likelihood::new_matrix(lhs + rhs),
             _ => panic!("Incompatible types for addition"),
         }
     }
 }
+
+impl std::ops::AddAssign for Likelihood {
+    fn add_assign(&mut self, rhs: Likelihood) {
+        match (
+            self.scalar.as_mut(),
+            self.vector.as_mut(),
+            self.matrix.as_mut(),
+        ) {
+            (Some(lhs), None, None) => {
+                if let Some(rhs) = rhs.scalar {
+                    *lhs += rhs;
+                } else {
+                    panic!("Incompatible types for addition assignment");
+                }
+            }
+            (None, Some(lhs), None) => {
+                if let Some(rhs) = rhs.vector {
+                    *lhs += rhs;
+                } else {
+                    panic!("Incompatible types for addition assignment");
+                }
+            }
+            (None, None, Some(lhs)) => {
+                if let Some(rhs) = rhs.matrix {
+                    *lhs += rhs;
+                } else {
+                    panic!("Incompatible types for addition assignment");
+                }
+            }
+            _ => panic!("Invalid Likelihood state"),
+        }
+    }
+}
+
+impl std::ops::Mul for Likelihood {
+    type Output = Likelihood;
+
+    fn mul(self, rhs: Likelihood) -> Likelihood {
+        match (
+            self.scalar,
+            self.vector,
+            self.matrix,
+            rhs.scalar,
+            rhs.vector,
+            rhs.matrix,
+        ) {
+            (Some(lhs), None, None, Some(rhs), None, None) => Likelihood::new_scalar(lhs * rhs),
+            (None, Some(lhs), None, None, Some(rhs), None) => {
+                Likelihood::new_scalar((lhs.transpose() * rhs)[(0, 0)])
+            }
+            (None, None, Some(lhs), None, None, Some(rhs)) => Likelihood::new_matrix(lhs * rhs),
+            (None, Some(lhs), None, None, None, Some(rhs)) => {
+                Likelihood::new_vector((lhs.transpose() * rhs).transpose())
+            }
+            (None, None, Some(lhs), None, Some(rhs), None) => Likelihood::new_vector(lhs * rhs),
+            _ => panic!("Incompatible types for multiplication"),
+        }
+    }
+}
+
+// impl Likelihood {
+//     pub fn divide(self, rhs: Likelihood) -> Likelihood {
+//         match (
+//             self.scalar,
+//             self.vector,
+//             self.matrix,
+//             rhs.scalar,
+//             rhs.vector,
+//             rhs.matrix,
+//         ) {
+//             (Some(lhs), None, None, Some(rhs), None, None) => Likelihood::new_scalar(lhs / rhs),
+//             (None, Some(lhs), None, None, Some(rhs), None) => {
+//                 Likelihood::new_vector(lhs.component_div(&rhs))
+//             }
+//             (None, None, Some(lhs), None, None, Some(rhs)) => {
+//                 Likelihood::new_matrix(lhs.component_div(&rhs))
+//             }
+//             _ => panic!("Incompatible types for division"),
+//         }
+//     }
+// }
+
+// // Implement Add for Likelihood + Likelihood
+// impl ops::Add for Likelihood {
+//     type Output = Likelihood;
+
+//     fn add(self, rhs: Likelihood) -> Likelihood {
+//         match (self, rhs) {
+//             (Likelihood::Scalar(lhs), Likelihood::Scalar(rhs)) => Likelihood::Scalar(lhs + rhs),
+//             (Likelihood::Vector(lhs), Likelihood::Vector(rhs)) => {
+//                 Likelihood::Vector(Box::new(*lhs + *rhs))
+//             }
+//             (Likelihood::Matrix(lhs), Likelihood::Matrix(rhs)) => {
+//                 Likelihood::Matrix(Box::new(*lhs + *rhs))
+//             }
+//             _ => panic!("Incompatible types for addition"),
+//         }
+//     }
+// }
+
+// // Implement AddAssign for Likelihood += Likelihood
+// impl ops::AddAssign for Likelihood {
+//     fn add_assign(&mut self, rhs: Likelihood) {
+//         match (self, rhs) {
+//             (Likelihood::Scalar(ref mut lhs), Likelihood::Scalar(rhs)) => *lhs += rhs,
+//             (Likelihood::Vector(ref mut lhs), Likelihood::Vector(rhs)) => **lhs += *rhs,
+//             (Likelihood::Matrix(ref mut lhs), Likelihood::Matrix(rhs)) => **lhs += *rhs,
+//             _ => panic!("Incompatible types for addition assignment"),
+//         }
+//     }
+// }
+
+// impl ops::Mul<Likelihood> for Likelihood {
+//     type Output = Likelihood;
+//     fn mul(self, rhs: Likelihood) -> Likelihood {
+//         match (self, rhs) {
+//             (Likelihood::Scalar(u), Likelihood::Scalar(v)) => Likelihood::Scalar(u * v),
+//             (Likelihood::Vector(u), Likelihood::Vector(v)) => {
+//                 Likelihood::Scalar(((*u).transpose() * *v)[(0, 0)])
+//             }
+//             (Likelihood::Matrix(u), Likelihood::Matrix(v)) => Likelihood::Matrix(Box::new(*u * *v)),
+//             (Likelihood::Vector(u), Likelihood::Matrix(v)) => {
+//                 Likelihood::Vector(Box::new(((*u).transpose() * *v).transpose()))
+//             }
+//             (Likelihood::Matrix(u), Likelihood::Vector(v)) => Likelihood::Vector(Box::new(*u * *v)),
+//             (_, _) => panic!("Incompatible types for vector multiplications"),
+//         }
+//     }
+// }
+
+impl std::ops::Mul<f64> for Likelihood {
+    type Output = Likelihood;
+
+    fn mul(self, rhs: f64) -> Likelihood {
+        if let Some(scalar) = self.scalar {
+            Likelihood::new_scalar(scalar * rhs)
+        } else if let Some(vector) = self.vector {
+            Likelihood::new_vector(vector * rhs)
+        } else if let Some(matrix) = self.matrix {
+            Likelihood::new_matrix(matrix * rhs)
+        } else {
+            panic!("Invalid Likelihood state for multiplication");
+        }
+    }
+}
+
+impl std::ops::Mul<Likelihood> for f64 {
+    type Output = Likelihood;
+
+    fn mul(self, rhs: Likelihood) -> Likelihood {
+        rhs * self // Reuse the implementation
+    }
+}
+// impl Likelihood {
+//     // /// Return a matrix set to 1. for positions that match
+//     // /// the two nucleotides before / the two last nucleotides of the D gene.
+//     // /// Also deal with the situation where d is too short.
+//     // pub fn from_insertions(insvd: &DnaLike) -> Likelihood {
+//     //     let mut m = Matrix16::zeros();
+//     //     for (i1, i2) in insvd.valid_extremities() {
+//     //         m[(i1, i2)] = 1.;
+//     //     }
+//     //     Likelihood::Matrix(m)
+//     // }
+
+//     pub fn zero(dna: &DnaLike) -> Likelihood {
+//         if dna.is_protein() {
+//             Likelihood::Matrix(Box::new(Matrix16::zeros()))
+//         } else {
+//             Likelihood::Scalar(0.)
+//         }
+//     }
+
+//     pub fn identity(dna: &DnaLike) -> Likelihood {
+//         if dna.is_protein() {
+//             Likelihood::Matrix(Box::new(Matrix16::identity()))
+//         } else {
+//             Likelihood::Scalar(1.)
+//         }
+//     }
+
+//     /// Return a matrix set to 1. for positions that match
+//     /// the two nucleotides before / the two last nucleotides of the D gene.
+//     /// Also deal with the situation where d is too short.
+//     pub fn from_d_sides(d: &DAlignment, deld5: usize, deld3: usize) -> Likelihood {
+//         let mut m = Matrix16::zeros();
+//         for (idx1, idx2) in d.valid_extremities(deld5, deld3) {
+//             m[(idx1, idx2)] = 1.;
+//         }
+//         Likelihood::Matrix(Box::new(m))
+//     }
+
+//     /// Return a vector set to 1. for positions that match
+//     /// the two nucleotides before the J gene
+//     pub fn from_j_side(j: &VJAlignment, del: usize) -> Likelihood {
+//         let mut vec = Vector16::zeros();
+//         for idx in j.valid_extended_j(del) {
+//             vec[idx] = 1.;
+//         }
+//         Likelihood::Vector(Box::new(vec))
+//     }
+
+//     /// Return a vector set to 1 for position that match
+//     /// the last two nucleotides of the V gene.
+//     /// Only one coefficient of the vector is non-zero
+//     pub fn from_v_side(v: &VJAlignment, del: usize) -> Likelihood {
+//         let mut vec = Vector16::zeros();
+//         let end_v = v.gene_sequence.len() as i64 - del as i64;
+//         for idx in v
+//             .gene_sequence
+//             .extract_padded_subsequence(end_v - 2, end_v)
+//             .to_matrix_idx()
+//         {
+//             vec[idx] = 1.;
+//         }
+//         Likelihood::Vector(Box::new(vec))
+//     }
+
+//     pub fn max(&self) -> f64 {
+//         match self {
+//             Likelihood::Scalar(x) => *x,
+//             Likelihood::Vector(x) => x.max(),
+//             Likelihood::Matrix(x) => x.max(),
+//         }
+//     }
+//     pub fn is_zero(&self) -> bool {
+//         self.max() == 0.
+//     }
+
+//     pub fn to_scalar(&self) -> Result<f64> {
+//         match self {
+//             Likelihood::Scalar(x) => Ok(*x),
+//             _ => Err(anyhow!("This likelihood is not a scalar")),
+//         }
+//     }
+//     pub fn to_matrix(&self) -> Result<Matrix16> {
+//         match self {
+//             Likelihood::Matrix(x) => Ok(**x),
+//             _ => Err(anyhow!("This likelihood is not a matrix")),
+//         }
+//     }
+
+//     pub fn to_vector(&self) -> Result<Vector16> {
+//         match self {
+//             Likelihood::Vector(x) => Ok(**x),
+//             _ => Err(anyhow!("This likelihood is not a matrix")),
+//         }
+//     }
+
+//     pub fn zero_from_type(lt: LikelihoodType) -> Likelihood {
+//         match lt {
+//             LikelihoodType::Scalar => Likelihood::Scalar(0.),
+//             LikelihoodType::Vector => Likelihood::Vector(Box::new(Vector16::zeros())),
+//             LikelihoodType::Matrix => Likelihood::Matrix(Box::new(Matrix16::zeros())),
+//         }
+//     }
+
+//     /// Element-wise division
+//     pub fn divide(&self, rhs: Likelihood) -> Likelihood {
+//         match (self, rhs) {
+//             (Likelihood::Scalar(lhs), Likelihood::Scalar(rhs)) => Likelihood::Scalar(lhs / rhs),
+//             (Likelihood::Vector(lhs), Likelihood::Vector(rhs)) => {
+//                 Likelihood::Vector(Box::new(lhs.component_div(&rhs)))
+//             }
+//             (Likelihood::Matrix(lhs), Likelihood::Matrix(rhs)) => {
+//                 Likelihood::Matrix(Box::new(lhs.component_div(&rhs)))
+//             }
+//             _ => panic!("Incompatible types for addition"),
+//         }
+//     }
+// }
 
 #[derive(Clone, Debug)]
 pub enum Likelihood1DContainer {
@@ -253,27 +501,26 @@ impl Likelihood1DContainer {
     /// Get the value at position `pos`
     pub fn get(&self, pos: i64) -> Likelihood {
         match &self {
-            Likelihood1DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos).clone()),
+            Likelihood1DContainer::Scalar(x) => Likelihood::new_scalar(x.get(pos).clone()),
             Likelihood1DContainer::Matrix(x) => {
                 //debug_assert!(pos >= self.min() && pos <= self.max());
                 if !x.contains_key(&pos) {
-                    Likelihood::Vector(Box::new(Vector16::zeros()))
+                    Likelihood::new_vector(Vector16::zeros())
                 } else {
-                    Likelihood::Vector(Box::new(*x.get(&pos).unwrap()))
+                    Likelihood::new_vector(*x.get(&pos).unwrap())
                 }
             }
         }
     }
     /// Add `likelihood` to the value at `pos`
     pub fn add_to(&mut self, pos: i64, likelihood: Likelihood) {
-        match (self, likelihood) {
-            (Likelihood1DContainer::Scalar(x), Likelihood::Scalar(ll)) => {
-                *x.get_mut(pos) += ll;
+        match self {
+            Likelihood1DContainer::Scalar(x) => {
+                *x.get_mut(pos) += likelihood.to_scalar();
             }
-            (Likelihood1DContainer::Matrix(x), Likelihood::Vector(ll)) => {
-                *x.entry(pos).or_insert(Vector16::zeros()) += *ll;
+            Likelihood1DContainer::Matrix(x) => {
+                *x.entry(pos).or_insert(Vector16::zeros()) += likelihood.to_vector();
             }
-            _ => unimplemented!("Something wrong with add_to 1Dcontainer"),
         }
     }
 
@@ -311,11 +558,11 @@ impl Likelihood1DContainer {
         match self {
             Likelihood1DContainer::Scalar(x) => Either::Left(
                 x.iter()
-                    .map(|(key, &value)| (key, Likelihood::Scalar(value))),
+                    .map(|(key, &value)| (key, Likelihood::new_scalar(value))),
             ),
             Likelihood1DContainer::Matrix(x) => Either::Right(
                 x.iter()
-                    .map(|(&key, &value)| (key, Likelihood::Vector(Box::new(value)))),
+                    .map(|(&key, &value)| (key, Likelihood::new_vector(value))),
             ),
         }
     }
@@ -331,8 +578,8 @@ impl Likelihood1DContainer {
 
 #[derive(Clone, Debug)]
 pub enum Likelihood2DContainer {
-    Scalar(RangeArray2),
-    Matrix(HashMap<(i64, i64), Matrix16, RandomState>),
+    Scalar(RangeArray2<f64>),
+    Matrix(RangeArray2<Matrix16>),
     // nohash_hasher::BuildNoHashHasher<(i64, i64)>>),
 }
 
@@ -344,31 +591,32 @@ impl Likelihood2DContainer {
     /// Get the value at position `pos`
     pub fn get(&self, pos: (i64, i64)) -> Likelihood {
         match &self {
-            Likelihood2DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos)),
+            Likelihood2DContainer::Scalar(x) => Likelihood::new_scalar(x.get(pos).clone()),
             Likelihood2DContainer::Matrix(x) => {
-                // debug_assert!(
-                //     pos.0 >= self.min().0
-                //         && pos.1 >= self.min().1
-                //         && pos.0 < self.max().0
-                //         && pos.1 <= self.max().1
-                // );
-                if !x.contains_key(&pos) {
-                    Likelihood::Matrix(Box::new(Matrix16::zeros()))
-                } else {
-                    Likelihood::Matrix(Box::new(*x.get(&pos).unwrap()))
-                }
+                Likelihood::new_matrix(x.get(pos).clone())
+                // // debug_assert!(
+                // //     pos.0 >= self.min().0
+                // //         && pos.1 >= self.min().1
+                // //         && pos.0 < self.max().0
+                // //         && pos.1 <= self.max().1
+                // // );
+                // if !x.contains_key(&pos) {
+                //     Likelihood::Matrix(Box::new(Matrix16::zeros()))
+                // } else {
+                //     Likelihood::Matrix(Box::new(*x.get(&pos).unwrap()))
+                // }
             }
         }
     }
 
     /// Add `likelihood` to the value at `pos`
     pub fn add_to(&mut self, pos: (i64, i64), likelihood: Likelihood) {
-        match (self, likelihood) {
-            (Likelihood2DContainer::Scalar(x), Likelihood::Scalar(ll)) => *x.get_mut(pos) += ll,
-            (Likelihood2DContainer::Matrix(x), Likelihood::Matrix(ll)) => {
-                x.entry(pos).and_modify(|v| *v += *ll).or_insert(*ll);
+        match self {
+            Likelihood2DContainer::Scalar(x) => *x.get_mut(pos) += likelihood.to_scalar(),
+            Likelihood2DContainer::Matrix(x) => {
+                *x.get_mut(pos) += likelihood.to_matrix()
+                // x.entry(pos).and_modify(|v| *v += *ll).or_insert(*ll);
             }
-            _ => unimplemented!("Problem with add_to for Likelihood2DContainer"),
         }
     }
 
@@ -376,9 +624,10 @@ impl Likelihood2DContainer {
     pub fn zeros(starts: (i64, i64), ends: (i64, i64), dt: SequenceType) -> Likelihood2DContainer {
         match dt {
             SequenceType::Dna => Likelihood2DContainer::Scalar(RangeArray2::zeros((starts, ends))),
-            SequenceType::Protein => Likelihood2DContainer::Matrix(
-                HashMap::with_capacity_and_hasher(1000, RandomState::with_seed(42)),
-            ),
+            SequenceType::Protein => Likelihood2DContainer::Matrix(RangeArray2::create(
+                Matrix16::zeros(),
+                (starts, ends),
+            )),
         }
     }
 
@@ -386,10 +635,7 @@ impl Likelihood2DContainer {
     pub fn min(&self) -> (i64, i64) {
         match self {
             Likelihood2DContainer::Scalar(x) => x.min,
-            Likelihood2DContainer::Matrix(x) => (
-                x.keys().copied().map(|u| u.0).min().unwrap(),
-                x.keys().copied().map(|u| u.1).min().unwrap(),
-            ),
+            Likelihood2DContainer::Matrix(x) => x.min,
         }
     }
 
@@ -397,10 +643,7 @@ impl Likelihood2DContainer {
     pub fn max(&self) -> (i64, i64) {
         match self {
             Likelihood2DContainer::Scalar(x) => x.max,
-            Likelihood2DContainer::Matrix(x) => (
-                x.keys().copied().map(|u| u.0).max().unwrap() + 1,
-                x.keys().copied().map(|u| u.1).max().unwrap() + 1,
-            ),
+            Likelihood2DContainer::Matrix(x) => x.min,
         }
     }
 
@@ -409,11 +652,11 @@ impl Likelihood2DContainer {
         match self {
             Likelihood2DContainer::Scalar(x) => Either::Left(
                 x.iter()
-                    .map(|(x1, x2, &value)| (x1, x2, Likelihood::Scalar(value))),
+                    .map(|(x1, x2, &value)| (x1, x2, Likelihood::new_scalar(value))),
             ),
             Likelihood2DContainer::Matrix(x) => Either::Right(
                 x.iter()
-                    .map(|(&key, &value)| (key.0, key.1, Likelihood::Matrix(Box::new(value)))),
+                    .map(|(x1, x2, &ref value)| (x1, x2, Likelihood::new_matrix(*value))),
             ),
         }
     }
@@ -423,12 +666,14 @@ impl Likelihood2DContainer {
         match self {
             Likelihood2DContainer::Scalar(x) => Either::Left(
                 x.iter_fixed_2nd(dend)
-                    .map(|(x, &value)| (x, Likelihood::Scalar(value))),
+                    .map(|(x, &value)| (x, Likelihood::new_scalar(value))),
             ),
             Likelihood2DContainer::Matrix(x) => Either::Right(
-                x.iter()
-                    .filter(move |(key, _)| key.1 == dend)
-                    .map(|(&key, &value)| (key.0, Likelihood::Matrix(Box::new(value)))),
+                x.iter_fixed_2nd(dend)
+                    .map(|(x, &ref value)| (x, Likelihood::new_matrix(*value))),
+                // x.iter()
+                //     .filter(move |(key, _)| key.1 == dend)
+                //     .map(|(&key, &value)| (key.0, Likelihood::Matrix(Box::new(value)))),
             ),
         }
     }
