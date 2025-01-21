@@ -270,13 +270,6 @@ impl Features {
                 continue;
             }
             for sd in cmp::max(ev, min_sd)..max_sd {
-                let a = feature_v
-                    .alignment
-                    .get_last_nucleotide((feature_v.end_v3 - ev - 1) as usize);
-                if a > 4 {
-                    println!("{:?} {:?} {:?} {:?}", a, ev, feature_v.end_v3, feature_v);
-                }
-
                 let likelihood_ins_vd = ins_vd.likelihood(
                     ev,
                     sd,
