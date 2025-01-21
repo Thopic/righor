@@ -316,14 +316,6 @@ impl Likelihood1DContainer {
             ),
         }
     }
-
-    // /// Iterator, return (key, likelihood)
-    // pub fn iter(&self) -> impl Iterator<Item = (i64, &Likelihood)> + '_ {
-    //     match self {
-    //         Likelihood1DContainer::Scalar(x) => x.iter(),
-    //         Likelihood1DContainer::Matrix(x) => x.iter().map(|(&key, value)| (key, value)),
-    //     }
-    // }
 }
 
 #[derive(Clone, Debug)]
