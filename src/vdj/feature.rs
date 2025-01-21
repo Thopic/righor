@@ -268,6 +268,10 @@ impl AggregatedFeatureSpanD {
             debug_assert!(d.index == dindex);
 
             for (deld5, deld3) in iproduct!(0..feat_deld.dim().0, 0..feat_deld.dim().1) {
+                if deld3 > d.len() {
+                    continue;
+                }
+
                 let d_start = d.pos + deld5 as i64;
                 let d_end = d.pos + (d.len() - deld3) as i64;
                 if d_start > d_end {
@@ -345,6 +349,10 @@ impl AggregatedFeatureSpanD {
         // Now with startD and endD
         for d in ds {
             for (deld5, deld3) in iproduct!(0..feat_deld.dim().0, 0..feat_deld.dim().1) {
+                if deld3 > d.len() {
+                    continue;
+                }
+
                 let d_start = d.pos + deld5 as i64;
                 let d_end = d.pos + (d.len() - deld3) as i64;
                 if d_start > d_end {
