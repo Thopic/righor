@@ -97,21 +97,21 @@ for ii in tqdm(range(35)):
 Visualize and save the model
 ```py
 # visualisation of the results
-fig = righor.plot_vdj(*[models[ii] for ii in [10, 2, 1, 0]] + [igor_model],
+fig = righor.plot_vdj(*[models[ii] for ii in [5, 2, 1, 0]] + [igor_model],
             plots_kws=[{'label':f'Round #{ii}', 'alpha':0.8} for ii in [10,2, 1, 0]] + [{'label':f'og'}] )
 # save the model in the Igor format
 # will return an error if the directory already exists
-models[10].save_model('test_save')
+models[5].save_model('test_save')
 # load the model
-igor_model = righor.vdj.Model.load_model_from_files('test_save/model_params.txt',
-                                          'test_save/model_marginals.txt',
-                                          'test_save/V_gene_CDR3_anchors.csv',
-                                          'test_save/J_gene_CDR3_anchors.csv')
+igor_model = righor.load_model_from_files(path_params='test_save/model_params.txt',
+                                          path_marginals='test_save/model_marginals.txt',
+                                          path_anchor_vgene='test_save/V_gene_CDR3_anchors.csv',
+                                          path_anchor_jgene='test_save/J_gene_CDR3_anchors.csv')
 
 # save the model in json format (one file)
-models[10].save_json('test_save.json')
+models[5].save_json('test_save.json')
 # load the model in json
-igor_model = righor.vdj.Model.load_json('test_save.json')
+igor_model = righor.load_model_from_files(json='test_save.json')
 ```
 Extra stuff:
 ------------
