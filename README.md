@@ -23,25 +23,20 @@ from tqdm.notebook import tqdm
 from collections import Counter
 import numpy as np
 
-
+# load the model
 igor_model = righor.load_model("human", "trb")
-
-# alternatively, you can load a model from igor files
+# alternatively, you can load a model from igor files 
 # igor_model = righor.load_model_from_files(params.txt, marginals.txt, anchor_v.csv, anchor_j.csv)
 ```
 
 Generate sequences fast:
 
 ```py
-# Create a generator object
-generator = igor_model.generator(seed=42) # or igor_model.generator() to run it without a seed
-
-# Generate 10'000 functional sequences (not out-of-frame, no stop codons, right boundaries)
-for _ in tqdm(range(10000)):
-    # generate_without_errors ignore Igor error model, use "generate" if this is needed
-    sequence = generator.generate_without_errors(functional=True)
-    if "IGH" in sequence.cdr3_aa:
-        print("TRB CDR3 containing \"IGH\":", sequence.cdr3_aa)
+generator = igor_model.generator(seed=2)
+# Generate 100'000 sequences (productive & non-productive)
+sequences = [generator.generate(functional=False).full_seq for _ in tqdm(range(100_000))]
+# Generate 100'000 functional CDR3 amino-acid (not out-of-frame, no stop codons, right boundaries)
+cdr3s = [generator.generate(functional=True).cdr3_aa for _ in tqdm(range(100_000))]
 
 # Generate one sequence with a particular V/J genes family
 V_genes = righor.genes_matching("TRBV5", igor_model) # return all the V genes that match TRBV5
@@ -59,8 +54,7 @@ Evaluate a given sequence:
 ```py
 ## Evaluate a given sequence
 
-my_sequence = "ACCCTCCAGTCTGCCAGGCCCTCACATACCTCTCAGTACCTCTGTGCCAGCAGTGAGGACAGGGACGTCACTGAAGCTTTCTTTGGACAAGGCACC"
-
+my_sequence = "CCAAGATATCTGATCAAAACGAGAGGACAGCAAGTGACACTGAGCTGCTCCCCTATCTCTGGGCATAGGAGTGTATCCTGGTACCAACAGACCCCAGGACAGGGCCTTCAGTTCCTCTTTGAATACTTCAGTGAGACACAGAGAAACAAAGGAAACTTCCCTGGTCGATTCTCAGGGCGCCAGTTCTCTAACTCTCGCTCTGAGATGAATGTGAGCACCTTGGAGCTGGGGGACTCGGCCCTTTATCTTTGCGCCAGCAGCTTGGGGGGGGGATTTGACCAAGAGACCCAGTACTTCGGGCCAGGCACGCGGCTCCTG"
 # evaluate the sequence
 result_inference = igor_model.evaluate(my_sequence)
 
@@ -75,10 +69,9 @@ print(f"Pgen: {result_inference.pgen:.1e}")
 Infer a model:
 
 ```py
-# Inference of a model
-# use a very small number of sequences to keep short (takes ~30s)
+# Inference of a model (slow)
 
-# here we just generate the sequences needed
+# here we just generate the sequences needed, small number to keep things 
 generator = igor_model.generator()
 example_seq = generator.generate(False)
 sequences = [generator.generate(False).full_seq for _ in range(500)]
@@ -90,21 +83,15 @@ infer_params = righor.InferenceParameters()
 
 # generate an uniform model as a starting point
 # (it's generally *much* faster to start from an already inferred model)
-model = igor_model.copy()
-model.p_ins_vd = np.ones(model.p_ins_vd.shape)
-model.error_rate = 0
-
-# align multiple sequences at once
-aligned_sequences = model.align_all_sequences(sequences, align_params)
+model = igor_model.uniform()
+model.error = righor.ErrorParameters.constant_error(0.0)
 
 # multiple round of expectation-maximization to infer the model
 models = {}
-model = igor_model.uniform()
-model.error_rate = 0
 models[0] = model
 for ii in tqdm(range(35)):
     models[ii+1] = models[ii].copy()
-    models[ii+1].infer(aligned_sequences, infer_params)
+    models[ii+1].infer(sequences, align_params,infer_params)
 ```
 
 Visualize and save the model
