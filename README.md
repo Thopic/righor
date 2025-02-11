@@ -23,10 +23,9 @@ from tqdm.notebook import tqdm
 from collections import Counter
 import numpy as np
 
-
+# load the model
 igor_model = righor.load_model("human", "trb")
-
-# alternatively, you can load a model from igor files
+# alternatively, you can load a model from igor files 
 # igor_model = righor.load_model_from_files(params.txt, marginals.txt, anchor_v.csv, anchor_j.csv)
 ```
 
@@ -70,9 +69,6 @@ best_event = result_inference.best_event
 print(f"Probability that this specific event chain created the sequence: {best_event.likelihood / result_inference.likelihood:.2f}.")
 print(f"Reconstructed sequence (without errors):", best_event.reconstructed_sequence)
 print(f"Pgen: {result_inference.pgen:.1e}")
-
-# if you just need the likelihood/pgen (faster)
-result_inference = igor_model.pgen(my_sequence)
 ```
 
 Infer a model:
@@ -80,7 +76,7 @@ Infer a model:
 ```py
 # Inference of a model (slow)
 
-# here we just generate the sequences needed, small number to keep things
+# here we just generate the sequences needed, small number to keep things 
 generator = igor_model.generator()
 example_seq = generator.generate(False)
 sequences = [generator.generate(False).full_seq for _ in range(500)]
@@ -98,7 +94,7 @@ model.error = righor.ErrorParameters.constant_error(0.0)
 # multiple round of expectation-maximization to infer the model
 models = {}
 models[0] = model
-for ii in tqdm(range(35)):
+for ii in tqdm(range(5)):
     models[ii+1] = models[ii].copy()
     models[ii+1].infer(sequences, align_params,infer_params)
 ```
