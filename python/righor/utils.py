@@ -11,7 +11,19 @@ import os
 
 
 def fix_number_threads(num_threads):
+    """ Fix the number of threads used by righor. This works
+    by setting up the environmental variable "RAYON_NUM_THREADS",
+    may be buggy. """
     os.environ["RAYON_NUM_THREADS"] = f"{num_threads}"
+
+
+def AA(x):
+    """ Convenience function to create an amino-acid sequence """
+    return _righor.AminoAcid(x)
+
+def NT(x):
+    """ Convenience function to create a nucleotide sequence """
+    return _righor.Dna(x)
 
 
 def rc(seq):
@@ -108,121 +120,121 @@ def load_model_from_files(json=None, path_params=None,
 
 
 
-def genes_matching(x: str, model):
-    """ Map relatively standard gene name to
-        the genes used in Igor/Righor.
-        In general return a bit more than needed if there's a doubt
-        So TRAV1-1*13 will return all TRAV1-1s, but TRAV1-1*1 will return TRAV1-01*01 and
-        TRAV1542 will return all TRAV.
-        It's far from perfect.
-        @ Arguments:
-        * x: V or J gene name, form: TYPE##-##*##, or TYPE##-##
-        or TYPE[V,J]##, where ## can be interpreted as digits/letters
-        and TYPE = "IGH","IGK","IGL" or "TRB"/"TRA"/"TRG"/"TRD"
-        * model: righor.Model object.
-        @ Return:
-        * list of righor Gene object (x.name to get their names)
-        @ Example:
-        "IGHV07" -> ["IGHV7-34-1*01", "IGHV7-34-1*02", "IGHV7-4-1*01",
-                     "IGHV7-4-1*02", "IGHV7-4-1*03","IGHV7-4-1*04",
-                     "IGHV7-4-1*05", "IGHV7-40*01", "IGHV7-81*01"]
-        "TRBV07-002*4 -> ["TRBV7-2*04"]
-    """
+# def genes_matching(x: str, model):
+#     """ Map relatively standard gene name to
+#         the genes used in Igor/Righor.
+#         In general return a bit more than needed if there's a doubt
+#         So TRAV1-1*13 will return all TRAV1-1s, but TRAV1-1*1 will return TRAV1-01*01 and
+#         TRAV1542 will return all TRAV.
+#         It's far from perfect.
+#         @ Arguments:
+#         * x: V or J gene name, form: TYPE##-##*##, or TYPE##-##
+#         or TYPE[V,J]##, where ## can be interpreted as digits/letters
+#         and TYPE = "IGH","IGK","IGL" or "TRB"/"TRA"/"TRG"/"TRD"
+#         * model: righor.Model object.
+#         @ Return:
+#         * list of righor Gene object (x.name to get their names)
+#         @ Example:
+#         "IGHV07" -> ["IGHV7-34-1*01", "IGHV7-34-1*02", "IGHV7-4-1*01",
+#                      "IGHV7-4-1*02", "IGHV7-4-1*03","IGHV7-4-1*04",
+#                      "IGHV7-4-1*05", "IGHV7-40*01", "IGHV7-81*01"]
+#         "TRBV07-002*4 -> ["TRBV7-2*04"]
+#     """
 
-    regex = (r"^(TC?RB|TC?RA|IGH|IGK|IGL|TC?RG|TC?RD)(?:\w+)?(V|D|J)"
-             r"([\w-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$")
-    g = re.search(regex, x)
+#     regex = (r"^(TC?RB|TC?RA|IGH|IGK|IGL|TC?RG|TC?RD)(?:\w+)?(V|D|J)"
+#              r"([\w-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$")
+#     g = re.search(regex, x)
 
-    chain = None
-    gene_type = None
-    gene_id = None
-    allele = None
+#     chain = None
+#     gene_type = None
+#     gene_id = None
+#     allele = None
 
-    if g is None:
-        raise ValueError("Gene {} does not have a valid name".format(x))
-    chain = g.group(1)
-    gene_type = g.group(2)
-    gene_id = g.group(3)
-    allele = None if g.group(4) is None else int(g.group(4))
+#     if g is None:
+#         raise ValueError("Gene {} does not have a valid name".format(x))
+#     chain = g.group(1)
+#     gene_type = g.group(2)
+#     gene_id = g.group(3)
+#     allele = None if g.group(4) is None else int(g.group(4))
 
-    if chain is None or gene_type is None:
-        raise ValueError("Gene {} does not have a valid name".format(x))
+#     if chain is None or gene_type is None:
+#         raise ValueError("Gene {} does not have a valid name".format(x))
 
-    # check if gene_id contain something of the form
-    # ##-## where ## is a digit or ##S##
-    gene_id_1 = None
-    gene_id_2 = None
-    if gene_id is not None:
-        g = re.search(r'(\d+)(?:[-S](\d+))?', gene_id)
-        if g is not None:
-            if g.span()[1] >= 3 and g.group(2) is not None:
-                gene_id_1 = int(g.group(1))
-                gene_id_2 = int(g.group(2))
-            else:
-                gene_id_1 = int(g.group(1))
+#     # check if gene_id contain something of the form
+#     # ##-## where ## is a digit or ##S##
+#     gene_id_1 = None
+#     gene_id_2 = None
+#     if gene_id is not None:
+#         g = re.search(r'(\d+)(?:[-S](\d+))?', gene_id)
+#         if g is not None:
+#             if g.span()[1] >= 3 and g.group(2) is not None:
+#                 gene_id_1 = int(g.group(1))
+#                 gene_id_2 = int(g.group(2))
+#             else:
+#                 gene_id_1 = int(g.group(1))
 
-    chain = chain.replace('TCR', 'TR')  # in case there's a C
+#     chain = chain.replace('TCR', 'TR')  # in case there's a C
 
-    possible_genes = igor_genes(chain, gene_type, model)
+#     possible_genes = igor_genes(chain, gene_type, model)
 
-    if allele is not None and gene_id_1 is not None and gene_id_2 is not None:
-        guess = [a[-1] for a in possible_genes if a[1] == gene_id_1
-                 and a[2] == gene_id_2 and a[4] == allele]
-        if guess != []:
-            return guess
-    if gene_id_1 is not None and gene_id_2 is not None:
-        guess = [a[-1] for a in possible_genes if a[1] == gene_id_1
-                 and a[2] == gene_id_2]
-        if guess != []:
-            return guess
-    if allele is not None and gene_id_1 is not None:
-        guess = [a[-1] for a in possible_genes if a[1] == gene_id_1
-                 and a[4] == allele]
-        if guess != []:
-            return guess
-    if gene_id_1 is not None:
-        guess = [a[-1] for a in possible_genes if a[1] == gene_id_1]
-        if guess != []:
-            return guess
+#     if allele is not None and gene_id_1 is not None and gene_id_2 is not None:
+#         guess = [a[-1] for a in possible_genes if a[1] == gene_id_1
+#                  and a[2] == gene_id_2 and a[4] == allele]
+#         if guess != []:
+#             return guess
+#     if gene_id_1 is not None and gene_id_2 is not None:
+#         guess = [a[-1] for a in possible_genes if a[1] == gene_id_1
+#                  and a[2] == gene_id_2]
+#         if guess != []:
+#             return guess
+#     if allele is not None and gene_id_1 is not None:
+#         guess = [a[-1] for a in possible_genes if a[1] == gene_id_1
+#                  and a[4] == allele]
+#         if guess != []:
+#             return guess
+#     if gene_id_1 is not None:
+#         guess = [a[-1] for a in possible_genes if a[1] == gene_id_1]
+#         if guess != []:
+#             return guess
 
-    # if everything else failed return all
-    return [a[-1] for a in possible_genes]
+#     # if everything else failed return all
+#     return [a[-1] for a in possible_genes]
 
 
-def igor_genes(chain: str, gene_type: str, model):
-    """ Read the model and return all the genes matching the chain and gene_type.
-        chain: TR/IG
-        gene_type: V/J
-        It returns the full gene name, plus the gene family, its name, its allele, plus the Gene object
-    """
-    regex = (r"(\d+)(?:P)?(?:[\-S](\d+)(?:D)?(?:\-(\d+))?)?"
-             r"(?:/DV\d+)?(?:-NL1)?(?:\*(\d+))?")  # match all the IGoR gene names
+# def igor_genes(chain: str, gene_type: str, model):
+#     """ Read the model and return all the genes matching the chain and gene_type.
+#         chain: TR/IG
+#         gene_type: V/J
+#         It returns the full gene name, plus the gene family, its name, its allele, plus the Gene object
+#     """
+#     regex = (r"(\d+)(?:P)?(?:[\-S](\d+)(?:D)?(?:\-(\d+))?)?"
+#              r"(?:/DV\d+)?(?:-NL1)?(?:\*(\d+))?")  # match all the IGoR gene names
 
-    lst = []
+#     lst = []
 
-    list_genes = None
-    if gene_type == "V":
-        list_genes = model.v_segments
-    elif gene_type == "J":
-        list_genes = model.j_segments
-    else:
-        raise ValueError("Gene type {} is not valid".format(gene_type))
+#     list_genes = None
+#     if gene_type == "V":
+#         list_genes = model.v_segments
+#     elif gene_type == "J":
+#         list_genes = model.j_segments
+#     else:
+#         raise ValueError("Gene type {} is not valid".format(gene_type))
 
-    key = chain + gene_type
-    for gene_obj in list_genes:
-        gene = gene_obj.name
-        try:
-            lst.append(
-                tuple(
-                    [gene] + [None if a is None else int(a) for a in
-                              re.search(key + regex, gene).groups()]
-                    + [gene_obj]
-                ))
-        except AttributeError:
-            raise ValueError(
-                f"{key} does not match. Check if the gene name and the model are compatible (e.g. TRA for a TRB/IGL model)") from None
+#     key = chain + gene_type
+#     for gene_obj in list_genes:
+#         gene = gene_obj.name
+#         try:
+#             lst.append(
+#                 tuple(
+#                     [gene] + [None if a is None else int(a) for a in
+#                               re.search(key + regex, gene).groups()]
+#                     + [gene_obj]
+#                 ))
+#         except AttributeError:
+#             raise ValueError(
+#                 f"{key} does not match. Check if the gene name and the model are compatible (e.g. TRA for a TRB/IGL model)") from None
 
-    return lst
+#     return lst
 
 
 def plot_vdj(*args, plots_kws=None):

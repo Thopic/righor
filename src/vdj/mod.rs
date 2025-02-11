@@ -13,4 +13,3 @@ pub use self::feature::{
 };
 pub use self::inference::Features;
 pub use self::model::{Generative, Generator, Model};
-pub use self::sequence::{display_j_alignment, display_v_alignment, Sequence};

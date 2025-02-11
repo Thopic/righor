@@ -1,3 +1,4 @@
+use crate::shared::entry_sequence::EntrySequence;
 use crate::shared::gene::Gene;
 use crate::shared::model::{sanitize_j, sanitize_v};
 use crate::shared::parser::{
@@ -19,9 +20,10 @@ use crate::shared::{
 use crate::shared::{DNAMarkovChain, ErrorParameters, Modelable};
 use crate::vdj::Features as FeaturesVDJ;
 
+use crate::shared::sequence::Sequence;
 use crate::shared::sequence::SequenceType;
-use crate::vdj::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
-use crate::vdj::{event::StaticEvent, Sequence};
+use crate::shared::sequence::{align_all_dgenes, align_all_jgenes, align_all_vgenes};
+use crate::vdj::event::StaticEvent;
 use anyhow::{anyhow, Result};
 use ndarray::{s, Array1, Array2, Array3, Axis};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -48,42 +50,6 @@ use std::{cmp, fs::read_to_string, fs::File, io::Write};
 pub struct Generator {
     model: Model,
     rng: SmallRng,
-}
-
-#[derive(Clone, Debug)]
-/// Make infer a generic function by allowing different entry
-pub enum EntrySequence {
-    Aligned(Sequence),
-    NucleotideSequence(DnaLike),
-    NucleotideCDR3((DnaLike, Vec<Gene>, Vec<Gene>)),
-}
-
-impl EntrySequence {
-    pub fn align(&self, model: &Model, align_params: &AlignmentParameters) -> Result<Sequence> {
-        match self {
-            EntrySequence::Aligned(x) => Ok(x.clone()),
-            EntrySequence::NucleotideSequence(seq) => {
-                model.align_sequence(seq.clone(), align_params)
-            }
-            EntrySequence::NucleotideCDR3((seq, v, j)) => model.align_from_cdr3(seq, v, j),
-        }
-    }
-
-    pub fn compatible_with_inference(&self) -> bool {
-        match self {
-            EntrySequence::Aligned(s) => !s.sequence.is_ambiguous(),
-            EntrySequence::NucleotideSequence(s) => !s.is_ambiguous(),
-            EntrySequence::NucleotideCDR3((s, _, _)) => !s.is_ambiguous(),
-        }
-    }
-
-    pub fn is_protein(&self) -> bool {
-        match self {
-            EntrySequence::Aligned(s) => s.sequence.is_protein(),
-            EntrySequence::NucleotideSequence(s) => s.is_protein(),
-            EntrySequence::NucleotideCDR3((s, _, _)) => s.is_protein(),
-        }
-    }
 }
 
 impl Generator {
@@ -190,6 +156,7 @@ impl Modelable for Model {
         model_dir: &Path,
     ) -> Result<Model> {
         let content = read_to_string(model_dir.join("models.json"))?;
+
         let records: Vec<RecordModel> = serde_json::from_str(&content)?;
 
         for record in records {
@@ -520,6 +487,7 @@ impl Modelable for Model {
         inference_params: &InferenceParameters,
     ) -> Result<ResultInference> {
         let mut ip = inference_params.clone();
+
         if sequence.is_protein() {
             ip.do_not_infer_features();
         }

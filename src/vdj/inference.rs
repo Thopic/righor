@@ -1,5 +1,6 @@
 use crate::shared::utils::difference_as_i64;
 use crate::shared::Modelable;
+use crate::shared::Sequence;
 use crate::shared::{errors::FeatureError, ErrorParameters, InferenceParameters};
 use crate::shared::{
     feature::{
@@ -11,7 +12,7 @@ use crate::shared::{
 use crate::shared::{ErrorDAlignment, ErrorJAlignment, ErrorVAlignment};
 use crate::vdj::{
     AggregatedFeatureEndV, AggregatedFeatureSpanD, AggregatedFeatureStartJ, FeatureDJ, FeatureVD,
-    Model, Sequence,
+    Model,
 };
 use anyhow::Result;
 

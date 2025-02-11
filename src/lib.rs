@@ -5,11 +5,11 @@ pub mod v_dj;
 pub mod vdj;
 pub mod vj;
 
+pub use crate::shared::entry_sequence::EntrySequence;
 pub use crate::shared::Generator;
-pub use crate::vdj::model::EntrySequence;
 
 pub use crate::shared::{
-    errors::ErrorConstantRate, genes_matching, AlignmentParameters, AminoAcid, CategoricalFeature1,
+    errors::ErrorConstantRate, AlignmentParameters, AminoAcid, CategoricalFeature1,
     CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1, DAlignment, DNAMarkovChain,
     Dna, DnaLike, Gene, InferenceParameters, InsertionFeature, Model, Modelable, VJAlignment,
 };
@@ -21,7 +21,7 @@ use crate::shared::model::ModelStructure;
 use crate::shared::{errors::PyErrorParameters, Features};
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
-use crate::vdj::Sequence;
+use crate::shared::Sequence;
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use anyhow::{anyhow, Context, Result};
@@ -76,6 +76,11 @@ pub struct PyModel {
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 #[pymethods]
 impl PyModel {
+    #[pyo3(name="genes", signature = (name="", exact=false))]
+    pub fn genes_matching(&self, name: &str, exact: bool) -> Result<Vec<Gene>> {
+        self.inner.genes_matching(name, exact)
+    }
+
     #[staticmethod]
     #[pyo3(signature = (species, chain, model_dir, id=None))]
     /// Load the model based on species/chain/id names and location (model_dir)
@@ -287,6 +292,20 @@ impl PyModel {
                 Ok(alignment)
             })
             .collect()
+    }
+
+    #[pyo3(signature = (sequence, align_params=crate::shared::AlignmentParameters::default_evaluate(), infer_params=crate::shared::InferenceParameters::default_evaluate()))]
+    pub fn pgen(
+        &self,
+        py: Python,
+        sequence: &Bound<'_, PyAny>,
+        align_params: crate::shared::AlignmentParameters,
+        infer_params: crate::shared::InferenceParameters,
+    ) -> Result<PyObject> {
+        let mut ip = infer_params.clone();
+        ip.store_best_event = false;
+        ip.do_not_infer_features();
+        self.evaluate(py, sequence, align_params, ip)
     }
 
     #[pyo3(signature = (sequence, align_params=crate::shared::AlignmentParameters::default_evaluate(), infer_params=crate::shared::InferenceParameters::default_evaluate()))]
@@ -772,10 +791,9 @@ fn righor_py(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::shared::feature::CategoricalFeature2>()?;
     m.add_class::<crate::shared::feature::CategoricalFeature2g1>()?;
     m.add_class::<crate::shared::feature::InsertionFeature>()?;
-    m.add_class::<crate::vdj::Sequence>()?;
+    m.add_class::<crate::shared::Sequence>()?;
     m.add_class::<PyModel>()?;
     m.add_class::<crate::shared::GenerationResult>()?;
-    m.add_class::<crate::vdj::Sequence>()?;
     m.add_class::<crate::shared::errors::PyErrorParameters>()?;
     m.add_class::<crate::Gene>()?;
     m.add_class::<crate::Dna>()?;

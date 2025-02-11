@@ -40,12 +40,12 @@ generator = igor_model.generator(seed=42) # or igor_model.generator() to run it 
 for _ in tqdm(range(10000)):
     # generate_without_errors ignore Igor error model, use "generate" if this is needed
     sequence = generator.generate_without_errors(functional=True)
-    if "IGH" in sequence.cdr3_aa:
-        print("TRB CDR3 containing \"IGH\":", sequence.cdr3_aa)
+    if "IGH" in sequence.junction_aa:
+        print("TRB CDR3 containing \"IGH\":", sequence.junction_aa)
 
 # Generate one sequence with a particular V/J genes family
-V_genes = righor.genes_matching("TRBV5", igor_model) # return all the V genes that match TRBV5
-J_genes = righor.genes_matching("TRBJ", igor_model) # all the J genes
+V_genes = igor_model.genes("TRBV5") # return all the V genes that match TRBV5
+J_genes = igor_model.genes("TRBJ") # all the J genes
 generator = igor_model.generator(seed=42, available_v=V_genes, available_j=J_genes)
 generation_result = generator.generate_without_errors(functional=True)
 print("Result:")
@@ -70,15 +70,17 @@ best_event = result_inference.best_event
 print(f"Probability that this specific event chain created the sequence: {best_event.likelihood / result_inference.likelihood:.2f}.")
 print(f"Reconstructed sequence (without errors):", best_event.reconstructed_sequence)
 print(f"Pgen: {result_inference.pgen:.1e}")
+
+# if you just need the likelihood/pgen (faster)
+result_inference = igor_model.pgen(my_sequence)
 ```
 
 Infer a model:
 
 ```py
-# Inference of a model
-# use a very small number of sequences to keep short (takes ~30s)
+# Inference of a model (slow)
 
-# here we just generate the sequences needed
+# here we just generate the sequences needed, small number to keep things
 generator = igor_model.generator()
 example_seq = generator.generate(False)
 sequences = [generator.generate(False).full_seq for _ in range(500)]
@@ -90,41 +92,35 @@ infer_params = righor.InferenceParameters()
 
 # generate an uniform model as a starting point
 # (it's generally *much* faster to start from an already inferred model)
-model = igor_model.copy()
-model.p_ins_vd = np.ones(model.p_ins_vd.shape)
-model.error_rate = 0
-
-# align multiple sequences at once
-aligned_sequences = model.align_all_sequences(sequences, align_params)
+model = igor_model.uniform()
+model.error = righor.ErrorParameters.constant_error(0.0)
 
 # multiple round of expectation-maximization to infer the model
 models = {}
-model = igor_model.uniform()
-model.error_rate = 0
 models[0] = model
 for ii in tqdm(range(35)):
     models[ii+1] = models[ii].copy()
-    models[ii+1].infer(aligned_sequences, infer_params)
+    models[ii+1].infer(sequences, align_params,infer_params)
 ```
 
 Visualize and save the model
 ```py
 # visualisation of the results
-fig = righor.plot_vdj(*[models[ii] for ii in [10, 2, 1, 0]] + [igor_model],
+fig = righor.plot_vdj(*[models[ii] for ii in [5, 2, 1, 0]] + [igor_model],
             plots_kws=[{'label':f'Round #{ii}', 'alpha':0.8} for ii in [10,2, 1, 0]] + [{'label':f'og'}] )
 # save the model in the Igor format
 # will return an error if the directory already exists
-models[10].save_model('test_save')
+models[5].save_model('test_save')
 # load the model
-igor_model = righor.vdj.Model.load_model_from_files('test_save/model_params.txt',
-                                          'test_save/model_marginals.txt',
-                                          'test_save/V_gene_CDR3_anchors.csv',
-                                          'test_save/J_gene_CDR3_anchors.csv')
+igor_model = righor.load_model_from_files(path_params='test_save/model_params.txt',
+                                          path_marginals='test_save/model_marginals.txt',
+                                          path_anchor_vgene='test_save/V_gene_CDR3_anchors.csv',
+                                          path_anchor_jgene='test_save/J_gene_CDR3_anchors.csv')
 
 # save the model in json format (one file)
-models[10].save_json('test_save.json')
+models[5].save_json('test_save.json')
 # load the model in json
-igor_model = righor.vdj.Model.load_json('test_save.json')
+igor_model = righor.load_model_from_files(json='test_save.json')
 ```
 Extra stuff:
 ------------

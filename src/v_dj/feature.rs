@@ -113,12 +113,15 @@ impl AggregatedFeatureStartDAndJ {
         event: &mut Option<InfEvent>,
         ip: &InferenceParameters,
     ) {
-        // disaggregate should only work with the scalar version
-
         let infer_features = ip.infer_features.ins_dj
             || ip.infer_features.del_d
             || ip.infer_features.del_j
             || ip.infer_features.genes;
+
+        // if we don't infer features and don't get the best event we can just return
+        if !(infer_features || ip.store_best_event) {
+            return;
+        }
 
         let (min_sj, max_sj) = (
             cmp::max(self.feature_j.start_j5, feat_insdj.min_sj()),
@@ -126,6 +129,7 @@ impl AggregatedFeatureStartDAndJ {
         );
 
         let mut best_likelihood = 0.;
+
         for agg_deld in feature_ds.iter_mut() {
             let (min_ed, max_ed) = (
                 cmp::max(agg_deld.start_d3, feat_insdj.min_ed()),
@@ -145,10 +149,8 @@ impl AggregatedFeatureStartDAndJ {
                 }
                 let ratio_old_new = dirty_proba / self.likelihood(d_start).max();
                 for j_start in min_sj..max_sj {
-                    let ll_j = self.feature_j.likelihood(j_start);
-                    if (ll_dj * ll_j.clone()).max() < ip.min_likelihood {
-                        continue;
-                    }
+                    let ll_j = ll_dj * self.feature_j.likelihood(j_start);
+
                     for d_end in cmp::max(d_start - 1, min_ed)..cmp::min(max_ed, j_start + 1) {
                         let ll_deld = agg_deld.likelihood(d_start, d_end);
 
@@ -159,11 +161,11 @@ impl AggregatedFeatureStartDAndJ {
                                 .get_first_nucleotide((j_start - self.feature_j.start_j5) as usize),
                         );
 
-                        let ll = ll_dj * ll_deld * ll_insdj * ll_j.clone();
+                        let ll = ll_deld * ll_insdj * ll_j.clone();
 
                         if ll.max() > ip.min_likelihood {
-                            let corrected_proba = ratio_old_new * ll.max();
                             if infer_features {
+                                let corrected_proba = ratio_old_new * ll.max();
                                 if ip.infer_features.genes {
                                     feat.d.dirty_update(
                                         (agg_deld.index, self.feature_j.index),

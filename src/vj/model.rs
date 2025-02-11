@@ -1,6 +1,8 @@
+use crate::shared::entry_sequence::EntrySequence;
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
+use crate::shared::sequence::Sequence;
 use crate::shared::utils::{sorted_and_complete, sorted_and_complete_0start};
 use crate::shared::utils::{Normalize, Normalize2};
 use crate::shared::{
@@ -8,7 +10,7 @@ use crate::shared::{
     ModelGen, RecordModel, ResultInference,
 };
 use crate::shared::{DNAMarkovChain, ErrorParameters, Features, Modelable};
-use crate::vdj::{model::EntrySequence, Model as ModelVDJ, Sequence};
+use crate::vdj::Model as ModelVDJ;
 use anyhow::{anyhow, Result};
 use ndarray::s;
 use ndarray::{array, Array1, Array2, Array3, Axis};

@@ -1,16 +1,17 @@
 use crate::shared::alignment::VJAlignment;
+use crate::shared::entry_sequence::EntrySequence;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use crate::shared::event::PyStaticEvent;
 use crate::shared::gene::Gene;
+use crate::shared::gene::ModelGen;
 use crate::shared::markov_chain::DNAMarkovChain;
 use crate::shared::sequence::Dna;
+use crate::shared::sequence::Sequence;
+use crate::shared::sequence::{display_j_alignment, display_v_alignment};
 use crate::shared::utils::get_batches;
 use crate::shared::ResultInference;
 use crate::shared::StaticEvent;
 use crate::shared::{AlignmentParameters, ErrorParameters, Features, InferenceParameters};
-use crate::vdj::model::EntrySequence;
-use crate::vdj::Sequence;
-use crate::vdj::{display_j_alignment, display_v_alignment};
 use ndarray::array;
 
 use ndarray::{Array1, Array2, Array3};
@@ -73,11 +74,11 @@ impl GenerationResult {
     }
 
     #[getter]
-    fn get_cdr3_nt(&self) -> PyResult<String> {
+    fn get_junction_nt(&self) -> PyResult<String> {
         Ok(self.junction_nt.clone())
     }
     #[getter]
-    fn get_cdr3_aa(&self) -> PyResult<Option<String>> {
+    fn get_junction_aa(&self) -> PyResult<Option<String>> {
         Ok(self.junction_aa.clone())
     }
     #[getter]
@@ -97,11 +98,19 @@ impl GenerationResult {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Model {
-    VDJ(crate::vdj::Model),
-    VJ(crate::vj::Model),
+    VDJ(crate::vdj::model::Model),
+    VJ(crate::vj::model::Model),
 }
 
 impl Model {
+    /// Return the core VDJ model
+    pub fn get_core_vdj(&self) -> &crate::vdj::model::Model {
+        match self {
+            Model::VDJ(vdj) => vdj,
+            Model::VJ(vj) => &vj.inner,
+        }
+    }
+
     pub fn load_from_name(
         species: &str,
         chain: &str,
@@ -177,6 +186,14 @@ impl Model {
         match self {
             Model::VDJ(x) => x.save_json(filename),
             Model::VJ(x) => x.save_json(filename),
+        }
+    }
+
+    /// Return the genes matching a name
+    pub fn genes_matching(&self, name: &str, exact: bool) -> Result<Vec<Gene>> {
+        match self {
+            Model::VDJ(x) => x.genes_matching(name, exact),
+            Model::VJ(x) => x.genes_matching(name, exact),
         }
     }
 

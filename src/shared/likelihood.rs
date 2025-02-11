@@ -25,12 +25,11 @@ use crate::shared::sequence::SequenceType;
 use anyhow::{anyhow, Result};
 use core::ops;
 use itertools::Either;
-use nohash_hasher::NoHashHasher;
+//use nohash_hasher::NoHashHasher;
 
+use foldhash::{HashMap, HashMapExt};
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 
 #[cfg_attr(
     all(feature = "py_binds", feature = "pyo3"),
@@ -186,12 +185,19 @@ impl Likelihood {
     pub fn max(&self) -> f64 {
         match self {
             Likelihood::Scalar(x) => *x,
-            Likelihood::Vector(x) => x.max(),
-            Likelihood::Matrix(x) => x.max(),
+            Likelihood::Vector(x) => x.sum(),
+            Likelihood::Matrix(x) => x.sum(),
         }
     }
     pub fn is_zero(&self) -> bool {
         self.max() == 0.
+    }
+
+    pub fn keep(&self) -> bool {
+        match self {
+            Likelihood::Scalar(x) => *x > 0.,
+            Likelihood::Vector(_) | Likelihood::Matrix(_) => true,
+        }
     }
 
     pub fn to_scalar(&self) -> Result<f64> {
@@ -240,7 +246,12 @@ impl Likelihood {
 #[derive(Clone, Debug)]
 pub enum Likelihood1DContainer {
     Scalar(RangeArray1), // for the normal nucleotides sequences
-    Matrix(HashMap<i64, Vector16, nohash_hasher::BuildNoHashHasher<i64>>), // for the amino-acids
+    Matrix(
+        HashMap<
+            i64,
+            Vector16, // , nohash_hasher::BuildNoHashHasher<i64>
+        >,
+    ), // for the amino-acids
 }
 
 impl Likelihood1DContainer {
@@ -280,9 +291,10 @@ impl Likelihood1DContainer {
         match dt {
             SequenceType::Dna => Likelihood1DContainer::Scalar(RangeArray1::zeros((start, end))),
             SequenceType::Protein => {
-                Likelihood1DContainer::Matrix(HashMap::with_hasher(BuildHasherDefault::<
-                    NoHashHasher<i64>,
-                >::default()))
+                Likelihood1DContainer::Matrix(HashMap::// with_hasher(BuildHasherDefault::<
+                //     NoHashHasher<i64>,
+                // >::
+								   default())
             }
         }
     }
@@ -321,7 +333,7 @@ impl Likelihood1DContainer {
 #[derive(Clone, Debug)]
 pub enum Likelihood2DContainer {
     Scalar(RangeArray2),
-    Matrix(HashMap<(i64, i64), Matrix16>),
+    Matrix(HashMap<(i64, i64), Box<Matrix16>>),
     // nohash_hasher::BuildNoHashHasher<(i64, i64)>>),
 }
 
@@ -335,16 +347,10 @@ impl Likelihood2DContainer {
         match &self {
             Likelihood2DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos)),
             Likelihood2DContainer::Matrix(x) => {
-                // debug_assert!(
-                //     pos.0 >= self.min().0
-                //         && pos.1 >= self.min().1
-                //         && pos.0 < self.max().0
-                //         && pos.1 <= self.max().1
-                // );
                 if !x.contains_key(&pos) {
                     Likelihood::Matrix(Box::new(Matrix16::zeros()))
                 } else {
-                    Likelihood::Matrix(Box::new(*x.get(&pos).unwrap()))
+                    Likelihood::Matrix(x.get(&pos).unwrap().clone())
                 }
             }
         }
@@ -355,7 +361,7 @@ impl Likelihood2DContainer {
         match (self, likelihood) {
             (Likelihood2DContainer::Scalar(x), Likelihood::Scalar(ll)) => *x.get_mut(pos) += ll,
             (Likelihood2DContainer::Matrix(x), Likelihood::Matrix(ll)) => {
-                x.entry(pos).and_modify(|v| *v += *ll).or_insert(*ll);
+                x.entry(pos).and_modify(|v| **v += *ll).or_insert(ll);
             }
             _ => unimplemented!("Problem with add_to for Likelihood2DContainer"),
         }
@@ -365,7 +371,7 @@ impl Likelihood2DContainer {
     pub fn zeros(starts: (i64, i64), ends: (i64, i64), dt: SequenceType) -> Likelihood2DContainer {
         match dt {
             SequenceType::Dna => Likelihood2DContainer::Scalar(RangeArray2::zeros((starts, ends))),
-            SequenceType::Protein => Likelihood2DContainer::Matrix(HashMap::new()),
+            SequenceType::Protein => Likelihood2DContainer::Matrix(HashMap::with_capacity(100)),
         }
     }
 
@@ -400,7 +406,7 @@ impl Likelihood2DContainer {
             ),
             Likelihood2DContainer::Matrix(x) => Either::Right(
                 x.iter()
-                    .map(|(&key, &value)| (key.0, key.1, Likelihood::Matrix(Box::new(value)))),
+                    .map(|(&key, value)| (key.0, key.1, Likelihood::Matrix(value.clone()))),
             ),
         }
     }
@@ -415,20 +421,10 @@ impl Likelihood2DContainer {
             Likelihood2DContainer::Matrix(x) => Either::Right(
                 x.iter()
                     .filter(move |(key, _)| key.1 == dend)
-                    .map(|(&key, &value)| (key.0, Likelihood::Matrix(Box::new(value)))),
+                    .map(|(&key, value)| (key.0, Likelihood::Matrix(value.clone()))),
             ),
         }
     }
-
-    // pub fn iter_fixed_2nd(&self, dend: i64) -> impl Iterator<Item = (i64, &Likelihood)> + '_ {
-    //     match self {
-    //         Likelihood2DContainer::Scalar(x) => x.iter_fixed_2nd(dend),
-    //         Likelihood2DContainer::Matrix(x) => x
-    //             .iter()
-    //             .filter(|(&key, value)| key.1 == dend)
-    //             .map(|(&key, value)| (key.0, value)),
-    //     }
-    // }
 }
 
 #[derive(Clone, Debug)]

@@ -244,12 +244,13 @@ impl DAlignment {
             return MAX_NB_ERRORS;
         }
 
-        self.sequence
-            .extract_subsequence(
-                (self.pos + deld5 as i64) as usize,
-                (self.pos + self.len() as i64 - deld3 as i64) as usize,
-            )
-            .count_differences(&self.dseq.extract_subsequence(deld5, self.len() - deld3))
+        self.sequence.count_differences_slices(
+            (self.pos + deld5 as i64) as usize,
+            (self.pos + self.len() as i64 - deld3 as i64) as usize,
+            &self.dseq,
+            deld5,
+            self.len() - deld3,
+        )
     }
     pub fn length_with_deletion(&self, deld5: usize, deld3: usize) -> usize {
         self.len() - deld5 - deld3

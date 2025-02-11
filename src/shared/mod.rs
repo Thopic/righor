@@ -3,6 +3,7 @@ pub mod alignment;
 pub mod amino_acids;
 pub mod data_structures;
 pub mod distributions;
+pub mod entry_sequence;
 pub mod errors;
 pub mod event;
 pub mod feature;
@@ -28,7 +29,8 @@ pub use feature::{
 pub use alignment::{
     DAlignment, ErrorAlignment, ErrorDAlignment, ErrorJAlignment, ErrorVAlignment, VJAlignment,
 };
-pub use gene::{genes_matching, Gene, ModelGen};
+pub use entry_sequence::EntrySequence;
+pub use gene::{Gene, ModelGen};
 pub use likelihood::{
     Likelihood, Likelihood1DContainer, Likelihood2DContainer, LikelihoodInsContainer,
     LikelihoodType,
@@ -36,5 +38,5 @@ pub use likelihood::{
 pub use markov_chain::DNAMarkovChain;
 pub use model::{GenerationResult, Generator, Model, ModelStructure, Modelable};
 pub use parameters::{AlignmentParameters, InferenceParameters};
-pub use sequence::{nucleotides_inv, AminoAcid, Dna, DnaLike, SequenceType};
+pub use sequence::{nucleotides_inv, AminoAcid, Dna, DnaLike, Sequence, SequenceType};
 pub use utils::RecordModel;

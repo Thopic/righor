@@ -1,16 +1,65 @@
 //! This file is defining the functions to deal with reverse translation
 //! and matrix making for the amino-acide sequence
 
-use super::DNAMarkovChain;
 use crate::shared::likelihood::{Matrix16, Matrix16x4, Matrix4, Matrix4x16};
+use crate::shared::markov_chain::DNAMarkovChain;
+use crate::shared::sequence::{aminoacids_inv, AMINOACIDS_INV};
 use crate::shared::sequence::{
-    codon_to_amino_acid, degenerate_dna_to_vec, degenerate_nucleotide, nucleotides_inv, AminoAcid,
-    Dna, BLANK, BLANKN, NUCLEOTIDES,
+    codon_to_amino_acid, degenerate_dna_to_vec, degenerate_nucleotide, get_codon_index,
+    nucleotides_inv, AminoAcid, Dna, BLANK, BLANKN, NUCLEOTIDES,
 };
+
 use crate::shared::utils::mod_euclid;
 use anyhow::Result;
 use itertools::{iproduct, Itertools};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+
+// encoding (fit in a u8)
+// codon: 9*8*codon1 + 9*4*codon2 + 9*codon3 + 3*codon_start + codon_end
+// amino-acid: 9*amino_acid + 3*codon_start + codon_end
+
+// precompute the distance between all amino-acid (potentially cut with start and end) and nucleotide
+// triplet
+pub fn precompute_distances_aminoacid_nucleotide() -> [u8; 49536] {
+    let mut distances = [255; 49536];
+    for aa in AMINOACIDS_INV.keys() {
+        let cod = DegenerateCodon::from_amino(*aa);
+        let aa_idx = aminoacids_inv(*aa);
+        for nt1 in [b'A', b'T', b'G', b'C'] {
+            for nt2 in [b'A', b'T', b'G', b'C'] {
+                for nt3 in [b'A', b'T', b'G', b'C'] {
+                    let dna = Dna {
+                        seq: vec![nt1, nt2, nt3],
+                    };
+                    let codon_idx = get_codon_index((nt1, nt2, nt3));
+                    for start in 0..3 {
+                        for end in 0..3 {
+                            if start + end > 3 {
+                                continue;
+                            }
+                            if start + end == 3 {
+                                // empty codon
+                                distances[9 * 86 * codon_idx + 9 * aa_idx + 3 * start + end] = 0;
+                            } else {
+                                distances[9 * 86 * codon_idx + 9 * aa_idx + 3 * start + end] =
+                                    cod.hamming_distance(
+                                        &dna.extract_subsequence(start, dna.len() - end),
+                                        start,
+                                        end,
+                                    ) as u8;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    distances
+}
+
+pub static DISTANCES_AMINOACID_NUCLEOTIDES: Lazy<[u8; 49536]> =
+    Lazy::new(|| precompute_distances_aminoacid_nucleotide());
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 /// Partially defined dna sequence created from an amino-acid sequence

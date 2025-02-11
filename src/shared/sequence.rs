@@ -1,9 +1,12 @@
 //! Contains the basic struct and function for loading and aligning sequences
 use crate::shared::amino_acids::{DegenerateCodon, DegenerateCodonSequence};
 
-use crate::shared::AlignmentParameters;
+use crate::shared::amino_acids::DISTANCES_AMINOACID_NUCLEOTIDES;
+use crate::shared::{utils::difference_as_i64, AlignmentParameters, DAlignment, VJAlignment};
+use crate::vdj::{Event, Model};
 use anyhow::{anyhow, Result};
 use bio::alignment::{pairwise, Alignment};
+use itertools::Itertools;
 use phf::phf_map;
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
 use pyo3::prelude::*;
@@ -11,6 +14,217 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::iter;
+use std::sync::Arc;
+
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Clone, Debug)]
+pub struct Sequence {
+    pub sequence: DnaLike,
+    // subset of reasonable v_genes, j_genes
+    pub v_genes: Vec<VJAlignment>,
+    pub j_genes: Vec<VJAlignment>,
+    pub d_genes: Vec<DAlignment>,
+    pub valid_alignment: bool,
+    pub sequence_type: SequenceType,
+}
+
+impl Sequence {
+    pub fn get_subsequence(&self, start: i64, end: i64) -> DnaLike {
+        self.sequence.extract_padded_subsequence(start, end)
+    }
+
+    pub fn best_v_alignment(&self) -> Option<VJAlignment> {
+        self.v_genes.clone().into_iter().max_by_key(|m| m.score)
+    }
+
+    pub fn best_j_alignment(&self) -> Option<VJAlignment> {
+        self.j_genes.clone().into_iter().max_by_key(|m| m.score)
+    }
+
+    pub fn get_specific_dgene(&self, d_idx: usize) -> Vec<DAlignment> {
+        self.d_genes
+            .clone()
+            .into_iter()
+            .filter(|d| d.index == d_idx)
+            .collect()
+    }
+
+    pub fn get_insertions_vd_dj(&self, e: &Event) -> (DnaLike, DnaLike) {
+        // seq         :          SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+        // V-gene      : VVVVVVVVVVVVVVVVVVVV
+        // del V-gene  :                   xx
+        // D-gene      :                                 DDDDDDDDDDD
+        // del D5      :                                 xxx
+        // del D3      :                                        xxxx
+        // J-gene      :                                                          JJJJJJJJJJJ
+        // del J5      :                                                          x
+        // insertions  :                   IIIIIIIIIIIIIIIII    IIIIIIIIIIIIIIIIIII
+
+        // the first insertion starts at v + len(v) - delv, then
+        // go to d + deld5
+        // the second insertion starts at d + len(d) - deld3 then
+        // go to j + delj
+        // in the situation where there's two much deletion and some insertion are undefined
+        // return N for the unknown sites, for ex
+        // seq         : SSSS
+        // J-gene      :   JJJJJJJJJ
+        // del J       :   xxxxx
+        // D           : D
+        // would return for insDJ: SSNNNNN
+
+        // this one can potentially be negative
+
+        let v = e.v.unwrap();
+        let d = e.d.unwrap();
+        let j = e.j.unwrap();
+
+        let start_insvd = difference_as_i64(v.end_seq, e.delv);
+        let end_insvd = d.pos + e.deld5 as i64;
+        let start_insdj = d.pos + d.len() as i64 - e.deld3 as i64;
+        let end_insdj = j.start_seq as i64 - j.start_gene as i64 + e.delj as i64;
+        let insvd = self
+            .sequence
+            .extract_padded_subsequence(start_insvd, end_insvd);
+        let insdj = self
+            .sequence
+            .extract_padded_subsequence(start_insdj, end_insdj);
+        (insvd, insdj)
+    }
+}
+
+pub fn display_j_alignment(
+    seq: &Dna,
+    j_al: &VJAlignment,
+    model: &Model,
+    align_params: &AlignmentParameters,
+) -> String {
+    let j = model.seg_js[j_al.index].clone();
+    let palj = j.seq_with_pal.as_ref().unwrap();
+    let alignment = Dna::align_left_right(seq, palj, align_params);
+    alignment.pretty(seq.seq.as_slice(), palj.seq.as_slice(), 80)
+}
+
+pub fn display_v_alignment(
+    seq: &Dna,
+    v_al: &VJAlignment,
+    model: &Model,
+    align_params: &AlignmentParameters,
+) -> String {
+    let v = model.seg_vs[v_al.index].clone();
+    let palv = v.seq_with_pal.as_ref().unwrap();
+    let alignment = Dna::align_left_right(palv, seq, align_params);
+    // Sadly alignment.pretty is bugged exactly for this use case,
+    // I'm waiting for them to correct this
+    // https://github.com/rust-bio/rust-bio-types/issues/47
+    alignment.pretty(palv.seq.as_slice(), seq.seq.as_slice(), 80)
+}
+
+pub fn align_all_vgenes(
+    seq: &DnaLike,
+    model: &Model,
+    align_params: &AlignmentParameters,
+) -> Vec<VJAlignment> {
+    let mut v_genes: Vec<VJAlignment> = Vec::new();
+    for (indexv, v) in model.seg_vs.iter().enumerate() {
+        let palv = v.seq_with_pal.as_ref().unwrap();
+        let Some(alignment) = DnaLike::v_alignment(palv, seq.clone(), align_params) else {
+            continue;
+        };
+
+        let mut v_alignment = VJAlignment {
+            index: indexv,
+            start_gene: alignment.xstart,
+            end_gene: alignment.xend,
+            start_seq: alignment.ystart,
+            end_seq: alignment.yend,
+            score: alignment.score,
+            max_del: Some(model.p_del_v_given_v.shape()[0]),
+            gene_sequence: palv.clone(),
+            sequence_type: seq.sequence_type(),
+            ..Default::default()
+        };
+
+        v_alignment.precompute_errors_v(seq);
+
+        v_genes.push(v_alignment);
+    }
+    v_genes
+}
+
+pub fn align_all_jgenes(
+    seq: &DnaLike,
+    model: &Model,
+    align_params: &AlignmentParameters,
+) -> Vec<VJAlignment> {
+    let mut j_aligns: Vec<VJAlignment> = Vec::new();
+    for (indexj, j) in model.seg_js.iter().enumerate() {
+        let palj = j.seq_with_pal.clone().unwrap();
+        let alignment =
+            DnaLike::align_left_right(seq.clone(), DnaLike::from_dna(palj.clone()), align_params);
+        if align_params.valid_j_alignment(&alignment) {
+            let mut j_al = VJAlignment {
+                index: indexj,
+                start_gene: alignment.ystart,
+                end_gene: alignment.yend,
+                start_seq: alignment.xstart,
+                end_seq: alignment.xend,
+                score: alignment.score,
+                max_del: Some(model.p_del_j_given_j.dim().0),
+                gene_sequence: palj.clone(),
+                sequence_type: seq.sequence_type(),
+                ..Default::default()
+            };
+            j_al.precompute_errors_j(seq);
+            j_aligns.push(j_al);
+        }
+    }
+    j_aligns
+}
+
+pub fn align_all_dgenes(
+    seq: &DnaLike,
+    model: &Model,
+    limit_5side: i64,
+    limit_3side: i64,
+    align_params: &AlignmentParameters,
+) -> Vec<DAlignment> {
+    // For each D gene, we test all the potential positions of insertion
+    // between limit_5side and limit_3side.
+    // Note that the "D-gene" include all the palindromic end
+    // The D-gene need to be completely covered by the read
+    //    DDDDDDDDDDDDDD
+    // SSSSSSSSSSSSSSSSSSSSSS
+
+    let seq_ref = Arc::new(seq.clone());
+    let mut daligns: Vec<DAlignment> = Vec::new();
+    for (indexd, d) in model.seg_ds.iter().enumerate() {
+        let dpal = d.seq_with_pal.as_ref().unwrap();
+        let dpal_ref = Arc::new(d.seq_with_pal.clone().unwrap());
+        for pos in limit_5side..=limit_3side - dpal.len() as i64 {
+            if pos + (dpal.len() as i64) < 0 {
+                continue;
+            }
+            if seq
+                .extract_padded_subsequence(pos, pos + dpal.len() as i64)
+                .count_differences(&dpal)
+                > align_params.max_error_d
+            {
+                continue;
+            }
+
+            daligns.push(DAlignment {
+                index: indexd,
+                pos,
+                len_d: dpal.len(),
+                dseq: dpal_ref.clone(),
+                sequence: seq_ref.clone(),
+                sequence_type: seq.sequence_type(),
+            });
+        }
+    }
+    daligns
+}
 
 /////////////////////////////////////
 // Constants
@@ -41,6 +255,110 @@ pub const AMINOACIDS: [u8; 21] = [
     b'T', b'V', b'W', b'Y', b'*',
 ];
 
+pub static AMINOACIDS_INV: phf::Map<u8, usize> = phf_map! {
+
+    b'A' => 0, b'C' => 1,     b'D' => 2,     b'E' => 3,     b'F' => 4,     b'G' => 5,     b'H' => 6,     b'I' => 7,     b'L' => 8,     b'K' => 9,     b'M' => 10,     b'N' => 11,     b'P' => 12,     b'Q' => 13,     b'R' => 14,     b'S' => 15,     b'T' => 16,     b'V' => 17,     b'W' => 18,     b'Y' => 19,     b'*' => 20,     128u8 => 21,     129u8 => 22,     130u8 => 23,     131u8 => 24,     132u8 => 25,     133u8 => 26,     134u8 => 27,     135u8 => 28,     136u8 => 29,     137u8 => 30,     138u8 => 31,     139u8 => 32,     140u8 => 33,     141u8 => 34,     142u8 => 35,     143u8 => 36,     144u8 => 37,     145u8 => 38,     146u8 => 39,     147u8 => 40,     148u8 => 41,     149u8 => 42,     150u8 => 43,     151u8 => 44,     152u8 => 45,     153u8 => 46,     154u8 => 47,     155u8 => 48,     156u8 => 49,     157u8 => 50,     158u8 => 51,     159u8 => 52,     160u8 => 53,     161u8 => 54,     162u8 => 55,     163u8 => 56,     164u8 => 57,     165u8 => 58,     166u8 => 59,     167u8 => 60,     168u8 => 61,     169u8 => 62,     170u8 => 63,     171u8 => 64,     172u8 => 65,     173u8 => 66,     174u8 => 67,     175u8 => 68,     176u8 => 69,     177u8 => 70,     178u8 => 71,     179u8 => 72,     180u8 => 73,     181u8 => 74,     182u8 => 75,     183u8 => 76,     184u8 => 77,     185u8 => 78,     186u8 => 79,     187u8 => 80,     188u8 => 81,     189u8 => 82,     190u8 => 83,     191u8 => 84,     b'X' => 85,
+
+
+
+
+};
+
+pub fn aminoacids_inv(n: u8) -> usize {
+    static LOOKUP_TABLE: [usize; 256] = {
+        let mut table = [0; 256];
+        table[b'A' as usize] = 0;
+        table[b'C' as usize] = 1;
+        table[b'D' as usize] = 2;
+        table[b'E' as usize] = 3;
+        table[b'F' as usize] = 4;
+        table[b'G' as usize] = 5;
+        table[b'H' as usize] = 6;
+        table[b'I' as usize] = 7;
+        table[b'L' as usize] = 8;
+        table[b'K' as usize] = 9;
+        table[b'M' as usize] = 10;
+        table[b'N' as usize] = 11;
+        table[b'P' as usize] = 12;
+        table[b'Q' as usize] = 13;
+        table[b'R' as usize] = 14;
+        table[b'S' as usize] = 15;
+        table[b'T' as usize] = 16;
+        table[b'V' as usize] = 17;
+        table[b'W' as usize] = 18;
+        table[b'Y' as usize] = 19;
+        table[b'*' as usize] = 20;
+        table[128] = 21;
+        table[129] = 22;
+        table[130] = 23;
+        table[131] = 24;
+        table[132] = 25;
+        table[133] = 26;
+        table[134] = 27;
+        table[135] = 28;
+        table[136] = 29;
+        table[137] = 30;
+        table[138] = 31;
+        table[139] = 32;
+        table[140] = 33;
+        table[141] = 34;
+        table[142] = 35;
+        table[143] = 36;
+        table[144] = 37;
+        table[145] = 38;
+        table[146] = 39;
+        table[147] = 40;
+        table[148] = 41;
+        table[149] = 42;
+        table[150] = 43;
+        table[151] = 44;
+        table[152] = 45;
+        table[153] = 46;
+        table[154] = 47;
+        table[155] = 48;
+        table[156] = 49;
+        table[157] = 50;
+        table[158] = 51;
+        table[159] = 52;
+        table[160] = 53;
+        table[161] = 54;
+        table[162] = 55;
+        table[163] = 56;
+        table[164] = 57;
+        table[165] = 58;
+        table[166] = 59;
+        table[167] = 60;
+        table[168] = 61;
+        table[169] = 62;
+        table[170] = 63;
+        table[171] = 64;
+        table[172] = 65;
+        table[173] = 66;
+        table[174] = 67;
+        table[175] = 68;
+        table[176] = 69;
+        table[177] = 70;
+        table[178] = 71;
+        table[179] = 72;
+        table[180] = 73;
+        table[181] = 74;
+        table[182] = 75;
+        table[183] = 76;
+        table[184] = 77;
+        table[185] = 78;
+        table[186] = 79;
+        table[187] = 80;
+        table[188] = 81;
+        table[189] = 82;
+        table[190] = 83;
+        table[191] = 84;
+        table[b'X' as usize] = 85;
+        table
+    };
+    LOOKUP_TABLE[n as usize]
+}
+
+// the non ascii values are the fully known codons, so 21 + 64
 pub const ALL_POSSIBLE_CODONS_AA: [u8; 85] = [
     b'A', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'L', b'K', b'M', b'N', b'P', b'Q', b'R', b'S',
     b'T', b'V', b'W', b'Y', b'*', 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
@@ -398,13 +716,70 @@ impl DnaLikeEnum {
         }
     }
 
+    /// Count the number of differences between a slice of the sequence and
+    /// a slice of the template.
+    pub fn count_differences_slices(
+        &self,
+        start_self: usize,
+        end_self: usize,
+        template: &Dna,
+        start_temp: usize,
+        end_temp: usize,
+    ) -> usize {
+        return match self {
+            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.seq[start_self..end_self]
+                .iter()
+                .zip(template.seq[start_temp..end_temp].iter())
+                .filter(|(&x, &y)| !compatible_nucleotides(x, y))
+                .count(),
+            DnaLikeEnum::Protein(s) => {
+                // more complex, we need to take into account the start and end of the
+                // proteins
+
+                let shift_start = start_self + s.start;
+                let shift_end = end_self + s.start;
+                let aa_start = shift_start / 3;
+                let aa_end = (shift_end + 3 - 1) / 3;
+                let new_start = shift_start % 3;
+                let new_end = 3 * aa_end - shift_end;
+
+                iter::repeat(b'A')
+                    .take(new_start)
+                    .chain(template.seq[start_temp..end_temp].iter().copied())
+                    .chain(iter::repeat(b'A').take(new_end))
+                    .chunks(3)
+                    .into_iter()
+                    .zip(s.seq[aa_start..aa_end].iter().copied())
+                    .enumerate()
+                    .map(|(idx, (mut vv, aa))| {
+                        let cod = get_codon_index((
+                            vv.next().unwrap(),
+                            vv.next().unwrap(),
+                            vv.next().unwrap(),
+                        ));
+                        DISTANCES_AMINOACID_NUCLEOTIDES[9 * 86 * cod
+                            + 9 * aminoacids_inv(aa)
+                            + (if idx == 0 { 3 * new_start } else { 0 })
+                            + (if idx == (aa_end - aa_start - 1) {
+                                new_end
+                            } else {
+                                0
+                            })] as usize
+                    })
+                    .sum()
+            }
+        };
+    }
+
     /// Count the number of differences between the sequence and the template
     /// Assuming they both start at the same point
     pub fn count_differences(&self, template: &Dna) -> usize {
-        match self {
-            DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.count_differences(template),
-            DnaLikeEnum::Protein(s) => s.count_differences(template),
-        }
+        self.count_differences_slices(0, self.len(), template, 0, template.len())
+
+        // match self {
+        //     DnaLikeEnum::Known(s) | DnaLikeEnum::Ambiguous(s) => s.count_differences(template),
+        //     DnaLikeEnum::Protein(s) => s.count_differences(template),
+        // }
     }
 
     /// Translate the sequence
@@ -564,6 +939,10 @@ pub static NUCLEOTIDES_INV: phf::Map<u8, usize> = phf_map! {
     b'R' => 5, b'Y' => 6, b'S' => 7, b'W' => 8, b'K' => 9,
     b'M' => 10, b'B' => 11, b'D' => 12, b'H' => 13, b'V' => 14,
 };
+
+pub fn get_codon_index(nts: (u8, u8, u8)) -> usize {
+    16 * nucleotides_inv(nts.0) + 4 * nucleotides_inv(nts.1) + nucleotides_inv(nts.2)
+}
 
 static COMPLEMENT: phf::Map<u8, u8> = phf_map! {
     b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G', b'N' => b'N',
@@ -1118,7 +1497,7 @@ impl AminoAcid {
 
     pub fn from_string(s: &str) -> Result<AminoAcid> {
         for &byte in s.as_bytes() {
-            if !AMINOACIDS.contains(&byte) {
+            if !AMINOACIDS_INV.contains_key(&byte) {
                 // Handle the error if the byte is not in the map
                 return Err(anyhow!(format!("Invalid byte: {}", byte)));
             }
@@ -1372,5 +1751,17 @@ impl DnaLike {
 
     pub fn count_differences(&self, template: &Dna) -> usize {
         self.inner.count_differences(template)
+    }
+
+    pub fn count_differences_slices(
+        &self,
+        start_self: usize,
+        end_self: usize,
+        template: &Dna,
+        start_temp: usize,
+        end_temp: usize,
+    ) -> usize {
+        self.inner
+            .count_differences_slices(start_self, end_self, template, start_temp, end_temp)
     }
 }

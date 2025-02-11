@@ -1,5 +1,6 @@
 use crate::shared::feature::Feature;
 use crate::shared::model::Modelable;
+use crate::shared::sequence::Sequence;
 use crate::shared::{errors::FeatureError, InferenceParameters, ResultInference};
 use crate::shared::{
     CategoricalFeature1g1, CategoricalFeature2, CategoricalFeature2g1, ErrorParameters,
@@ -7,9 +8,7 @@ use crate::shared::{
 };
 use crate::shared::{DNAMarkovChain, InfEvent};
 use crate::v_dj::AggregatedFeatureStartDAndJ;
-use crate::vdj::{
-    AggregatedFeatureEndV, AggregatedFeatureSpanD, FeatureDJ, FeatureVD, Model, Sequence,
-};
+use crate::vdj::{AggregatedFeatureEndV, AggregatedFeatureSpanD, FeatureDJ, FeatureVD, Model};
 use anyhow::Result;
 use ndarray::Axis;
 use std::cmp;

@@ -11,9 +11,9 @@ use crate::shared::{
     amino_acids::DegenerateCodon, nucleotides_inv, utils::normalize_transition_matrix,
 };
 use anyhow::Result;
+use foldhash::{HashMap, HashMapExt};
 use ndarray::Array2;
 use serde::{de, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::HashMap;
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct DNAMarkovChain {

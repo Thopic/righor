@@ -1,6 +1,7 @@
 use crate::shared::feature::Feature;
 use crate::shared::sequence::SequenceType;
 
+use crate::shared::sequence::Sequence;
 use crate::shared::utils::difference_as_i64;
 use crate::shared::{
     data_structures::RangeArray1, data_structures::RangeArray2, CategoricalFeature1g1,
@@ -8,7 +9,6 @@ use crate::shared::{
     FeatureError, InfEvent, InferenceParameters, InsertionFeature, Likelihood,
     Likelihood1DContainer, Likelihood2DContainer, LikelihoodInsContainer, VJAlignment,
 };
-use crate::vdj::Sequence;
 use itertools::iproduct;
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ pub struct AggregatedFeatureStartJ {
 }
 
 /// Contains the probability of the D gene starting and ending position
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AggregatedFeatureSpanD {
     pub index: usize, // store the index of the D gene
 
@@ -115,7 +115,7 @@ impl AggregatedFeatureEndV {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (i64, Likelihood)> + '_ {
-        self.likelihood.iter().filter(|(_, v)| !v.is_zero())
+        self.likelihood.iter().filter(|(_, v)| v.keep())
     }
 
     pub fn likelihood(&self, ev: i64) -> Likelihood {
@@ -201,7 +201,7 @@ impl AggregatedFeatureStartJ {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (i64, Likelihood)> + '_ {
-        self.likelihood.iter().filter(|(_, v)| !v.is_zero())
+        self.likelihood.iter().filter(|(_, v)| v.keep())
     }
 
     pub fn likelihood(&self, sj: i64) -> Likelihood {
@@ -343,7 +343,10 @@ impl AggregatedFeatureSpanD {
         event: &mut Option<InfEvent>,
         ip: &InferenceParameters,
     ) {
-        // disaggregate should only work with the scalar version
+        // if we don't infer features and don't get the best event we can just return
+        if !(ip.infer_features.del_d || ip.store_best_event) {
+            return;
+        }
 
         let mut best_likelihood = 0.;
         // Now with startD and endD
@@ -549,7 +552,7 @@ impl FeatureVD {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FeatureDJ {
     likelihood: LikelihoodInsContainer,
     dirty_likelihood: LikelihoodInsContainer,
@@ -680,7 +683,7 @@ impl FeatureDJ {
     // }
 
     pub fn iter(&self) -> impl Iterator<Item = (usize, i64, i64, Likelihood)> + '_ {
-        self.likelihood.iter().filter(|(_, _, _, v)| !v.is_zero())
+        self.likelihood.iter().filter(|(_, _, _, v)| v.keep())
     }
 
     pub fn max_ed(&self) -> i64 {

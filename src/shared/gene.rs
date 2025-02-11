@@ -87,79 +87,87 @@ struct GeneNameParser {
 pub trait ModelGen {
     fn get_v_segments(&self) -> Vec<Gene>;
     fn get_j_segments(&self) -> Vec<Gene>;
+
+    fn genes_matching(&self, x: &str, exact: bool) -> Result<Vec<Gene>>
+    where
+        Self: Sized,
+    {
+        let regex = Regex::new(
+            r"^(TCRB|TCRA|TCRG|TCRD|TRB|TRA|IGH|IGK|IGL|TRG|TRD)(?:\w+)?(V|D|J)([\w-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$",
+	)
+	    .unwrap();
+        let g = regex
+            .captures(x)
+            .ok_or(anyhow!("Gene {} does not have a valid name", x))?;
+
+        // deal with the possibly weird convention for TCR names
+        let chain_map = HashMap::from([
+            ("TCRB".to_string(), "TRB".to_string()),
+            ("TCRA".to_string(), "TRA".to_string()),
+            ("TCRG".to_string(), "TRG".to_string()),
+            ("TCRD".to_string(), "TRD".to_string()),
+            ("TRB".to_string(), "TRB".to_string()),
+            ("TRA".to_string(), "TRA".to_string()),
+            ("IGH".to_string(), "IGH".to_string()),
+            ("IGK".to_string(), "IGK".to_string()),
+            ("IGL".to_string(), "IGL".to_string()),
+            ("TRG".to_string(), "TRG".to_string()),
+            ("TRD".to_string(), "TRD".to_string()),
+        ]);
+
+        let chain = chain_map.get(g.get(1).map_or("", |m| m.as_str())).unwrap();
+        let gene_type = g.get(2).map_or("", |m| m.as_str());
+        let gene_id = g.get(3).map_or("", |m| m.as_str());
+        let allele = g.get(4).and_then(|m| m.as_str().parse::<i32>().ok());
+
+        let possible_genes = igor_genes(chain, gene_type, self)?;
+
+        if gene_id.len() == 0 {
+            return Ok(possible_genes.into_iter().map(|x| x.gene).collect());
+        }
+
+        let gene_id_regex = Regex::new(r"(\d+)(?:[-S](\d+))?").unwrap();
+        let gene_id_match = gene_id_regex.captures(gene_id);
+
+        let (gene_id_1, gene_id_2) = gene_id_match.map_or((None, None), |m| {
+            let id1 = m.get(1).and_then(|x| x.as_str().parse::<i32>().ok());
+            let id2 = m.get(2).and_then(|x| x.as_str().parse::<i32>().ok());
+            (id1, id2)
+        });
+
+        let result: Vec<Gene> = if exact {
+            possible_genes
+                .into_iter()
+                .filter(|a| a.name == x)
+                .map(|x| x.gene)
+                .collect()
+        } else {
+            possible_genes
+                .into_iter()
+                .filter(|a| match (gene_id_1, gene_id_2, allele) {
+                    (Some(id1), Some(id2), Some(al)) => {
+                        a.first_index == Some(id1)
+                            && a.second_index == Some(id2)
+                            && a.allele_index == Some(al)
+                    }
+                    (Some(id1), Some(id2), None) => {
+                        a.first_index == Some(id1) && a.second_index == Some(id2)
+                    }
+                    (Some(id1), None, Some(al)) => {
+                        a.first_index == Some(id1) && a.allele_index == Some(al)
+                    }
+                    (Some(id1), None, None) => a.first_index == Some(id1),
+                    _ => false,
+                })
+                .map(|x| x.gene)
+                .collect()
+        };
+
+        Ok(result)
+    }
 }
 
-pub fn genes_matching(x: &str, model: &impl ModelGen, exact: bool) -> Result<Vec<Gene>> {
-    let regex = Regex::new(
-        r"^(TCRB|TCRA|TCRG|TCRD|TRB|TRA|IGH|IGK|IGL|TRG|TRD)(?:\w+)?(V|D|J)([\w-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$",
-    )
-    .unwrap();
-    let g = regex
-        .captures(x)
-        .ok_or(anyhow!("Gene {} does not have a valid name", x))?;
-
-    // deal with the possibly weird convention for TCR names
-    let chain_map = HashMap::from([
-        ("TCRB".to_string(), "TRB".to_string()),
-        ("TCRA".to_string(), "TRA".to_string()),
-        ("TCRG".to_string(), "TRG".to_string()),
-        ("TCRD".to_string(), "TRD".to_string()),
-        ("TRB".to_string(), "TRB".to_string()),
-        ("TRA".to_string(), "TRA".to_string()),
-        ("IGH".to_string(), "IGH".to_string()),
-        ("IGK".to_string(), "IGK".to_string()),
-        ("IGL".to_string(), "IGL".to_string()),
-        ("TRG".to_string(), "TRG".to_string()),
-        ("TRD".to_string(), "TRD".to_string()),
-    ]);
-
-    let chain = chain_map.get(g.get(1).map_or("", |m| m.as_str())).unwrap();
-    let gene_type = g.get(2).map_or("", |m| m.as_str());
-    let gene_id = g.get(3).map_or("", |m| m.as_str());
-    let allele = g.get(4).and_then(|m| m.as_str().parse::<i32>().ok());
-
-    let possible_genes = igor_genes(chain, gene_type, model)?;
-
-    let gene_id_regex = Regex::new(r"(\d+)(?:[-S](\d+))?").unwrap();
-    let gene_id_match = gene_id_regex.captures(gene_id);
-
-    let (gene_id_1, gene_id_2) = gene_id_match.map_or((None, None), |m| {
-        let id1 = m.get(1).and_then(|x| x.as_str().parse::<i32>().ok());
-        let id2 = m.get(2).and_then(|x| x.as_str().parse::<i32>().ok());
-        (id1, id2)
-    });
-
-    let result: Vec<Gene> = if exact {
-        possible_genes
-            .into_iter()
-            .filter(|a| a.name == x)
-            .map(|x| x.gene)
-            .collect()
-    } else {
-        possible_genes
-            .into_iter()
-            .filter(|a| match (gene_id_1, gene_id_2, allele) {
-                (Some(id1), Some(id2), Some(al)) => {
-                    a.first_index == Some(id1)
-                        && a.second_index == Some(id2)
-                        && a.allele_index == Some(al)
-                }
-                (Some(id1), Some(id2), None) => {
-                    a.first_index == Some(id1) && a.second_index == Some(id2)
-                }
-                (Some(id1), None, Some(al)) => {
-                    a.first_index == Some(id1) && a.allele_index == Some(al)
-                }
-                (Some(id1), None, None) => a.first_index == Some(id1),
-                _ => false,
-            })
-            .map(|x| x.gene)
-            .collect()
-    };
-
-    Ok(result)
-}
-
+/// Return all the genes that match chain and gene type
 fn igor_genes(chain: &str, gene_type: &str, model: &impl ModelGen) -> Result<Vec<GeneNameParser>> {
     let regex =
         Regex::new(r"(\d+)(?:P)?(?:[\-S](\d+)(?:D)?(?:\-(\d+))?)?(?:/DV\d+)?(?:-NL1)?(?:\*(\d+))?")

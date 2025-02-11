@@ -1,5 +1,6 @@
 use crate::shared::likelihood::Likelihood;
 use crate::shared::sequence::Dna;
+use crate::shared::sequence::Sequence;
 use crate::shared::utils::{Normalize, Normalize2, Normalize3};
 use crate::shared::DNAMarkovChain;
 use crate::shared::ModelStructure;
@@ -767,7 +768,11 @@ impl ResultInference {
     }
     /// I just store the necessary stuff in the Event variable while looping
     /// Fill event add enough to be able to completely recreate the sequence
-    pub fn fill_event(&mut self, model: &vdj::Model, sequence: &vdj::Sequence) -> Result<()> {
+    pub fn fill_event(
+        &mut self,
+        model: &vdj::Model,
+        sequence: &crate::shared::Sequence,
+    ) -> Result<()> {
         if self.best_event.is_some() {
             let mut event = self.best_event.clone().unwrap();
             event.ins_vd = Some(
@@ -781,6 +786,7 @@ impl ResultInference {
                     .sequence
                     .extract_padded_subsequence(event.end_d, event.start_j),
             );
+
             event.d_segment = Some(
                 sequence
                     .sequence
@@ -867,7 +873,7 @@ pub enum Features {
 impl Features {
     pub fn infer(
         &mut self,
-        sequence: &vdj::Sequence,
+        sequence: &Sequence,
         ip: &InferenceParameters,
     ) -> Result<ResultInference> {
         match self {
