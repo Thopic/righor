@@ -14,14 +14,13 @@ use std::path::Path;
 fn run_infer() -> Result<()> {
     let mut model = shared::Model::load_from_name(
         "human",
-        "trb",
+        "igh",
         None,
         &Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/righor.data/data/righor_models/"
         )),
     )?;
-
     let mut generator = shared::Generator::new(&model.clone(), Some(48), None, None)?;
     //let mut als = Vec::new();
     let mut als = Vec::new();
@@ -53,7 +52,7 @@ fn run_infer() -> Result<()> {
 fn run_evaluate() -> Result<()> {
     let mut model = shared::Model::load_from_name(
         "human",
-        "trb",
+        "igh",
         None,
         &Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -63,11 +62,14 @@ fn run_evaluate() -> Result<()> {
     model.set_error(shared::ErrorParameters::ConstantRate(
         ErrorConstantRate::new(0.),
     ));
+    //model.set_model_type(shared::ModelStructure::VDJ);
 
     let mut generator = shared::Generator::new(&model.clone(), Some(48), None, None)?;
-    let ifp = shared::InferenceParameters::default();
+    let mut ifp = shared::InferenceParameters::default();
+    ifp.store_best_event = false;
+    ifp.do_not_infer_features();
     let alp = shared::AlignmentParameters::default();
-    for _ in tqdm!(0..1000) {
+    for _ in tqdm!(0..10000) {
         let generated = generator.generate(false)?;
         let es = shared::EntrySequence::NucleotideCDR3((
             shared::Dna::from_string(&generated.junction_nt)?.into(),
@@ -87,7 +89,7 @@ fn run_evaluate() -> Result<()> {
     Ok(())
 }
 
-// generate 10'000 nucleotide sequences and evaluate them
+// generate 1'000 nucleotide sequences and evaluate them
 fn run_evaluate_aa() -> Result<()> {
     let mut model = shared::Model::load_from_name(
         "human",
@@ -99,13 +101,14 @@ fn run_evaluate_aa() -> Result<()> {
         )),
     )?;
 
-    // model.set_error(shared::ErrorParameters::ConstantRate(
-    //     ErrorConstantRate::new(0.),
-    // ));
+    model.set_error(shared::ErrorParameters::ConstantRate(
+        ErrorConstantRate::new(0.),
+    ))?;
 
     let mut generator = shared::Generator::new(&model.clone(), Some(48), None, None)?;
     let mut ifp = shared::InferenceParameters::default();
     ifp.store_best_event = false;
+    ifp.min_ratio_likelihood = 1e-2;
     let alp = shared::AlignmentParameters::default();
     for _ in tqdm!(0..1000) {
         let generated = generator.generate(true)?;
@@ -131,6 +134,6 @@ fn run_evaluate_aa() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let _ = run_evaluate_aa()?;
+    let _ = run_evaluate()?;
     Ok(())
 }

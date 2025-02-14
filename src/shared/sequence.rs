@@ -886,6 +886,7 @@ pub fn codon_to_amino_acid(codon: [u8; 3]) -> u8 {
     }
 }
 
+#[inline(always)]
 pub fn intersect_nucleotides(x: u8, y: u8) -> u8 {
     static MASK_TABLE: [u8; 256] = {
         let mut table = [0; 256];
@@ -930,6 +931,7 @@ pub fn degenerate_dna_to_vec(x: u8) -> Vec<usize> {
     }
 }
 
+#[inline(always)]
 pub fn compatible_nucleotides(x: u8, y: u8) -> bool {
     intersect_nucleotides(x, y) != 0
 }

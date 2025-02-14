@@ -50,6 +50,7 @@ log = { version = "0.4", optional=true}
 once_cell = {version = "1.20.3"}
 foldhash = {version = "0.1.4"}
 
+
 [features]
 default = ["kdam"]
 py_binds = ["numpy", "pyo3", "log", "kdam/notebook"]

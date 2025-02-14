@@ -82,6 +82,7 @@ impl ops::AddAssign for Likelihood {
 
 impl ops::Mul<Likelihood> for Likelihood {
     type Output = Likelihood;
+    #[inline(always)]
     fn mul(self, rhs: Likelihood) -> Likelihood {
         match (self, rhs) {
             (Likelihood::Scalar(u), Likelihood::Scalar(v)) => Likelihood::Scalar(u * v),
@@ -100,6 +101,7 @@ impl ops::Mul<Likelihood> for Likelihood {
 
 impl ops::Mul<f64> for Likelihood {
     type Output = Likelihood;
+    #[inline(always)]
     fn mul(self, rhs: f64) -> Likelihood {
         match (self, rhs) {
             (Likelihood::Scalar(u), x) => Likelihood::Scalar(u * x),
@@ -112,6 +114,7 @@ impl ops::Mul<f64> for Likelihood {
 // Implement Mul<f64> for the reverse case (f64 * Likelihood)
 impl ops::Mul<Likelihood> for f64 {
     type Output = Likelihood;
+    #[inline(always)]
     fn mul(self, rhs: Likelihood) -> Likelihood {
         rhs * self // Reuse the implementation
     }
@@ -260,6 +263,7 @@ impl Likelihood1DContainer {
     }
 
     /// Get the value at position `pos`
+    #[inline(always)]
     pub fn get(&self, pos: i64) -> Likelihood {
         match &self {
             Likelihood1DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos)),
@@ -343,6 +347,7 @@ impl Likelihood2DContainer {
     }
 
     /// Get the value at position `pos`
+    #[inline(always)]
     pub fn get(&self, pos: (i64, i64)) -> Likelihood {
         match &self {
             Likelihood2DContainer::Scalar(x) => Likelihood::Scalar(x.get(pos)),
@@ -437,6 +442,7 @@ impl LikelihoodInsContainer {
         (self.min(), self.max())
     }
 
+    #[inline(always)]
     pub fn get(&self, pos: (i64, i64), first_nucleotide: usize) -> Likelihood {
         self.inner[first_nucleotide].get(pos)
     }
