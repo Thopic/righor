@@ -15,7 +15,7 @@ use foldhash::{HashMap, HashMapExt};
 use ndarray::Array2;
 use serde::{de, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct DNAMarkovChain {
     pub transition_matrix: Array2<f64>,
     // pre-computed data for dealing with the degenerate nucleotides
@@ -62,6 +62,25 @@ impl<'de> Deserialize<'de> for DNAMarkovChain {
         let data = MyStructData::deserialize(deserializer)?;
 
         DNAMarkovChain::new(&data.transition_matrix, data.reverse).map_err(de::Error::custom)
+    }
+}
+
+impl Default for DNAMarkovChain {
+    fn default() -> Self {
+        Self {
+            transition_matrix: Array2::eye(4), // Assuming 4x4 identity matrix for DNA bases
+            degenerate_matrix: Vec::new(),
+            aa_lone_rev: HashMap::new(),
+            aa_lone: HashMap::new(),
+            aa_start_rev: HashMap::new(),
+            aa_start: HashMap::new(),
+            aa_middle_rev: HashMap::new(),
+            aa_middle: HashMap::new(),
+            aa_end_rev: HashMap::new(),
+            aa_end: HashMap::new(),
+            end_degenerate_vector: Vec::new(),
+            reverse: false,
+        }
     }
 }
 

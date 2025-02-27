@@ -293,6 +293,21 @@ impl Modelable for Model {
         })
     }
 
+    /// Decide if a sequence is productive or not
+    /// Could end up model dependent, not sure yet
+    fn is_productive(&self, seq: &Option<AminoAcid>) -> bool {
+        match seq {
+            None => false,
+            Some(saa) => {
+                saa.seq.len() != 0
+                    && !saa.seq.contains(&b'*')
+                    && saa.seq[0] == b'C'
+                    && (saa.seq.last().copied().unwrap() == b'F'
+                        || saa.seq.last().copied().unwrap() == b'W')
+            }
+        }
+    }
+
     fn generate_without_and_with_errors<R: Rng>(
         &mut self,
         functional: bool,
@@ -435,6 +450,8 @@ impl Modelable for Model {
         let features = match features_opt {
             None => {
                 // Create new features object
+                // This features object is relatively expensive in memory
+                // esp. with a lot of sequence, so careful with it
                 vec![
                     match self.model_type {
                         ModelStructure::VDJ => Features::VDJ(vdj::Features::new(self)?),
@@ -453,12 +470,19 @@ impl Modelable for Model {
                 let mut new_features: Vec<Result<_>> = vec![];
                 for (feat_c, seq_c) in features.chunks(100).zip(sequences.chunks(100)) {
                     pb.update(100)?;
-                    new_features.extend(feat_c.iter().zip(seq_c.iter()).map(|(feat, sequence)| {
-                        let aligned = sequence.align(self, alignment_params)?;
-                        let mut new_feat = feat.clone();
-                        let _ = new_feat.infer(&aligned, &ip)?;
-                        Ok(new_feat)
-                    }));
+
+                    let new_feats: Vec<Result<_>> = feat_c
+                        .par_iter()
+                        .zip(seq_c.par_iter())
+                        .map(|(feat, sequence)| {
+                            let aligned = sequence.align(self, alignment_params)?;
+                            let mut new_feat = feat.clone();
+                            let _ = new_feat.infer(&aligned, &ip)?;
+                            Ok(new_feat)
+                        })
+                        .collect();
+
+                    new_features.extend(new_feats);
                 }
                 new_features.into_iter().collect()
             } else {

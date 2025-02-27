@@ -26,7 +26,7 @@ fn run_infer() -> Result<()> {
     let mut als = Vec::new();
     let ifp = shared::InferenceParameters::default();
     let alp = shared::AlignmentParameters::default();
-    for _ in tqdm!(0..1000) {
+    for _ in tqdm!(0..10000) {
         let generated = generator.generate(false)?;
         let es = shared::EntrySequence::NucleotideCDR3((
             shared::Dna::from_string(&generated.junction_nt)?.into(),
@@ -45,6 +45,9 @@ fn run_infer() -> Result<()> {
     }
     model = model.uniform()?;
     model.infer(&als, None, &alp, &ifp)?;
+    model.infer(&als, None, &alp, &ifp)?;
+    model.infer(&als, None, &alp, &ifp)?;
+
     Ok(())
 }
 
@@ -73,16 +76,16 @@ fn run_evaluate() -> Result<()> {
         let generated = generator.generate(false)?;
         let es = shared::EntrySequence::NucleotideCDR3((
             shared::Dna::from_string(&generated.junction_nt)?.into(),
-            model
-                .get_v_segments()
-                .into_iter()
-                .filter(|x| x.name == generated.v_gene)
-                .collect(),
-            model
-                .get_j_segments()
-                .into_iter()
-                .filter(|x| x.name == generated.j_gene)
-                .collect(),
+            model.genes_matching(&generated.v_gene, false)?,
+            // .get_v_segments()
+            // .into_iter()
+            // .filter(|x| x.name == generated.v_gene)
+            // .collect(),
+            model.genes_matching(&generated.j_gene, false)?, // model
+                                                             //     .get_j_segments()
+                                                             //     .into_iter()
+                                                             //     .filter(|x| x.name == generated.j_gene)
+                                                             //     .collect(),
         ));
         model.evaluate(es, &alp, &ifp);
     }
@@ -133,7 +136,48 @@ fn run_evaluate_aa() -> Result<()> {
     Ok(())
 }
 
+// generate 1'000 nucleotide sequences and infer them
+fn run_infer_vj() -> Result<()> {
+    let mut model = shared::Model::load_from_name(
+        "human",
+        "igk",
+        None,
+        &Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/righor.data/data/righor_models/"
+        )),
+    )?;
+    let mut generator = shared::Generator::new(&model.clone(), Some(48), None, None)?;
+    //let mut als = Vec::new();
+    let mut als = Vec::new();
+    let ifp = shared::InferenceParameters::default();
+    let alp = shared::AlignmentParameters::default();
+    for _ in tqdm!(0..10000) {
+        let generated = generator.generate(false)?;
+        let es = shared::EntrySequence::NucleotideCDR3((
+            shared::Dna::from_string(&generated.junction_nt)?.into(),
+            model
+                .get_v_segments()
+                .into_iter()
+                .filter(|x| x.name == generated.v_gene)
+                .collect(),
+            model
+                .get_j_segments()
+                .into_iter()
+                .filter(|x| x.name == generated.j_gene)
+                .collect(),
+        ));
+        als.push(es)
+    }
+    model = model.uniform()?;
+    model.infer(&als, None, &alp, &ifp)?;
+    model.infer(&als, None, &alp, &ifp)?;
+    model.infer(&als, None, &alp, &ifp)?;
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
-    let _ = run_evaluate()?;
+    let _ = run_infer()?;
     Ok(())
 }

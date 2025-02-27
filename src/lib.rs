@@ -170,6 +170,36 @@ impl PyModel {
         Generator::new(&self.inner.clone(), seed, available_v, available_j)
     }
 
+    /// Compute the proportion of productive sequence (number between 0 and 1)
+    /// Can be restricted to a subset of Vs/Js
+    /// Kind of slow (rely on Monte-Carlo)
+    #[pyo3(signature = (seed=None, available_v=None, available_j=None, nb_seq_generated=1000000))]
+    pub fn proportion_productive(
+        &self,
+        seed: Option<u64>,
+        available_v: Option<Vec<Gene>>,
+        available_j: Option<Vec<Gene>>,
+        nb_seq_generated: usize,
+    ) -> Result<f64> {
+        let mut gen = self.generator(seed, available_v, available_j)?;
+
+        Ok(gen
+            .parallel_generate(nb_seq_generated, false)
+            .into_iter()
+            .filter(|seq| {
+                seq.junction_aa
+                    .as_ref()
+                    .and_then(|s| AminoAcid::from_string(s).ok())
+                    .map_or(false, |aa| self.inner.is_productive(&Some(aa)))
+            })
+            .count() as f64
+            / (nb_seq_generated as f64))
+    }
+
+    pub fn is_productive(&self, seq: &AminoAcid) -> bool {
+        self.inner.is_productive(&Some(seq.clone()))
+    }
+
     pub fn filter_vs(&self, vs: Vec<Gene>) -> Result<PyModel> {
         Ok(PyModel {
             inner: self.inner.filter_vs(vs)?,

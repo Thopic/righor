@@ -2,6 +2,7 @@ use crate::shared::entry_sequence::EntrySequence;
 use crate::shared::parser::{
     parse_file, parse_str, EventType, Marginal, ParserMarginals, ParserParams,
 };
+use crate::shared::sequence::AminoAcid;
 use crate::shared::sequence::Sequence;
 use crate::shared::utils::{sorted_and_complete, sorted_and_complete_0start};
 use crate::shared::utils::{Normalize, Normalize2};
@@ -257,6 +258,10 @@ impl Modelable for Model {
             j_gene: gen_result.j_gene,
             recombination_event: gen_result.recombination_event,
         }
+    }
+
+    fn is_productive(&self, seq: &Option<AminoAcid>) -> bool {
+        self.inner.is_productive(seq)
     }
 
     fn filter_vs(&self, vs: Vec<Gene>) -> Result<Model> {

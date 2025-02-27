@@ -5,6 +5,7 @@ use crate::shared::event::PyStaticEvent;
 use crate::shared::gene::Gene;
 use crate::shared::gene::ModelGen;
 use crate::shared::markov_chain::DNAMarkovChain;
+use crate::shared::sequence::AminoAcid;
 use crate::shared::sequence::Dna;
 use crate::shared::sequence::Sequence;
 use crate::shared::sequence::{display_j_alignment, display_v_alignment};
@@ -108,6 +109,13 @@ impl Model {
         match self {
             Model::VDJ(vdj) => vdj,
             Model::VJ(vj) => &vj.inner,
+        }
+    }
+
+    pub fn is_productive(&self, seq: &Option<AminoAcid>) -> bool {
+        match self {
+            Model::VDJ(vdj) => vdj.is_productive(seq),
+            Model::VJ(vj) => vj.is_productive(seq),
         }
     }
 
@@ -846,6 +854,30 @@ impl Generator {
         (res_without_err, res_with_error.unwrap())
     }
 
+    /// Based on `generate_many` but returns Vec<GenerationResults>
+    pub fn parallel_generate(
+        &mut self,
+        num_monte_carlo: usize,
+        functional: bool,
+    ) -> Vec<GenerationResult> {
+        let num_threads = current_num_threads();
+        let batches: Vec<usize> = get_batches(num_monte_carlo, num_threads);
+        let seeds: Vec<u64> = (0..num_threads).map(|_| self.rng.next_u64()).collect();
+
+        seeds
+            .into_par_iter()
+            .enumerate()
+            .flat_map_iter(|(idx, s)| {
+                let mut child_generator =
+                    Generator::new(&self.model, Some(s), None::<Vec<Gene>>, None::<Vec<Gene>>)
+                        .unwrap();
+                (0..batches[idx])
+                    .into_iter()
+                    .map(move |_| child_generator.generate(functional).unwrap())
+            })
+            .collect()
+    }
+
     pub fn generate_many(&mut self, num_monte_carlo: usize, functional: bool) -> Vec<[String; 5]> {
         let num_threads = current_num_threads();
         let batches: Vec<usize> = get_batches(num_monte_carlo, num_threads);
@@ -996,6 +1028,9 @@ pub trait Modelable {
 
     /// Generate a sequence
     fn generate<R: Rng>(&mut self, functional: bool, rng: &mut R) -> Result<GenerationResult>;
+
+    /// Check if a sequence is productive
+    fn is_productive(&self, seq: &Option<AminoAcid>) -> bool;
 
     /// Generate a sequence without and with errors
     fn generate_without_and_with_errors<R: Rng>(
