@@ -93,7 +93,7 @@ pub trait ModelGen {
         Self: Sized,
     {
         let regex = Regex::new(
-            r"^(TCRB|TCRA|TCRG|TCRD|TRB|TRA|IGH|IGK|IGL|TRG|TRD)(?:\w+)?(V|D|J)([\w-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$",
+            r"^(TCRB|TCRA|TCRG|TCRD|TRB|TRA|IGH|IGK|IGL|TRG|TRD)(V|D|J)([\w/-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$",
 	)
 	    .unwrap();
         let g = regex
@@ -126,7 +126,7 @@ pub trait ModelGen {
             return Ok(possible_genes.into_iter().map(|x| x.gene).collect());
         }
 
-        let gene_id_regex = Regex::new(r"(\d+)(?:[-S](\d+))?").unwrap();
+        let gene_id_regex = Regex::new(r"(D?\d+)(?:[-S](\d+))?").unwrap();
         let gene_id_match = gene_id_regex.captures(gene_id);
 
         let (gene_id_1, gene_id_2) = gene_id_match.map_or((None, None), |m| {
