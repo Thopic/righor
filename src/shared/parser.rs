@@ -203,14 +203,12 @@ fn parse_genes(str_data: &Vec<String>) -> Result<EventType> {
         if data.len() != 3 {
             Err(anyhow!(format!("Invalid format for gene event {}", line)))?;
         } else {
-            let gene = Gene {
-                name: data[0].chars().skip(1).collect(),
-                functional: String::new(), // not available from this file
-                is_functional: false,      // still unknown
-                seq: Dna::from_string(&data[1])?,
-                seq_with_pal: None,
-                cdr3_pos: Some(0), // not available from this file
-            };
+            let gene = Gene::new(
+                data[0].chars().skip(1).collect(),
+                Some(0),       // cdr3pos, not available from this file
+                String::new(), // functional,  not available from this file
+                Dna::from_string(&data[1])?,
+            )?;
             let index = usize::from_str(&data[2])?;
             events[index] = gene;
         }

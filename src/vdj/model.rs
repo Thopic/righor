@@ -1848,4 +1848,7 @@ impl ModelGen for Model {
     fn get_j_segments(&self) -> Vec<Gene> {
         self.seg_js.clone()
     }
+    fn get_d_segments(&self) -> Result<Vec<Gene>> {
+        Ok(self.seg_ds.clone())
+    }
 }

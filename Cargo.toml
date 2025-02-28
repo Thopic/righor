@@ -1,6 +1,6 @@
 [package]
 name = "righor"
-version = "0.2.94"
+version = "0.2.95"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/Thopic/righor"

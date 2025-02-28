@@ -20,6 +20,9 @@ pub struct Gene {
     pub is_functional: bool,
     pub seq: Dna,
     pub seq_with_pal: Option<Dna>, // Dna with the palindromic insertions (model dependant)
+
+    // helpful to identify gene of the same type
+    pub imgt: ImgtRepresentation,
 }
 
 #[cfg(all(feature = "py_binds", feature = "pyo3"))]
@@ -28,22 +31,37 @@ impl Gene {
     fn __repr__(&self) -> String {
         format!("Gene({})", self.name)
     }
-
     #[new]
     #[pyo3(signature = (name = String::new(), cdr3_pos = None, functional = String::new(), seq = Dna::new()))]
-    fn new(name: String, cdr3_pos: Option<usize>, functional: String, seq: Dna) -> Gene {
-        Gene {
+    pub fn py_new(
+        name: String,
+        cdr3_pos: Option<usize>,
+        functional: String,
+        seq: Dna,
+    ) -> Result<Gene> {
+        Gene::new(name, cdr3_pos, functional, seq)
+    }
+}
+
+impl Gene {
+    pub fn new(
+        name: String,
+        cdr3_pos: Option<usize>,
+        functional: String,
+        seq: Dna,
+    ) -> Result<Gene> {
+        let imgt = get_imgt_representation(&name).map_err(|_| anyhow!("Gene names must follow IMGT conventions, e.g. TRAV2-2*03 (error coming from the name {})", name))?;
+        Ok(Gene {
             name,
             cdr3_pos,
             functional: functional.clone(),
             is_functional: (functional == "F" || functional == "(F)"),
             seq,
             seq_with_pal: None,
-        }
+            imgt,
+        })
     }
-}
 
-impl Gene {
     pub fn is_functional(&self) -> bool {
         self.is_functional
     }
@@ -75,91 +93,57 @@ impl Gene {
     }
 }
 
-struct GeneNameParser {
-    name: String,
-    first_index: Option<i32>,
-    second_index: Option<i32>,
-    _third_index: Option<i32>,
-    allele_index: Option<i32>,
-    gene: Gene,
-}
-
 pub trait ModelGen {
     fn get_v_segments(&self) -> Vec<Gene>;
     fn get_j_segments(&self) -> Vec<Gene>;
+    fn get_d_segments(&self) -> Result<Vec<Gene>>;
 
     fn genes_matching(&self, x: &str, exact: bool) -> Result<Vec<Gene>>
     where
         Self: Sized,
     {
-        let regex = Regex::new(
-            r"^(TCRB|TCRA|TCRG|TCRD|TRB|TRA|IGH|IGK|IGL|TRG|TRD)(V|D|J)([\w/-]+)?(?:/DV\d+)?(?:\*(\d+))?(?:/OR.*)?$",
-	)
-	    .unwrap();
-        let g = regex
-            .captures(x)
-            .ok_or(anyhow!("Gene {} does not have a valid name", x))?;
+        let imgt = get_imgt_representation(x).map_err(|_|
+						      anyhow!("Gene names must follow IMGT-like conventions, e.g. TRAV2-2*03 (error coming from the name {})", x))?;
 
-        // deal with the possibly weird convention for TCR names
-        let chain_map = HashMap::from([
-            ("TCRB".to_string(), "TRB".to_string()),
-            ("TCRA".to_string(), "TRA".to_string()),
-            ("TCRG".to_string(), "TRG".to_string()),
-            ("TCRD".to_string(), "TRD".to_string()),
-            ("TRB".to_string(), "TRB".to_string()),
-            ("TRA".to_string(), "TRA".to_string()),
-            ("IGH".to_string(), "IGH".to_string()),
-            ("IGK".to_string(), "IGK".to_string()),
-            ("IGL".to_string(), "IGL".to_string()),
-            ("TRG".to_string(), "TRG".to_string()),
-            ("TRD".to_string(), "TRD".to_string()),
-        ]);
-
-        let chain = chain_map.get(g.get(1).map_or("", |m| m.as_str())).unwrap();
-        let gene_type = g.get(2).map_or("", |m| m.as_str());
-        let gene_id = g.get(3).map_or("", |m| m.as_str());
-        let allele = g.get(4).and_then(|m| m.as_str().parse::<i32>().ok());
-
-        let possible_genes = igor_genes(chain, gene_type, self)?;
-
-        if gene_id.len() == 0 {
-            return Ok(possible_genes.into_iter().map(|x| x.gene).collect());
-        }
-
-        let gene_id_regex = Regex::new(r"(D?\d+)(?:[-S](\d+))?").unwrap();
-        let gene_id_match = gene_id_regex.captures(gene_id);
-
-        let (gene_id_1, gene_id_2) = gene_id_match.map_or((None, None), |m| {
-            let id1 = m.get(1).and_then(|x| x.as_str().parse::<i32>().ok());
-            let id2 = m.get(2).and_then(|x| x.as_str().parse::<i32>().ok());
-            (id1, id2)
-        });
+        let possible_genes = match imgt.gene_type.as_str() {
+            "V" => Ok(self.get_v_segments()),
+            "J" => Ok(self.get_j_segments()),
+            "D" => self
+                .get_d_segments()
+                .map_err(|_| anyhow!("D gene asked for, but the model is not VDJ.")),
+            _ => Err(anyhow!(
+                "Invalid gene type in gene name {} (only V,D,J are allowed)",
+                x
+            )),
+        }?;
 
         let result: Vec<Gene> = if exact {
             possible_genes
                 .into_iter()
                 .filter(|a| a.name == x)
-                .map(|x| x.gene)
+                .map(|x| x)
                 .collect()
         } else {
             possible_genes
                 .into_iter()
-                .filter(|a| match (gene_id_1, gene_id_2, allele) {
-                    (Some(id1), Some(id2), Some(al)) => {
-                        a.first_index == Some(id1)
-                            && a.second_index == Some(id2)
-                            && a.allele_index == Some(al)
+                .filter(|a| {
+                    match (
+                        imgt.gene_id.clone(),
+                        imgt.gene_position.clone(),
+                        imgt.allele_index,
+                    ) {
+                        (Some(id1), Some(id2), Some(al)) => {
+                            a.imgt.gene_id == Some(id1)
+                                && a.imgt.gene_position == Some(id2)
+                                && a.imgt.allele_index == Some(al)
+                        }
+                        (Some(id1), Some(id2), None) => {
+                            a.imgt.gene_id == Some(id1) && a.imgt.gene_position == Some(id2)
+                        }
+                        (Some(id1), None, None) => a.imgt.gene_id == Some(id1),
+                        _ => false,
                     }
-                    (Some(id1), Some(id2), None) => {
-                        a.first_index == Some(id1) && a.second_index == Some(id2)
-                    }
-                    (Some(id1), None, Some(al)) => {
-                        a.first_index == Some(id1) && a.allele_index == Some(al)
-                    }
-                    (Some(id1), None, None) => a.first_index == Some(id1),
-                    _ => false,
                 })
-                .map(|x| x.gene)
                 .collect()
         };
 
@@ -167,38 +151,72 @@ pub trait ModelGen {
     }
 }
 
-/// Return all the genes that match chain and gene type
-fn igor_genes(chain: &str, gene_type: &str, model: &impl ModelGen) -> Result<Vec<GeneNameParser>> {
-    let regex =
-        Regex::new(r"(\d+)(?:P)?(?:[\-S](\d+)(?:D)?(?:\-(\d+))?)?(?:/DV\d+)?(?:-NL1)?(?:\*(\d+))?")
-            .unwrap();
+#[cfg_attr(all(feature = "py_binds", feature = "pyo3"), pyclass(get_all, set_all))]
+#[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImgtRepresentation {
+    // chain (TRA) and gene type (V) are mandatory
+    chain: String,
+    gene_type: String,
+    // This corresponds to the "family" of the V gene
+    // Examples "2D" (duplicated locus), "3/OR2" (genes orphons, isolated),
+    // or "V14/DV14" for a TRA gene that can be recombined with delta and alpha.
+    gene_id: Option<String>,
+    // Map the position of the gene, just a number initially,
+    // but can also be 1-1 if there was insertions.
+    // or 1D/1N for a duplicated gene
+    gene_position: Option<String>,
+    // two figure number
+    allele_index: Option<i32>,
+    family: Option<i32>,
+}
 
-    let vsegments = model.get_v_segments();
-    let jsegments = model.get_j_segments();
-    let list_genes = match gene_type {
-        "V" => &vsegments,
-        "J" => &jsegments,
-        _ => return Err(anyhow!("Gene type {} is not valid", gene_type)),
+pub fn get_imgt_representation(name: &str) -> Result<ImgtRepresentation> {
+    let regex = Regex::new(
+        r"^(TCRB|TCRA|TCRG|TCRD|TRB|TRA|IGH|IGK|IGL|TRG|TRD)(V|D|J)([\w/]+)?(:?-([\w/-]*))?(?:\*(\d*))?",
+    )
+    .unwrap();
+    let g = regex
+        .captures(name)
+        .ok_or(anyhow!("Gene {} does not have a valid name", name))?;
+
+    // deal with the possibly weird convention for TCR names
+    let chain_map = HashMap::from([
+        ("TCRB".to_string(), "TRB".to_string()),
+        ("TCRA".to_string(), "TRA".to_string()),
+        ("TCRG".to_string(), "TRG".to_string()),
+        ("TCRD".to_string(), "TRD".to_string()),
+        ("TRB".to_string(), "TRB".to_string()),
+        ("TRA".to_string(), "TRA".to_string()),
+        ("IGH".to_string(), "IGH".to_string()),
+        ("IGK".to_string(), "IGK".to_string()),
+        ("IGL".to_string(), "IGL".to_string()),
+        ("TRG".to_string(), "TRG".to_string()),
+        ("TRD".to_string(), "TRD".to_string()),
+    ]);
+
+    let chain = chain_map.get(g.get(1).map_or("", |m| m.as_str())).unwrap();
+    let gene_type = g.get(2).map_or("".to_string(), |m| m.as_str().to_string());
+    let gene_id = g.get(3).map_or(None, |m| Some(m.as_str().to_string()));
+    let gene_position = g.get(4).map_or(None, |m| Some(m.as_str().to_string()));
+    let allele_index = g.get(5).and_then(|m| m.as_str().parse::<i32>().ok());
+
+    let family = if gene_id.is_none() {
+        None
+    } else {
+        let gene_family_regex = Regex::new(r"^(\d+)[DN]?(?:/OR\d*)$").unwrap();
+        let gene_id_unwrap = gene_id.clone().unwrap();
+        let gene_family_match = gene_family_regex.captures(&gene_id_unwrap);
+        gene_family_match.map_or(None, |m| {
+            m.get(1).and_then(|x| x.as_str().parse::<i32>().ok())
+        })
     };
 
-    let key = format!("{chain}{gene_type}");
-    let mut lst: Vec<GeneNameParser> = Vec::new();
-
-    for gene_obj in list_genes {
-        let gene = &gene_obj.name;
-        if let Some(cap) = regex.captures(&(key.clone() + gene)) {
-            let gene_parser = GeneNameParser {
-                name: gene.clone(),
-                first_index: cap.get(1).and_then(|m| m.as_str().parse::<i32>().ok()),
-                second_index: cap.get(2).and_then(|m| m.as_str().parse::<i32>().ok()),
-                _third_index: cap.get(3).and_then(|m| m.as_str().parse::<i32>().ok()),
-                allele_index: cap.get(4).and_then(|m| m.as_str().parse::<i32>().ok()),
-                gene: gene_obj.clone(),
-            };
-            lst.push(gene_parser);
-        } else {
-            return Err(anyhow!("{} does not match. Check if the gene name and the model are compatible (e.g(e.g. TRA for a TRB/IGL model)", key));
-        }
-    }
-    Ok(lst)
+    Ok(ImgtRepresentation {
+        chain: chain.to_string(),
+        gene_type,
+        gene_id,
+        gene_position,
+        allele_index,
+        family,
+    })
 }

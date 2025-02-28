@@ -391,6 +391,7 @@ impl Model {
             Model::VJ(x) => x.seg_vs.clone(),
         }
     }
+
     pub fn get_j_segments(&self) -> Vec<Gene> {
         match self {
             Model::VDJ(x) => x.seg_js.clone(),
@@ -1187,49 +1188,46 @@ pub fn sanitize_j(genes: Vec<Gene>, max_del_j: usize) -> Result<Vec<Dna>> {
 }
 
 pub fn simple_model() -> crate::vdj::Model {
-    let gv1 = Gene {
-        name: "V1".to_string(),
-        seq: Dna::from_string("ATCTACTACTACTGCTCATGCAAAAAAAAA").unwrap(),
-        seq_with_pal: None,
-        functional: "(F)".to_string(),
-        is_functional: true,
-        cdr3_pos: Some(18),
-    };
+    let gv1 = Gene::new(
+        "V1".to_string(),
+        Some(18),
+        "(F)".to_string(),
+        Dna::from_string("ATCTACTACTACTGCTCATGCAAAAAAAAA").unwrap(),
+    )
+    .unwrap();
     // TGCTCATGCAAAAAAGGAGGCTTTTCTCCCTGTAGTGGGAGGGAGTTAGGTGAGACACAAGGACCTCT
     // TGCTCATGCAAAAAAAAA   TTTTTCGCTTTT   GGGGGGCAGTCAGAGGAGAAACAAAGACTTAT
-    let gj1 = Gene {
-        name: "J1".to_string(),
-        seq: Dna::from_string("GGGGGGCAGTCTTCGGAGAAACAAAGACTTAT").unwrap(),
-        seq_with_pal: None,
-        functional: "(F)".to_string(),
-        is_functional: true,
-        cdr3_pos: Some(11),
-    };
-    let gd1 = Gene {
-        name: "D1".to_string(),
-        seq: Dna::from_string("GGGACAGGGGGC").unwrap(), // "TTCGCTTT"
-        seq_with_pal: None,
-        functional: "(F)".to_string(),
-        is_functional: true,
-        cdr3_pos: None,
-    };
+    let gj1 = Gene::new(
+        "J1".to_string(),
+        Some(11),
+        "(F)".to_string(),
+        Dna::from_string("GGGGGGCAGTCTTCGGAGAAACAAAGACTTAT").unwrap(),
+    )
+    .unwrap();
 
-    let gd2 = Gene {
-        name: "D2".to_string(),
-        seq: Dna::from_string("GGGACTAGCGGGGGGG").unwrap(), // TTAAAACGCAATT
-        seq_with_pal: None,
-        functional: "(F)".to_string(),
-        is_functional: true,
-        cdr3_pos: None,
-    };
-    let gd3 = Gene {
-        name: "D2".to_string(),
-        seq: Dna::from_string("GGGACTAGCGGGAGGG").unwrap(), // TAAAAACGCAATT
-        seq_with_pal: None,
-        functional: "(F)".to_string(),
-        is_functional: true,
-        cdr3_pos: None,
-    };
+    let gd1 = Gene::new(
+        "D1".to_string(),
+        None,
+        "(F)".to_string(),
+        Dna::from_string("GGGACAGGGGGC").unwrap(),
+    )
+    .unwrap();
+
+    let gd2 = Gene::new(
+        "D2".to_string(),
+        None,
+        "(F)".to_string(),
+        Dna::from_string("GGGACTAGCGGGGGGG").unwrap(),
+    )
+    .unwrap();
+
+    let gd3 = Gene::new(
+        "D3".to_string(),
+        None,
+        "(F)".to_string(),
+        Dna::from_string("GGGACTAGCGGGAGGG").unwrap(),
+    )
+    .unwrap();
 
     let mut model = crate::vdj::Model {
         seg_vs: vec![gv1],
