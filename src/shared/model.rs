@@ -465,6 +465,25 @@ impl Model {
         Ok(())
     }
 
+    pub fn get_p_vj(&self) -> Result<Array2<f64>> {
+        match self {
+            Model::VDJ(_) => Err(anyhow!(
+                "Use `p_vdj` to get v/j probability for a VDJ model"
+            )),
+            Model::VJ(x) => Ok(x.get_p_vj()),
+        }
+    }
+
+    pub fn set_p_vj(&mut self, value: Array2<f64>) -> Result<()> {
+        match self {
+            Model::VJ(x) => x.set_p_vj(&value)?,
+            Model::VDJ(_) => Err(anyhow!(
+                "Use `p_vdj` to set v/j probability for a VDJ model"
+            ))?,
+        }
+        Ok(())
+    }
+
     pub fn set_p_ins_vd(&mut self, value: Array1<f64>) -> Result<()> {
         match self {
             Model::VDJ(x) => x.p_ins_vd = value,

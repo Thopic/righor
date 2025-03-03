@@ -583,6 +583,21 @@ impl PyModel {
     pub fn set_p_vdj(&mut self, py: Python, value: Py<PyArray3<f64>>) -> Result<()> {
         self.inner.set_p_vdj(value.bind(py).to_owned_array())
     }
+
+    #[getter]
+    pub fn get_p_vj(&self, py: Python) -> Result<Py<PyArray2<f64>>> {
+        Ok(self
+            .inner
+            .get_p_vj()?
+            .to_owned()
+            .into_pyarray_bound(py)
+            .into())
+    }
+    #[setter]
+    pub fn set_p_vj(&mut self, py: Python, value: Py<PyArray2<f64>>) -> Result<()> {
+        self.inner.set_p_vj(value.bind(py).to_owned_array())
+    }
+
     #[getter]
     pub fn get_p_ins_vd(&self, py: Python) -> Result<Py<PyArray1<f64>>> {
         Ok(self
