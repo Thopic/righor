@@ -96,7 +96,7 @@ fn run_evaluate() -> Result<()> {
 fn run_evaluate_aa() -> Result<()> {
     let mut model = shared::Model::load_from_name(
         "human",
-        "trb",
+        "igh",
         None,
         &Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -130,7 +130,7 @@ fn run_evaluate_aa() -> Result<()> {
         ));
 
         let r = model.evaluate(es, &alp, &ifp)?;
-        //println!("{:?}", r);
+        println!("{:?}", r);
     }
 
     Ok(())
@@ -178,6 +178,6 @@ fn run_infer_vj() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let _ = run_infer()?;
+    let _ = run_evaluate_aa()?;
     Ok(())
 }

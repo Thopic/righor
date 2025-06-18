@@ -289,6 +289,7 @@ impl DNAMarkovChain {
                         m_4_4 *= self.aa_middle_rev[&s.seq[ii]];
                     }
 
+		    //println!("{:?} {:?} {:?}", s, s.end, start_chain);
                     let m_16_4 =
                         self.aa_start_rev[&(s.seq[s.seq.len() - 1], s.end, start_chain)] * m_4_4;
                     let mf = m_16_4 * self.aa_end_rev[&(s.seq[0], s.start)];
